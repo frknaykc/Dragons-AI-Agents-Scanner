@@ -18,9 +18,17 @@ def json_report(report: ScanReport) -> str:
         }
         for artifact in report.artifacts
     ]
-    data["findings"] = [
-        {**asdict(finding), "artifact": str(finding.artifact)} for finding in report.findings
-    ]
+    data["findings"] = []
+    for finding in report.findings:
+        item = {**asdict(finding), "artifact": str(finding.artifact)}
+        if finding.path:
+            item["path"] = [
+                {**asdict(step), "artifact": str(step.artifact)} for step in finding.path
+            ]
+        else:
+            item.pop("path")
+            item.pop("taint")
+        data["findings"].append(item)
     return json.dumps(data, indent=2, ensure_ascii=False)
 
 
@@ -47,6 +55,16 @@ def terminal_report(report: ScanReport) -> str:
                 f"  {finding.explanation}",
             )
         )
+        if finding.path:
+            lines.append(f"  Source: {ascii(finding.source or 'unknown')}")
+            lines.append(f"  Sink: {ascii(finding.sink or 'unknown')}")
+            lines.append("  Path:")
+            for step in finding.path:
+                location = f":{step.line}" if step.line is not None else ""
+                lines.append(
+                    f"    {ascii(str(step.artifact))}{location} "
+                    f"--{step.edge}--> {ascii(step.target)}"
+                )
     for error in report.errors:
         lines.append(f"ERROR: {ascii(error)}")
     return "\n".join(lines)

@@ -58,6 +58,11 @@ _PERSIST_WRITE = re.compile(
 _PERSIST_INTENT = re.compile(
     r"\b(?:agent|instructions?|rules?|policy|behavior|future|sessions?|always|persist)\b", re.I
 )
+_CONFIG_WRITE = re.compile(
+    r"\b(?:write|append|modify|edit|overwrite|replace)\b.{0,120}"
+    r"(?:\.{1,2}/|[\w.-]+/)*(?:\.mcp|mcp|settings|config)\.(?:json|yaml|yml|toml)\b",
+    re.I,
+)
 _REMOTE_FETCH = re.compile(r"\b(?:fetch|download|retrieve|load|use)\b", re.I)
 _REMOTE_AUTHORITY = re.compile(
     r"\b(?:follow|obey|treat|use)\b.{0,80}\b(?:instructions?|rules?|policy)\b", re.I
@@ -66,6 +71,33 @@ _FETCH_SHELL = re.compile(
     r"\b(?:curl|wget)\b[^\n|]{0,300}https?://[^\s|]+[^\n|]{0,300}\|\s*(?:sh|bash|zsh)\b", re.I
 )
 _BIDI = re.compile("[\u202a-\u202e\u2066-\u2069]")
+
+
+def segment_text(text: str, index: int) -> str:
+    """Use the same sentence boundaries as behavior extraction."""
+    parts = _SENTENCE.split(text)
+    return parts[index].strip() if 0 <= index < len(parts) else ""
+
+
+def fetch_shell_url(text: str) -> str | None:
+    """Bind the remote endpoint to the same observed fetch-to-shell command."""
+    command = _FETCH_SHELL.search(text)
+    url = re.search(r"https?://[^\s<>|)]+", command.group(), re.I) if command else None
+    return url.group() if url else None
+
+
+def write_target(text: str, kind: str) -> str | None:
+    """Return the sole named write target, never guess between several paths."""
+    directive = (_PERSIST_WRITE if kind == "persistence" else _CONFIG_WRITE).search(text)
+    if directive is None:
+        return None
+    pattern = (
+        r"(?:\.{1,2}/|[\w.-]+/)*\b(?:AGENTS|SKILL|SOUL|MEMORY|CLAUDE)\.md\b"
+        if kind == "persistence"
+        else r"(?:\.{1,2}/|[\w.-]+/)*(?:\.mcp|mcp|settings|config)\.(?:json|yaml|yml|toml)\b"
+    )
+    targets = re.findall(pattern, text[directive.start() :], re.I)
+    return targets[0] if len(targets) == 1 else None
 
 
 def collect(document: Document) -> tuple[Observation, ...]:
@@ -129,6 +161,8 @@ def collect(document: Document) -> tuple[Observation, ...]:
                     "persistence-write",
                     "configuration-modification",
                 )
+            if _CONFIG_WRITE.search(sentence):
+                add("config_write", "agent configuration", "configuration-modification")
             if (
                 _HTTP.search(sentence)
                 and _REMOTE_FETCH.search(sentence)

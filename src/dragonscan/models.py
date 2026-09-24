@@ -134,6 +134,17 @@ class Document:
 
 
 @dataclass(frozen=True)
+class PathStep:
+    edge: str
+    source: str
+    target: str
+    artifact: Path
+    line: int | None
+    origin: str
+    confidence: Confidence
+
+
+@dataclass(frozen=True)
 class Finding:
     detection_id: str
     category: str
@@ -151,6 +162,8 @@ class Finding:
     sink: str | None = None
     capabilities: tuple[str, ...] = ()
     references: tuple[str, ...] = ()
+    path: tuple[PathStep, ...] = ()
+    taint: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

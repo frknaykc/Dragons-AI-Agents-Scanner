@@ -19,6 +19,11 @@ from dragonscan.parse_helpers import safe_url
 
 _URL = re.compile(r"https?://[^\s<>\[\]()]+", re.I)
 _FILE_SUFFIXES = frozenset({".md", ".json", ".yaml", ".yml", ".toml"})
+_LOAD_FILE = re.compile(
+    r"^(?:(?:please|first|then)\s+)?(?:load|include|use|follow)\s+"
+    r"(?P<path>(?:\.{1,2}/|[\w.-]+/)*[\w.-]+\.(?:md|json|yaml|yml|toml))\b",
+    re.I,
+)
 _MAX_TOKENS = 40_000
 
 
@@ -129,6 +134,12 @@ def parse_markdown(artifact: Artifact, text: str) -> Document:
             ).strip()
             if visible:
                 instructions.append(Instruction(visible, start + 1, location))
+                # Only an explicit directive yields a load edge; a hyperlink alone is a reference.
+                load = _LOAD_FILE.match(visible)
+                if load is not None:
+                    relation = _reference(load.group("path"), location)
+                    if relation is not None and relation.kind == "references_file":
+                        relations.append(Relationship("loads_file", relation.target, location))
     return Document(
         artifact,
         instructions=tuple(instructions),

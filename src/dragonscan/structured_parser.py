@@ -293,6 +293,22 @@ def parse_structured(artifact: Artifact, text: str) -> Document:
     servers, relationships = _servers(artifact, data, locations)
     relations = list(relationships)
     for entry in entries:
+        key = entry.key_path[-1]
+        if (
+            isinstance(key, str)
+            and key.lower() in {"skillfile", "instructionfile", "agentsfile", "configfile"}
+            and isinstance(entry.value, str)
+            and PurePath(entry.value).suffix.lower() in {".md", ".json", ".yaml", ".yml", ".toml"}
+        ):
+            relations.append(Relationship("loads_file", entry.value, entry.location))
+        if (
+            len(entry.key_path) == 2
+            and entry.key_path[0] == "skills"
+            and isinstance(key, int)
+            and isinstance(entry.value, str)
+            and PurePath(entry.value).suffix.lower() == ".md"
+        ):
+            relations.append(Relationship("loads_file", entry.value, entry.location))
         if len(entry.key_path) == 3 and entry.key_path[0] == "mcpServers":
             continue
         if entry.key_path[-1] in {"url", "endpoint"} and isinstance(entry.value, str):
