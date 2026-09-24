@@ -10,6 +10,7 @@ from dragonscan.detection import DetectionContext, EngineDetector, Observation
 from dragonscan.detectors import BUILTIN_DETECTORS, SourceSinkDetector
 from dragonscan.discovery import discover
 from dragonscan.loading import LoadError, load_text
+from dragonscan.mcp_correlation import correlate_mcp
 from dragonscan.models import Artifact, Document, Finding, ScanReport, Target
 from dragonscan.parse_errors import ParseError
 from dragonscan.parsing import parse
@@ -73,6 +74,7 @@ class Scanner:
                 findings.extend(
                     correlate(graph, tuple(documents), observations_by_path, tuple(findings))
                 )
+                findings.extend(correlate_mcp(graph, tuple(documents), tuple(findings)))
             except GraphLimitError as exc:
                 errors.append(str(exc))
         results = tuple(findings)

@@ -12,6 +12,7 @@ from urllib.parse import urlsplit
 
 from dragonscan.behavior import fetch_shell_url, segment_text, write_target
 from dragonscan.detection import Observation
+from dragonscan.mcp_security import linked_sensitive_transfer, shadow_target, tool_signals
 from dragonscan.models import Confidence, Document, SourceRef
 from dragonscan.parse_errors import ParseError
 from dragonscan.parse_helpers import safe_url
@@ -210,6 +211,84 @@ def build_graph(
                 dest = node("package", relation.target, "dependency package")
                 edge(source, dest, "depends_on", relation.location, "manifest_parser")
         for server in document.servers:
+            server_id = node("mcp_server", str(path) + ":" + server.name, "MCP server")
+            if server.mutable_tools_url:
+                remote_id = external(server.mutable_tools_url)
+                if remote_id is not None:
+                    edge(
+                        server_id,
+                        remote_id,
+                        "references",
+                        server.location,
+                        "mcp_metadata",
+                        resolution="external",
+                    )
+            tool_ids: dict[str, str] = {}
+            for tool in server.tools:
+                tool_id = node("mcp_tool", f"{path}:{server.name}:tool:{tool.name}", "MCP tool")
+                tool_ids[tool.name] = tool_id
+                edge(server_id, tool_id, "exposes", tool.location, "mcp_metadata")
+                for capability in sorted(tool_signals(tool)):
+                    cap_id = node(
+                        "mcp_capability",
+                        f"{path}:{server.name}:{tool.name}:{capability}",
+                        capability,
+                    )
+                    edge(
+                        tool_id, cap_id, "defines", tool.location, "mcp_metadata", Confidence.MEDIUM
+                    )
+                if linked_sensitive_transfer(tool):
+                    credential = node_id(
+                        "mcp_capability", f"{path}:{server.name}:{tool.name}:credential-access"
+                    )
+                    egress = node_id(
+                        "mcp_capability", f"{path}:{server.name}:{tool.name}:network-egress"
+                    )
+                    if credential in nodes and egress in nodes:
+                        edge(
+                            credential,
+                            egress,
+                            "sends_to",
+                            tool.location,
+                            "mcp_metadata",
+                            Confidence.MEDIUM,
+                        )
+            for tool in server.tools:
+                target_tool = shadow_target(server, tool)
+                if target_tool is not None:
+                    edge(
+                        tool_ids[tool.name],
+                        tool_ids[target_tool.name],
+                        "influences",
+                        tool.location,
+                        "mcp_metadata",
+                    )
+            for kind, items in (("mcp_prompt", server.prompts), ("mcp_resource", server.resources)):
+                for item in items:
+                    item_id = node(
+                        kind, f"{path}:{server.name}:{kind}:{item.name}", kind.replace("_", " ")
+                    )
+                    edge(server_id, item_id, "exposes", item.location, "mcp_metadata")
+                    if item.url:
+                        external_id = external(item.url)
+                        if external_id is not None:
+                            edge(
+                                item_id,
+                                external_id,
+                                "references",
+                                item.location,
+                                "mcp_metadata",
+                                resolution="external",
+                            )
+            if server.url and server.transport != "stdio":
+                for header in server.headers:
+                    if header.sensitive and header.origin == "reference":
+                        ref = node(
+                            "sensitive_resource",
+                            f"{path}:{server.name}:header:{header.name}",
+                            "credential reference",
+                        )
+                        edge(ref, server_id, "authenticates_with", header.location, "mcp_metadata")
             if (
                 server.runtime not in {"sh", "bash", "zsh"}
                 or len(server.args) < 2

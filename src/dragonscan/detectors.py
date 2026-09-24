@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from dragonscan.behavior import related_transfer
 from dragonscan.detection import DetectionContext, DetectionMetadata, EngineDetector, finding
+from dragonscan.mcp_security import MCP_DETECTORS
 from dragonscan.models import Classification as C
 from dragonscan.models import Confidence as F
 from dragonscan.models import Finding
@@ -24,7 +25,7 @@ _OBSERVATION_KINDS = frozenset(
         "bidi",
     }
 )
-_PIN = re.compile(r"@\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?\Z")
+
 _ENCODED_SHELL = re.compile(
     r"\bbase64\s+(?:-d|--decode)\b[^\n|]{0,100}\|\s*(?:sh|bash|zsh)\b",
     re.I,
@@ -224,16 +225,34 @@ class McpDetector:
         for server in context.document.servers:
             if self.indicator == "unpinned_package":
                 if (
-                    server.runtime not in {"npx", "npx.cmd", "uvx"}
+                    server.runtime
+                    not in {
+                        "npx",
+                        "npx.cmd",
+                        "uvx",
+                        "pnpm",
+                        "pnpm.cmd",
+                        "npm",
+                        "npm.cmd",
+                        "yarn",
+                        "yarn.cmd",
+                        "pipx",
+                        "pipx.exe",
+                        "docker",
+                        "docker.exe",
+                        "podman",
+                        "podman.exe",
+                        "nerdctl",
+                    }
                     or not server.package
                     or "--no-install" in server.args
                     or "--offline" in server.args
-                    or _PIN.search(server.package)
+                    or server.pinning in {"exact", "digest"}
                 ):
                     continue
-                evidence = "MCP server invokes a runtime package without an exact version pin"
-                capabilities = ("package-installation", "command-execution")
-                source, sink = "unversioned package", "process execution"
+                evidence = "MCP server invokes a mutable package or container image reference"
+                capabilities: tuple[str, ...] = ("runtime-execution",)
+                source, sink = "mutable runtime reference", "process execution"
             elif self.indicator == "url_credentials":
                 if not server.url_has_credentials:
                     continue
@@ -424,4 +443,5 @@ BUILTIN_DETECTORS: tuple[EngineDetector, ...] = (
         ),
         "url_credentials",
     ),
+    *MCP_DETECTORS,
 )

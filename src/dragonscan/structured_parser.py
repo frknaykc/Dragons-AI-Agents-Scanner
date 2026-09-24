@@ -5,19 +5,29 @@ import tomllib
 from dataclasses import replace
 from datetime import date, datetime, time
 from pathlib import PurePath
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlsplit
 
 import yaml
 from yaml.events import AliasEvent
 from yaml.nodes import MappingNode, Node, SequenceNode
 
+from dragonscan.mcp_normalization import (
+    invocation,
+    metadata,
+    mutable_url,
+    safe_mcp_url,
+    secret_refs,
+)
+from dragonscan.mcp_normalization import transport as mcp_transport
 from dragonscan.models import (
     Artifact,
     ArtifactKind,
     ConfigEntry,
     Document,
+    McpContent,
     McpServer,
+    McpTool,
     Relationship,
     SourceFormat,
     SourceRef,
@@ -206,20 +216,6 @@ def _entries(
     return tuple(output)
 
 
-def _runtime_package(command: str, args: tuple[str, ...]) -> tuple[str | None, str | None]:
-    runtime = PurePath(command.replace("\\", "/")).name.lower() or None
-    package = None
-    if runtime in {"npx", "npx.cmd", "uvx", "pipx"}:
-        package = next((arg for arg in args if not arg.startswith("-")), None)
-    elif (
-        runtime in {"python", "python3", "python.exe", "python3.exe"}
-        and len(args) > 1
-        and args[0] == "-m"
-    ):
-        package = args[1]
-    return runtime, package
-
-
 def _servers(
     artifact: Artifact, data: dict[str, Any], locations: dict[tuple[str | int, ...], SourceRef]
 ) -> tuple[tuple[McpServer, ...], tuple[Relationship, ...]]:
@@ -251,17 +247,32 @@ def _servers(
             or (transport is not None and not isinstance(transport, str))
         ):
             raise ParseError("invalid MCP server metadata")
-        safe = safe_url(url) if url is not None else None
+        safe = safe_mcp_url(url) if url is not None else None
         if url is not None and safe is None:
             raise ParseError("invalid MCP URL")
         argv = tuple(args)
-        runtime, package = _runtime_package(command, argv)
+        runtime, package, version, pinning = invocation(command, argv)
+        cwd = config.get("cwd")
+        if cwd is not None and not isinstance(cwd, str):
+            raise ParseError("invalid MCP working directory")
+        prefix: tuple[str | int, ...] = ("mcpServers", name)
+        tools = cast(
+            tuple[McpTool, ...], metadata(config.get("tools"), location, locations, prefix, "tools")
+        )
+        resources = cast(
+            tuple[McpContent, ...],
+            metadata(config.get("resources"), location, locations, prefix, "resources"),
+        )
+        prompts = cast(
+            tuple[McpContent, ...],
+            metadata(config.get("prompts"), location, locations, prefix, "prompts"),
+        )
         server = McpServer(
             name,
             command,
             argv,
             location,
-            transport=transport or ("stdio" if command else None),
+            transport=mcp_transport(transport, command, safe),
             env_names=tuple(env),
             url=safe,
             runtime=runtime,
@@ -269,6 +280,17 @@ def _servers(
             url_has_credentials=(
                 bool(urlsplit(url).username or urlsplit(url).password) if url is not None else False
             ),
+            cwd=cwd,
+            package_version=version,
+            pinning=pinning,
+            environment=secret_refs(env, locations.get((*prefix, "env"), location)),
+            headers=secret_refs(
+                config.get("headers"), locations.get((*prefix, "headers"), location), headers=True
+            ),
+            tools=tools,
+            resources=resources,
+            prompts=prompts,
+            mutable_tools_url=mutable_url(config),
         )
         servers.append(server)
         relations.append(Relationship("defines_server", name, location))
@@ -289,6 +311,17 @@ def parse_structured(artifact: Artifact, text: str) -> Document:
     if artifact.kind == ArtifactKind.STRUCTURED_CONFIG and isinstance(data.get("mcpServers"), dict):
         artifact = replace(artifact, kind=ArtifactKind.MCP_CONFIG)
     entries = _entries(artifact, data, node)
+    if isinstance(data.get("mcpServers"), dict):
+        entries = tuple(
+            replace(entry, value="[redacted]")
+            if len(entry.key_path) >= 3
+            and entry.key_path[0] == "mcpServers"
+            and entry.key_path[2]
+            in {"env", "headers", "args", "tools", "prompts", "resources", "url", "toolsUrl"}
+            and isinstance(entry.value, str)
+            else entry
+            for entry in entries
+        )
     locations = {entry.key_path: entry.location for entry in entries}
     servers, relationships = _servers(artifact, data, locations)
     relations = list(relationships)

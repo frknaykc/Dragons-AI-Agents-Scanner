@@ -110,6 +110,32 @@ class Instruction:
 
 
 @dataclass(frozen=True)
+class McpSecretRef:
+    name: str
+    origin: str  # reference, literal, or unknown; the value is never retained here
+    sensitive: bool
+    location: SourceRef
+
+
+@dataclass(frozen=True)
+class McpTool:
+    name: str
+    description: str
+    instructions: str
+    schema_fields: tuple[str, ...]
+    location: SourceRef
+
+
+@dataclass(frozen=True)
+class McpContent:
+    name: str
+    description: str
+    location: SourceRef
+    url: str | None = None  # Public HTTP(S) location only; no opaque path or query
+    uri_scheme: str | None = None
+
+
+@dataclass(frozen=True)
 class McpServer:
     name: str
     command: str
@@ -121,6 +147,15 @@ class McpServer:
     runtime: str | None = None
     package: str | None = None
     url_has_credentials: bool = False
+    cwd: str | None = None
+    package_version: str | None = None
+    pinning: str | None = None
+    environment: tuple[McpSecretRef, ...] = ()
+    headers: tuple[McpSecretRef, ...] = ()
+    tools: tuple[McpTool, ...] = ()
+    resources: tuple[McpContent, ...] = ()
+    prompts: tuple[McpContent, ...] = ()
+    mutable_tools_url: str | None = None
 
 
 @dataclass(frozen=True)
