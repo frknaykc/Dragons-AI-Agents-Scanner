@@ -6,6 +6,7 @@ from dataclasses import replace
 from datetime import date, datetime, time
 from pathlib import PurePath
 from typing import Any
+from urllib.parse import urlsplit
 
 import yaml
 from yaml.events import AliasEvent
@@ -265,6 +266,9 @@ def _servers(
             url=safe,
             runtime=runtime,
             package=package,
+            url_has_credentials=(
+                bool(urlsplit(url).username or urlsplit(url).password) if url is not None else False
+            ),
         )
         servers.append(server)
         relations.append(Relationship("defines_server", name, location))

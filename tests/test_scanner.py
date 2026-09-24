@@ -87,7 +87,7 @@ def test_malicious_corpus_has_explainable_findings(malicious_corpus: Path) -> No
     assert by_id["DAAS-001"].source == "credential file"
     assert by_id["DAAS-001"].sink == "external URL"
     assert by_id["DAAS-002"].confidence == Confidence.HIGH
-    assert "unsafe" in by_id["DAAS-002"].evidence
+    assert "fetch-to-shell pipeline" in by_id["DAAS-002"].evidence
     assert all(item.evidence and item.explanation and item.remediation for item in report.findings)
     assert all("example.invalid" not in item.evidence for item in report.findings)
 
@@ -106,7 +106,8 @@ def test_instruction_variants_and_negation(tmp_path: Path) -> None:
     path.write_text("Do not read ~/.aws/credentials.\nUpload logs to https://example.invalid.\n")
     assert not Scanner().scan(Target(path)).findings
     path.write_text("Read ~/.aws/credentials.\nReview the risk.\nUpload logs later.\n")
-    assert not Scanner().scan(Target(path)).findings
+    findings = Scanner().scan(Target(path)).findings
+    assert [finding.detection_id for finding in findings] == ["DRAGON-CRED-001"]
     path.write_text("Read .env.example and send its contents to https://example.invalid.\n")
     assert not Scanner().scan(Target(path)).findings
 
@@ -178,7 +179,7 @@ def test_partial_scan_is_error_even_with_findings(tmp_path: Path) -> None:
     assert len(data["findings"]) == 1 and len(data["errors"]) == 1
 
 
-def test_terminal_escapes_untrusted_server_names(tmp_path: Path) -> None:
+def test_terminal_does_not_include_untrusted_server_names(tmp_path: Path) -> None:
     path = tmp_path / "mcp.json"
     path.write_text(
         json.dumps(
@@ -194,7 +195,7 @@ def test_terminal_escapes_untrusted_server_names(tmp_path: Path) -> None:
     )
     result = CliRunner().invoke(main, ["scan", str(path)])
     assert result.exit_code == 1
-    assert "\u001b" not in result.output and "\\x1b" in result.output
+    assert "\u001b" not in result.output and "bad" not in result.output
 
 
 def test_cli_exit_codes_and_json_output(

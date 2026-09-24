@@ -5,6 +5,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import PurePath
 
+from dragonscan.behavior import collect, related_transfer
 from dragonscan.models import (
     Classification,
     Confidence,
@@ -39,11 +40,7 @@ class Rule:
 _SENSITIVE = re.compile(
     r"(?:~?/)?(?:\.ssh/id_rsa|\.aws/credentials)\b|(?:~?/)?\.env(?![\w.])", re.I
 )
-_READ = re.compile(r"\b(?:read|cat|open|load)\b", re.I)
-_SEND = re.compile(r"\b(?:send|upload|post|exfiltrate)\b", re.I)
-_CONTENT = re.compile(r"\b(?:its|the file|the contents|credentials|secret|key|data)\b", re.I)
-_URL = re.compile(r"https?://[^\s)]+", re.I)
-_NEGATION = re.compile(r"\b(?:never|do not|don't|must not|avoid|should not)\b", re.I)
+
 _FETCH_PIPE_SHELL = re.compile(
     r"\b(?:curl|wget)\b[^\n|]{0,500}https?://[^\s|]+[^\n|]{0,500}\|\s*"
     r"(?:sh|bash|zsh)\b",
@@ -52,22 +49,16 @@ _FETCH_PIPE_SHELL = re.compile(
 
 
 def credential_exfiltration(document: Document) -> Iterable[Finding]:
-    lines = document.instructions
-    for index, instruction in enumerate(lines):
-        source = _SENSITIVE.search(instruction.text)
-        if not _READ.search(instruction.text) or source is None:
+    observations = collect(document)
+    for observation in observations:
+        if observation.kind != "sensitive_access" or observation.label not in {
+            "SSH private key",
+            "cloud credentials",
+            "environment secrets",
+        }:
             continue
-        # A short adjacent instruction may split the source and network sink.
-        context = " ".join(
-            part.text for part in lines[index : index + 3] if part.line - instruction.line <= 2
-        )
-        send = _SEND.search(context)
-        if (
-            _NEGATION.search(context)
-            or send is None
-            or not _URL.search(context[send.start() :])
-            or not _CONTENT.search(context[send.end() :])
-        ):
+        source = _SENSITIVE.search(document.instructions[observation.context].text)
+        if source is None or related_transfer(observation, observations) is None:
             continue
         yield Finding(
             detection_id="DAAS-001",
@@ -77,7 +68,7 @@ def credential_exfiltration(document: Document) -> Iterable[Finding]:
             confidence=Confidence.MEDIUM,
             classification=Classification.SUSPICIOUS,
             artifact=document.artifact.path,
-            line=instruction.line,
+            line=observation.location.line,
             evidence=f"instruction reads {source.group()} and directs transfer to an external URL",
             explanation="An instruction combines a sensitive-file read with an external transfer; "
             "the scanner does not execute it or assert that exfiltration occurred.",
@@ -108,7 +99,7 @@ def mcp_fetch_to_shell(document: Document) -> Iterable[Finding]:
             confidence=Confidence.HIGH,
             classification=Classification.RISKY,
             artifact=document.artifact.path,
-            evidence=f"MCP server {server.name!r} uses a fetch-to-shell pipeline",
+            evidence="MCP server command uses a fetch-to-shell pipeline",
             explanation="Launching this configured server would execute downloaded code; "
             "the scanner does not launch it.",
             source="remote download",

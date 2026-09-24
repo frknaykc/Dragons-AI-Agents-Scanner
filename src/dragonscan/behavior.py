@@ -1,0 +1,171 @@
+"""Observe security behavior once per normalized document, without executing content."""
+
+import re
+from dataclasses import replace
+
+from dragonscan.detection import Observation
+from dragonscan.models import Document, SourceRef
+
+_INSTRUCTION_KINDS = frozenset({"instructions", "skill", "memory", "soul"})
+_SENTENCE = re.compile(r"(?<=[.!?])\s+(?=[A-Z])|\n+|;\s*")
+_NEGATED = re.compile(
+    r"^(?:never|do not|don't|must not|avoid|should not|please do not|"
+    r"ensure (?:you )?(?:do not|never))\b",
+    re.I,
+)
+_IMPERATIVE = re.compile(
+    r"^(?:(?:you must|always|please|then|first|immediately|next)\s+)?"
+    r"(?:read|cat|open|load|copy|extract|export|send|upload|post|transmit|"
+    r"run|execute|fetch|download|retrieve|follow|obey|use|ignore|disregard|"
+    r"override|disable|bypass|turn off|write|append|modify|edit|overwrite|replace)\b",
+    re.I,
+)
+_SOURCE_PATTERNS = (
+    ("SSH private key", re.compile(r"(?:~?/)?\.ssh/(?:id_rsa|id_ed25519|id_ecdsa|id_dsa)\b", re.I)),
+    (
+        "cloud credentials",
+        re.compile(r"(?:~?/)?\.aws/credentials\b|\b(?:cloud|aws) credentials\b", re.I),
+    ),
+    (
+        "environment secrets",
+        re.compile(r"(?:~?/)?\.env(?![\w.])|\benvironment (?:secret|variable|token)s?\b", re.I),
+    ),
+    ("API token", re.compile(r"\b(?:api|auth|access) (?:key|token)s?\b", re.I)),
+    ("private key", re.compile(r"\bprivate keys?\b", re.I)),
+    ("wallet secret", re.compile(r"\b(?:wallet (?:seed|secret|key)|seed phrase)\b", re.I)),
+    ("agent memory", re.compile(r"\bMEMORY\.md\b|\bagent memory\b", re.I)),
+)
+_ACCESS = re.compile(r"\b(?:read|cat|open|load|copy|extract|export|dump|print)\b", re.I)
+_TRANSFER = re.compile(r"\b(?:send|upload|post|transmit|exfiltrate)\b", re.I)
+_HTTP = re.compile(r"\bhttps?://[^\s<>)]+", re.I)
+_PRONOUN = re.compile(
+    r"\b(?:it|its|their|them|the (?:file|contents|secrets?|keys?|credentials?|tokens?|data))\b",
+    re.I,
+)
+_OVERRIDE = re.compile(
+    r"\b(?:ignore|disregard|override)\b.{0,60}\b(?:previous|prior|system|developer)\b.{0,40}\b(?:instructions?|rules?|directives?|prompts?)\b",
+    re.I,
+)
+_BYPASS = re.compile(
+    r"\b(?:disable|bypass|turn off)\b.{0,50}"
+    r"\b(?:safety|security|guardrails?|checks?|protections?)\b",
+    re.I,
+)
+_PERSIST_WRITE = re.compile(
+    r"\b(?:write|append|modify|edit|overwrite|replace)\b.{0,100}\b(?:AGENTS|SOUL|MEMORY|CLAUDE|SKILL)\.md\b",
+    re.I,
+)
+_PERSIST_INTENT = re.compile(
+    r"\b(?:agent|instructions?|rules?|policy|behavior|future|sessions?|always|persist)\b", re.I
+)
+_REMOTE_FETCH = re.compile(r"\b(?:fetch|download|retrieve|load|use)\b", re.I)
+_REMOTE_AUTHORITY = re.compile(
+    r"\b(?:follow|obey|treat|use)\b.{0,80}\b(?:instructions?|rules?|policy)\b", re.I
+)
+_FETCH_SHELL = re.compile(
+    r"\b(?:curl|wget)\b[^\n|]{0,300}https?://[^\s|]+[^\n|]{0,300}\|\s*(?:sh|bash|zsh)\b", re.I
+)
+_BIDI = re.compile("[\u202a-\u202e\u2066-\u2069]")
+
+
+def collect(document: Document) -> tuple[Observation, ...]:
+    """Only actionable prose is promoted; code, quotations and references remain data."""
+    if document.artifact.kind not in _INSTRUCTION_KINDS:
+        return ()
+    observed: list[Observation] = []
+    for index, instruction in enumerate(document.instructions):
+        # Markdown inline/fenced code and blockquotes are excluded by the parser.
+        start = 0
+        parts: list[tuple[str, int]] = []
+        for match in _SENTENCE.finditer(instruction.text):
+            parts.append((instruction.text[start : match.start()], start))
+            start = match.end()
+        parts.append((instruction.text[start:], start))
+        for segment, (sentence, offset) in enumerate(parts):
+            sentence = sentence.strip()
+            if not sentence or _NEGATED.search(sentence) or not _IMPERATIVE.search(sentence):
+                continue
+            line = instruction.line + instruction.text[:offset].count("\n")
+            location = replace(instruction.location, line=line)
+
+            def add(
+                kind: str,
+                label: str,
+                *capabilities: str,
+                location: SourceRef = location,
+                index: int = index,
+                segment: int = segment,
+            ) -> None:
+                observed.append(Observation(kind, label, location, index, segment, capabilities))
+
+            if _OVERRIDE.search(sentence):
+                add("override", "prior instructions", "instruction-override")
+            if _BYPASS.search(sentence):
+                add("bypass", "security controls", "security-control-bypass")
+            if _ACCESS.search(sentence):
+                for label, pattern in _SOURCE_PATTERNS:
+                    if pattern.search(sentence):
+                        add("sensitive_access", label, "file-read", "secret-read")
+                        break
+            transfer = _TRANSFER.search(sentence)
+            if transfer and _HTTP.search(sentence):
+                add("external_transfer", "external HTTP(S) endpoint", "network-egress")
+                object_text = sentence[transfer.end() :]
+                if _PRONOUN.search(object_text):
+                    add("linked_transfer", "previously read data", "network-egress")
+                elif re.match(r"\s+to\s+https?://", object_text, re.I):
+                    add("implicit_transfer", "previously read data", "network-egress")
+            if _FETCH_SHELL.search(sentence) and re.search(r"\b(?:run|execute)\b", sentence, re.I):
+                add(
+                    "remote_execution",
+                    "download piped to shell",
+                    "network-fetch",
+                    "command-execution",
+                )
+            if _PERSIST_WRITE.search(sentence) and _PERSIST_INTENT.search(sentence):
+                add(
+                    "persistence",
+                    "agent instruction file",
+                    "persistence-write",
+                    "configuration-modification",
+                )
+            if (
+                _HTTP.search(sentence)
+                and _REMOTE_FETCH.search(sentence)
+                and _REMOTE_AUTHORITY.search(sentence)
+                and not re.search(
+                    r"\b(?:not to|never|without)\s+(?:follow|obey|use)\b", sentence, re.I
+                )
+            ):
+                add("remote_trust", "external instructions", "external-instruction-fetch")
+            if _BIDI.search(sentence):
+                add("bidi", "bidirectional format control", "hidden-instruction")
+    return tuple(observed)
+
+
+def related_transfer(
+    source: Observation, observations: tuple[Observation, ...]
+) -> Observation | None:
+    """Correlate a read with an explicit or implicit transfer, never by keyword proximity alone."""
+    if source.location.line is None:
+        return None
+    linked = {
+        (item.context, item.segment) for item in observations if item.kind == "linked_transfer"
+    }
+    implicit = {
+        (item.context, item.segment) for item in observations if item.kind == "implicit_transfer"
+    }
+    for sink in observations:
+        if sink.kind != "external_transfer" or sink.location.line is None:
+            continue
+        if not 0 <= sink.location.line - source.location.line <= 2:
+            continue
+        if sink.context == source.context and sink.segment == source.segment:
+            if (sink.context, sink.segment) in linked | implicit:
+                return sink
+        elif (
+            sink.context in {source.context, source.context + 1}
+            and (sink.context, sink.segment) in linked
+        ):
+            return sink
+    return None

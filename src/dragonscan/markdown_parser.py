@@ -88,6 +88,8 @@ def parse_markdown(artifact: Artifact, text: str) -> Document:
                         relations.append(relation)
             elif child.type == "link_close":
                 link = None
+            elif child.type in {"softbreak", "hardbreak"}:
+                spans.append(Span("text", "\n", location))
             elif child.type in {"text", "code_inline"}:
                 kind = "inline_code" if child.type == "code_inline" else "link" if link else "text"
                 destination = (

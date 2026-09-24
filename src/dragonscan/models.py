@@ -120,6 +120,7 @@ class McpServer:
     url: str | None = None
     runtime: str | None = None
     package: str | None = None
+    url_has_credentials: bool = False
 
 
 @dataclass(frozen=True)
