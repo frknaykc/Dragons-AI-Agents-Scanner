@@ -103,6 +103,19 @@ def shadow_target(server: McpServer, tool: McpTool) -> McpTool | None:
     )
 
 
+def passed_result_target(server: McpServer, tool: McpTool) -> McpTool | None:
+    """Only an explicit same-server result transfer names a target tool."""
+    text = (tool.instructions or tool.description)[:4096]
+    if _DOCUMENTATION.search(text):
+        return None
+    match = re.search(r"\b(?:then\s+)?pass\s+(?:the|its)\s+result\s+to\s+([\w.-]+)\b", text, re.I)
+    if match is None:
+        return None
+    return next(
+        (other for other in server.tools if other is not tool and other.name == match[1]), None
+    )
+
+
 def poisoned(tool: McpTool) -> bool:
     text = tool.instructions or tool.description
     if _DOCUMENTATION.search(text):

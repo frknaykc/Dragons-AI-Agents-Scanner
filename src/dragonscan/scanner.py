@@ -12,6 +12,7 @@ from dragonscan.detectors import BUILTIN_DETECTORS, SourceSinkDetector
 from dragonscan.discovery import discover
 from dragonscan.evasion import views
 from dragonscan.evasion_graph import annotate_views
+from dragonscan.flow import correlate_flows, describe_existing_flow
 from dragonscan.loading import LoadError, load_text
 from dragonscan.mcp_correlation import correlate_mcp
 from dragonscan.models import (
@@ -223,7 +224,7 @@ class Scanner:
                 target, tuple(documents)
             )
             documents = list(analyzed)
-            findings.extend(supply_findings)
+            findings.extend(describe_existing_flow(f, tuple(documents)) for f in supply_findings)
             errors.extend(supply_errors)
         if self.enable_correlation:
             try:
@@ -232,6 +233,7 @@ class Scanner:
                     graph,
                     tuple(documents),
                     tuple(f for f in findings if f.evasion is None),
+                    self.signature_engine.signatures if self.signature_engine is not None else (),
                 )
                 graph = annotate_views(graph, tuple(documents), tuple(findings))
                 original_findings = tuple(f for f in findings if f.evasion is None)
@@ -239,7 +241,13 @@ class Scanner:
                     *correlate(graph, tuple(documents), observations_by_path, original_findings),
                     *correlate_mcp(graph, tuple(documents), original_findings),
                 )
-                findings.extend(enrich_correlations(graph, correlated))
+                findings.extend(
+                    describe_existing_flow(finding, tuple(documents))
+                    for finding in enrich_correlations(graph, correlated)
+                )
+                flow_findings, flow_diagnostics = correlate_flows(graph, tuple(documents))
+                findings.extend(enrich_correlations(graph, flow_findings))
+                errors.extend(flow_diagnostics)
             except GraphLimitError as exc:
                 errors.append(str(exc))
         results = tuple(findings)

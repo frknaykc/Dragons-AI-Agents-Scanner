@@ -206,6 +206,25 @@ class PathStep:
 
 
 @dataclass(frozen=True)
+class FlowEvidence:
+    """Structured static route context, without raw instruction bodies or secrets."""
+
+    source_type: str
+    sink_type: str
+    nodes: tuple[str, ...]
+    edges: tuple[str, ...]
+    artifacts: tuple[Path, ...]
+    boundaries: tuple[str, ...]
+    capabilities: tuple[str, ...]
+    transformations: tuple[str, ...]
+    enrichments: tuple[str, ...]
+    confidence: Confidence
+    locations: tuple[SourceRef, ...]
+    source: str | None = None
+    sink: str | None = None
+
+
+@dataclass(frozen=True)
 class SignatureEvidence:
     signature_id: str
     signature_type: str
@@ -292,6 +311,7 @@ class Finding:
     dependency: DependencyEvidence | None = None
     vulnerability: VulnerabilityEvidence | None = None
     evasion: EvasionEvidence | None = None
+    flow: FlowEvidence | None = None
 
 
 @dataclass(frozen=True)

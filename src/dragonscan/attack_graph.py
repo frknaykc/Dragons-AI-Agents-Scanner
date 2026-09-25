@@ -12,8 +12,14 @@ from urllib.parse import urlsplit
 
 from dragonscan.behavior import fetch_shell_url, segment_text, write_target
 from dragonscan.detection import Observation
-from dragonscan.mcp_security import linked_sensitive_transfer, shadow_target, tool_signals
-from dragonscan.models import Confidence, Document, SourceRef
+from dragonscan.mcp_references import extract as extract_tool_references
+from dragonscan.mcp_security import (
+    linked_sensitive_transfer,
+    passed_result_target,
+    shadow_target,
+    tool_signals,
+)
+from dragonscan.models import ArtifactKind, Confidence, Document, SourceRef
 from dragonscan.parse_errors import ParseError
 from dragonscan.parse_helpers import safe_url
 
@@ -319,6 +325,16 @@ def build_graph(
                         tool.location,
                         "mcp_metadata",
                     )
+                passed = passed_result_target(server, tool)
+                if passed is not None:
+                    edge(
+                        tool_ids[tool.name],
+                        tool_ids[passed.name],
+                        "passes_to",
+                        tool.location,
+                        "mcp_metadata",
+                        Confidence.MEDIUM,
+                    )
             for kind, items in (("mcp_prompt", server.prompts), ("mcp_resource", server.resources)):
                 for item in items:
                     item_id = node(
@@ -411,4 +427,98 @@ def build_graph(
                         Confidence.MEDIUM,
                         resolved.status,
                     )
+    # Exact names are lookup keys only; neither tool descriptions nor names
+    # become graph labels or propagated data. Duplicates stay ambiguous.
+    tools: dict[str, list[str]] = {}
+    for document in documents:
+        path = document.artifact.path
+        for server in document.servers:
+            for tool in server.tools:
+                identifier = node_id("mcp_tool", f"{path}:{server.name}:tool:{tool.name}")
+                if identifier in nodes:
+                    tools.setdefault(f"{server.name}.{tool.name}", []).append(identifier)
+                    tools.setdefault(tool.name, []).append(identifier)
+
+    def resolve_tool(name: str) -> tuple[str | None, str]:
+        matches = tools.get(name, ())
+        return (
+            (matches[0], "resolved")
+            if len(matches) == 1
+            else (
+                None,
+                "ambiguous" if matches else "missing",
+            )
+        )
+
+    for document in documents:
+        if document.artifact.kind not in {
+            ArtifactKind.SKILL,
+            ArtifactKind.INSTRUCTIONS,
+            ArtifactKind.SOUL,
+            ArtifactKind.MEMORY,
+        }:
+            continue
+        path = document.artifact.path
+        for index, reference in enumerate(extract_tool_references(document)):
+            instruction = node(
+                "instruction", f"{path}:mcp-reference:{index}", "explicit MCP instruction", path
+            )
+            edge(
+                artifact_node(path),
+                instruction,
+                "defines",
+                reference.location,
+                "instruction_reference",
+            )
+            first, first_status = resolve_tool(reference.source)
+            if first is None:
+                unresolved = node(
+                    "unresolved_resource",
+                    f"{path}:mcp-reference:{index}:source",
+                    "unresolved MCP tool",
+                )
+                edge(
+                    instruction,
+                    unresolved,
+                    "references",
+                    reference.location,
+                    "instruction_reference",
+                    resolution=first_status,
+                )
+                continue
+            edge(
+                instruction,
+                first,
+                "invokes",
+                reference.location,
+                "instruction_reference",
+                Confidence.MEDIUM,
+                "resolved",
+            )
+            if reference.target is None:
+                continue
+            second, second_status = resolve_tool(reference.target)
+            if second is None:
+                unresolved = node(
+                    "unresolved_resource",
+                    f"{path}:mcp-reference:{index}:target",
+                    "unresolved MCP tool",
+                )
+                edge(
+                    instruction,
+                    unresolved,
+                    "references",
+                    reference.location,
+                    "instruction_reference",
+                    resolution=second_status,
+                )
+            elif first != second:
+                edge(
+                    first,
+                    second,
+                    "passes_to",
+                    reference.location,
+                    "instruction_reference",
+                    Confidence.MEDIUM,
+                )
     return AttackGraph(tuple(nodes.values()), tuple(edges))

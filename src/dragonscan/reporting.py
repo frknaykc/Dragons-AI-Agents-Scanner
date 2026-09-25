@@ -36,6 +36,13 @@ def json_report(report: ScanReport) -> str:
             item.pop("vulnerability")
         if finding.evasion is None:
             item.pop("evasion")
+        if finding.flow is None:
+            item.pop("flow")
+        else:
+            item["flow"]["artifacts"] = [str(path) for path in finding.flow.artifacts]
+            item["flow"]["locations"] = [
+                {**asdict(ref), "path": str(ref.path)} for ref in finding.flow.locations
+            ]
         data["findings"].append(item)
     # JSON consumers get identical decoded values, but no live bidi/control glyphs.
     return json.dumps(data, indent=2, ensure_ascii=True)
@@ -99,6 +106,13 @@ def terminal_report(report: ScanReport) -> str:
         if finding.path:
             lines.append(f"  Source: {ascii(finding.source or 'unknown')}")
             lines.append(f"  Sink: {ascii(finding.sink or 'unknown')}")
+            if finding.flow is not None:
+                flow = finding.flow
+                lines.append(
+                    f"  Static flow: {ascii(flow.source_type)} -> {ascii(flow.sink_type)}; "
+                    f"confidence={flow.confidence.value}; "
+                    f"boundaries={ascii(', '.join(flow.boundaries) or 'none')}"
+                )
             lines.append("  Path:")
             for step in finding.path:
                 location = f":{step.line}" if step.line is not None else ""

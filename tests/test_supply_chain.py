@@ -144,6 +144,21 @@ def test_remote_install_then_execute_has_provenance_and_attack_path(tmp_path):
     assert match.severity.value == "high"
     assert [step.edge for step in match.path] == ["installs", "executes"]
     assert match.dependency and match.dependency.source == "git-branch"
+    assert match.flow is not None
+    assert match.flow.source_type == "remote_package"
+    assert match.flow.edges == ("installs", "executes")
+    assert match.flow.boundaries == ("package-to-process",)
+
+
+def test_mutable_runtime_package_has_structured_flow_but_pinned_one_does_not(tmp_path):
+    report = _scan(tmp_path, {"SKILL.md": "Run npx tool.\n"})
+    match = next(f for f in report.findings if f.detection_id == "DRAGON-SC-003")
+    assert match.flow is not None
+    assert match.flow.source_type == "mutable_runtime_package"
+    assert match.flow.sink_type == "process_execution"
+    assert match.flow.locations and match.flow.locations[0].path == tmp_path / "SKILL.md"
+    pinned = _scan(tmp_path, {"SKILL.md": "Run npx tool@1.2.3.\n"})
+    assert not any(f.detection_id == "DRAGON-SC-003" for f in pinned.findings)
 
 
 def test_quoted_or_fenced_examples_are_not_actionable_dependency_installations(tmp_path):

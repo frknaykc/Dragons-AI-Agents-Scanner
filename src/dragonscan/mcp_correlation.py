@@ -1,6 +1,7 @@
 """Correlate only explicit, ordered MCP metadata flows through the bounded graph."""
 
 from dragonscan.attack_graph import AttackGraph, GraphEdge, GraphLimitError, node_id
+from dragonscan.flow import FlowEngine, FlowKind
 from dragonscan.mcp_security import linked_sensitive_transfer
 from dragonscan.models import Classification, Confidence, Document, Finding, PathStep, Severity
 
@@ -16,6 +17,7 @@ def correlate_mcp(
         for edge in graph.edges
         if edge.resolution == "observed"
     }
+    engine = FlowEngine(graph)
     eligible = {finding.artifact for finding in prior if finding.detection_id == "DRAGON-MCP-010"}
     results: list[Finding] = []
     for doc in documents:
@@ -42,6 +44,8 @@ def correlate_mcp(
                     (credential, egress, "sends_to"),
                 )
                 if any(key not in links for key in keys):
+                    continue
+                if not engine.paths(FlowKind.SENSITIVE_DATA, credential, egress, max_depth=1):
                     continue
                 if len(results) >= MAX_CORRELATED_MCP:
                     raise GraphLimitError("MCP correlated path count limit exceeded")

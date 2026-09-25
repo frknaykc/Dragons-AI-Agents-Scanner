@@ -1,6 +1,6 @@
 """Bounded, deterministic correlation of evidence-supported agent-artifact paths."""
 
-from collections import defaultdict, deque
+from collections import defaultdict
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -8,6 +8,7 @@ from pathlib import Path
 from dragonscan.attack_graph import AttackGraph, GraphEdge, GraphLimitError, GraphNode, node_id
 from dragonscan.behavior import related_transfer
 from dragonscan.detection import Observation
+from dragonscan.flow import FlowEngine, FlowKind
 from dragonscan.models import (
     Classification,
     Confidence,
@@ -79,36 +80,6 @@ def _step(edge: GraphEdge, nodes: dict[str, GraphNode]) -> PathStep:
     )
 
 
-def _routes(graph: AttackGraph, endpoints: set[str]) -> dict[str, list[tuple[GraphEdge, ...]]]:
-    """Walk backwards only from actionable sinks over proven local loads."""
-    incoming: dict[str, list[GraphEdge]] = defaultdict(list)
-    for edge in graph.edges:
-        if edge.kind == "loads" and edge.resolution == "resolved":
-            incoming[edge.target].append(edge)
-    routes: dict[str, list[tuple[GraphEdge, ...]]] = defaultdict(list)
-    route_count = 0
-    for endpoint in (n.id for n in graph.nodes if n.id in endpoints):
-        pending: deque[tuple[str, tuple[GraphEdge, ...], frozenset[str]]] = deque(
-            [(endpoint, (), frozenset({endpoint}))]
-        )
-        while pending:
-            current, path, visited = pending.popleft()
-            if len(path) >= MAX_DEPTH:
-                if any(edge.source not in visited for edge in incoming[current]):
-                    raise GraphLimitError("attack path depth limit exceeded")
-                continue
-            for edge in incoming[current]:
-                if edge.source in visited:
-                    continue
-                next_path = (edge, *path)
-                if route_count >= MAX_PATHS:
-                    raise GraphLimitError("attack path count limit exceeded")
-                routes[endpoint].append(next_path)
-                route_count += 1
-                pending.append((edge.source, next_path, visited | {edge.source}))
-    return routes
-
-
 def correlate(
     graph: AttackGraph,
     documents: tuple[Document, ...],
@@ -133,7 +104,8 @@ def correlate(
         )
         or any(f.artifact == document.artifact.path and f.detection_id == "DAAS-002" for f in prior)
     }
-    routes = _routes(graph, endpoints)
+    engine = FlowEngine(graph)
+    routes = engine.local_routes(endpoints)
     found: list[Finding] = []
     seen: set[tuple[str, Path, Path, tuple[GraphEdge, ...]]] = set()
 
@@ -292,7 +264,9 @@ def correlate(
                 ),
                 None,
             )
-            if fetch is None:
+            if fetch is None or not engine.paths(
+                FlowKind.EXECUTION, fetch.source, fetch.target, max_depth=1
+            ):
                 continue
             flow = TaintFlow(
                 (TaintClass.EXTERNAL_WEB,),
@@ -336,7 +310,9 @@ def correlate(
                     ),
                     None,
                 )
-                if fetch is None:
+                if fetch is None or not engine.paths(
+                    FlowKind.EXECUTION, fetch.source, fetch.target, max_depth=1
+                ):
                     continue
                 flow = TaintFlow(
                     (TaintClass.EXTERNAL_WEB,),
@@ -376,7 +352,9 @@ def correlate(
                 ),
                 None,
             )
-            if incoming is None:
+            if incoming is None or not engine.paths(
+                FlowKind.UNTRUSTED_CONTENT, incoming.source, incoming.target
+            ):
                 continue
             for write in (
                 item
