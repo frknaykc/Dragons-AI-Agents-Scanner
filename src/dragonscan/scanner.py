@@ -1,6 +1,7 @@
 """Scanner orchestration; independent from CLI and report format."""
 
 from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import Path
 
 from dragonscan.attack_graph import GraphLimitError, build_graph
@@ -19,6 +20,7 @@ from dragonscan.rules import BUILTIN_RULES, Rule
 from dragonscan.signature_graph import annotate, enrich_correlations
 from dragonscan.signature_packs import load_pack
 from dragonscan.signatures import BUILTIN_SIGNATURES, SignatureEngine
+from dragonscan.supply_chain import analyze as analyze_dependencies
 
 
 class Scanner:
@@ -69,6 +71,7 @@ class Scanner:
                 continue
             normalized.append(document.artifact)
             documents.append(document)
+            errors.extend(f"{artifact.path}: {diagnostic}" for diagnostic in document.diagnostics)
             document_findings: list[Finding] = []
             for rule in self.rules:
                 document_findings.extend(rule.detect(document))
@@ -84,7 +87,20 @@ class Scanner:
                 document_findings.extend(self.signature_engine.detect(document, text))
                 if self.signature_engine.limit_reason:
                     errors.append(f"{artifact.path}: {self.signature_engine.limit_reason}")
-            findings.extend(document_findings)
+            findings.extend(
+                replace(finding, capabilities=(*finding.capabilities, "remote-installer"))
+                if finding.detection_id in {"DRAGON-EXEC-001", "DAAS-002"}
+                and "remote-installer" not in finding.capabilities
+                else finding
+                for finding in document_findings
+            )
+        if self.enable_correlation:
+            analyzed, supply_findings, supply_errors = analyze_dependencies(
+                target, tuple(documents)
+            )
+            documents = list(analyzed)
+            findings.extend(supply_findings)
+            errors.extend(supply_errors)
         if self.enable_correlation:
             try:
                 graph = build_graph(target.path.absolute(), tuple(documents), observations_by_path)

@@ -208,8 +208,64 @@ def build_graph(
                     "mcp_parser",
                 )
             elif relation.kind == "references_dependency":
-                dest = node("package", relation.target, "dependency package")
-                edge(source, dest, "depends_on", relation.location, "manifest_parser")
+                if not document.dependencies:
+                    dest = node("package", relation.target, "dependency package")
+                    edge(source, dest, "depends_on", relation.location, "manifest_parser")
+        for dependency in document.dependencies:
+            package = node(
+                "package",
+                dependency.ecosystem + ":" + dependency.name,
+                dependency.ecosystem + ":" + dependency.name,
+            )
+            action = (
+                "installs"
+                if dependency.mechanism
+                in {
+                    "installation",
+                    "install-and-execute",
+                    "runtime-execution",
+                }
+                else "depends_on"
+            )
+            edge(source, package, action, dependency.location, "dependency_parser")
+            if dependency.mechanism in {"runtime-execution", "install-and-execute"}:
+                command = node("command", dependency.manager, dependency.manager)
+                edge(package, command, "executes", dependency.location, "dependency_parser")
+            if dependency.registry is not None:
+                registry = node(
+                    "registry",
+                    dependency.registry,
+                    "configured dependency registry",
+                )
+                edge(
+                    package,
+                    registry,
+                    "sourced_from",
+                    dependency.location,
+                    "dependency_parser",
+                    resolution="external",
+                )
+            elif dependency.source in {
+                "git",
+                "git-commit",
+                "git-branch",
+                "git-tag",
+                "git-ref",
+                "url",
+            }:
+                dependency_source_id = node(
+                    "dependency_source",
+                    f"{path}:{dependency.location.line}:{dependency.name}:{dependency.source}",
+                    dependency.source,
+                )
+                edge(
+                    package,
+                    dependency_source_id,
+                    "sourced_from",
+                    dependency.location,
+                    "dependency_parser",
+                    resolution="external",
+                )
         for server in document.servers:
             server_id = node("mcp_server", str(path) + ":" + server.name, "MCP server")
             if server.mutable_tools_url:

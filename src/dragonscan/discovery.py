@@ -25,6 +25,16 @@ FORMATS = {
     ".yml": SourceFormat.YAML,
     ".toml": SourceFormat.TOML,
 }
+DEPENDENCY_FILES = {
+    "pyproject.toml": ("python", SourceFormat.TOML),
+    "uv.lock": ("python", SourceFormat.TOML),
+    "package.json": ("node", SourceFormat.JSON),
+    "package-lock.json": ("node", SourceFormat.JSON),
+    "npm-shrinkwrap.json": ("node", SourceFormat.JSON),
+    "pnpm-lock.yaml": ("node", SourceFormat.YAML),
+    "yarn.lock": ("node", SourceFormat.TEXT),
+    ".npmrc": ("node", SourceFormat.TEXT),
+}
 CONFIG_STEMS = frozenset({"config", "settings"})
 
 
@@ -34,6 +44,19 @@ class DiscoveryError(ValueError):
 
 def classify(path: Path, *, explicit: bool = False) -> Artifact | None:
     name = path.name.lower()
+    dependency = DEPENDENCY_FILES.get(name)
+    if dependency is None and (
+        name in {"requirements.txt", "requirements.in"}
+        or (name.startswith("requirements-") and name.endswith((".txt", ".in")))
+    ):
+        dependency = ("python", SourceFormat.TEXT)
+    if dependency is not None:
+        dep_ecosystem, dep_format = dependency
+        ecosystem: str | None = dep_ecosystem
+        # Preserve the established ecosystem classification for skill metadata.
+        if name == "package.json" and "skills" in (p.lower() for p in path.parent.parts):
+            ecosystem = None
+        return Artifact(path, ArtifactKind.DEPENDENCY_MANIFEST, dep_format, ecosystem)
     source_format = FORMATS.get(path.suffix.lower())
     if source_format is None:
         return None
@@ -57,8 +80,6 @@ def classify(path: Path, *, explicit: bool = False) -> Artifact | None:
         kind = ArtifactKind.PLUGIN_METADATA
     elif name == "hooks.json" and ecosystem is not None:
         kind = ArtifactKind.HOOK_CONFIG
-    elif name == "package.json" and "skills" in (p.lower() for p in path.parent.parts):
-        kind = ArtifactKind.DEPENDENCY_MANIFEST
     elif path.stem.lower() in CONFIG_STEMS or name in {"settings.local.json", "claude.json"}:
         if ecosystem is None and not explicit:
             return None

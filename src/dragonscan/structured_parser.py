@@ -12,6 +12,7 @@ import yaml
 from yaml.events import AliasEvent
 from yaml.nodes import MappingNode, Node, SequenceNode
 
+from dragonscan.dependencies import structured_dependencies
 from dragonscan.mcp_normalization import (
     invocation,
     metadata,
@@ -356,6 +357,16 @@ def parse_structured(artifact: Artifact, text: str) -> Document:
                     if isinstance(package, str):
                         location = locations.get((field, package), _location(artifact, None))
                         relations.append(Relationship("references_dependency", package, location))
+    dependencies, diagnostics = (
+        structured_dependencies(artifact, data, locations)
+        if artifact.kind == ArtifactKind.DEPENDENCY_MANIFEST
+        else ((), ())
+    )
     return Document(
-        artifact, servers=servers, entries=entries, relationships=tuple(dict.fromkeys(relations))
+        artifact,
+        servers=servers,
+        entries=entries,
+        relationships=tuple(dict.fromkeys(relations)),
+        dependencies=dependencies,
+        diagnostics=diagnostics,
     )

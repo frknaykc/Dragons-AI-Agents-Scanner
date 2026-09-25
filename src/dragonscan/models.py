@@ -24,6 +24,7 @@ class SourceFormat(StrEnum):
     JSON = "json"
     YAML = "yaml"
     TOML = "toml"
+    TEXT = "text"
 
 
 class Severity(StrEnum):
@@ -159,6 +160,27 @@ class McpServer:
 
 
 @dataclass(frozen=True)
+class Dependency:
+    """Public, normalized static evidence; raw credentials are never retained."""
+
+    ecosystem: str
+    name: str
+    requested: str | None
+    exact_version: str | None
+    pinning: str
+    source: str
+    manager: str
+    mechanism: str
+    group: str
+    location: SourceRef
+    registry: str | None = None
+    lockfile: Path | None = None
+    integrity: bool = False
+    provenance: str = "manifest"
+    path_status: str | None = None
+
+
+@dataclass(frozen=True)
 class Document:
     artifact: Artifact
     instructions: tuple[Instruction, ...] = ()
@@ -166,6 +188,10 @@ class Document:
     blocks: tuple[MarkdownBlock, ...] = ()
     entries: tuple[ConfigEntry, ...] = ()
     relationships: tuple[Relationship, ...] = ()
+    dependencies: tuple[Dependency, ...] = ()
+    diagnostics: tuple[str, ...] = ()
+    registry: str | None = None
+    registry_scopes: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -192,6 +218,23 @@ class SignatureEvidence:
 
 
 @dataclass(frozen=True)
+class DependencyEvidence:
+    ecosystem: str
+    package: str
+    requested: str | None
+    pinning: str
+    source: str
+    manager: str
+    mechanism: str
+    group: str
+    integrity_metadata: bool
+    provenance: str
+    lockfile: str | None
+    path_status: str | None
+    registry: str | None = None
+
+
+@dataclass(frozen=True)
 class Finding:
     detection_id: str
     category: str
@@ -212,6 +255,7 @@ class Finding:
     path: tuple[PathStep, ...] = ()
     taint: tuple[str, ...] = ()
     signature: SignatureEvidence | None = None
+    dependency: DependencyEvidence | None = None
 
 
 @dataclass(frozen=True)

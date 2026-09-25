@@ -30,6 +30,8 @@ def json_report(report: ScanReport) -> str:
             item.pop("taint")
         if finding.signature is None:
             item.pop("signature")
+        if finding.dependency is None:
+            item.pop("dependency")
         data["findings"].append(item)
     return json.dumps(data, indent=2, ensure_ascii=False)
 
@@ -63,6 +65,13 @@ def terminal_report(report: ScanReport) -> str:
             lines.append(
                 f"  Signature: {ascii(info.signature_id)} ({ascii(info.signature_type)}) "
                 f"from {ascii(info.pack)}{ascii(version)}; context={ascii(info.context)}"
+            )
+        if finding.dependency is not None:
+            dep = finding.dependency
+            lines.append(
+                f"  Dependency: {ascii(dep.ecosystem)}:{ascii(dep.package)} "
+                f"[{ascii(dep.pinning)}, {ascii(dep.source)}, {ascii(dep.manager)}; "
+                f"{ascii(dep.mechanism)}]"
             )
         if finding.path:
             lines.append(f"  Source: {ascii(finding.source or 'unknown')}")
