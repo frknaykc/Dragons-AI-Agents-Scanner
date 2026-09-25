@@ -16,6 +16,9 @@ from dragonscan.parse_errors import ParseError
 from dragonscan.parsing import parse
 from dragonscan.risk import summarize
 from dragonscan.rules import BUILTIN_RULES, Rule
+from dragonscan.signature_graph import annotate, enrich_correlations
+from dragonscan.signature_packs import load_pack
+from dragonscan.signatures import BUILTIN_SIGNATURES, SignatureEngine
 
 
 class Scanner:
@@ -23,6 +26,7 @@ class Scanner:
         self,
         rules: Sequence[Rule] | None = None,
         detectors: Sequence[EngineDetector] | None = None,
+        signature_pack: Path | None = None,
     ):
         # An explicit legacy rule selection keeps the old selection semantics.
         self.rules = tuple(BUILTIN_RULES if rules is None else rules)
@@ -39,6 +43,14 @@ class Scanner:
         )
         if len(identifiers) != len(set(identifiers)):
             raise ValueError("duplicate rule ID")
+        reserved = set(identifiers) | {signature.detection_id for signature in BUILTIN_SIGNATURES}
+        loaded, self.pack_diagnostics = (
+            load_pack(signature_pack, reserved) if signature_pack is not None else ((), ())
+        )
+        builtins = BUILTIN_SIGNATURES if rules is None else ()
+        self.signature_engine = (
+            SignatureEngine((*builtins, *loaded)) if builtins or loaded else None
+        )
 
     def scan(self, target: Target) -> ScanReport:
         artifacts = discover(target)
@@ -46,10 +58,11 @@ class Scanner:
         documents: list[Document] = []
         observations_by_path: dict[Path, tuple[Observation, ...]] = {}
         findings: list[Finding] = []
-        errors: list[str] = []
+        errors: list[str] = list(self.pack_diagnostics)
         for artifact in artifacts:
             try:
-                document = parse(artifact, load_text(artifact.path))
+                text = load_text(artifact.path)
+                document = parse(artifact, text)
             except (LoadError, ParseError) as exc:
                 errors.append(f"{artifact.path}: {exc}")
                 normalized.append(artifact)
@@ -67,14 +80,20 @@ class Scanner:
                         DetectionContext(document, observations, tuple(document_findings))
                     )
                 )
+            if self.signature_engine is not None:
+                document_findings.extend(self.signature_engine.detect(document, text))
+                if self.signature_engine.limit_reason:
+                    errors.append(f"{artifact.path}: {self.signature_engine.limit_reason}")
             findings.extend(document_findings)
         if self.enable_correlation:
             try:
                 graph = build_graph(target.path.absolute(), tuple(documents), observations_by_path)
-                findings.extend(
-                    correlate(graph, tuple(documents), observations_by_path, tuple(findings))
+                graph = annotate(graph, tuple(documents), tuple(findings))
+                correlated = (
+                    *correlate(graph, tuple(documents), observations_by_path, tuple(findings)),
+                    *correlate_mcp(graph, tuple(documents), tuple(findings)),
                 )
-                findings.extend(correlate_mcp(graph, tuple(documents), tuple(findings)))
+                findings.extend(enrich_correlations(graph, correlated))
             except GraphLimitError as exc:
                 errors.append(str(exc))
         results = tuple(findings)

@@ -180,6 +180,18 @@ class PathStep:
 
 
 @dataclass(frozen=True)
+class SignatureEvidence:
+    signature_id: str
+    signature_type: str
+    indicator_type: str | None
+    matched_indicator: str
+    pack: str
+    context: str
+    version: str | None = None
+    representation: str | None = None
+
+
+@dataclass(frozen=True)
 class Finding:
     detection_id: str
     category: str
@@ -199,6 +211,7 @@ class Finding:
     references: tuple[str, ...] = ()
     path: tuple[PathStep, ...] = ()
     taint: tuple[str, ...] = ()
+    signature: SignatureEvidence | None = None
 
 
 @dataclass(frozen=True)

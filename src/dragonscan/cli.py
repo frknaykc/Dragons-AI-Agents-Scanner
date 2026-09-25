@@ -8,6 +8,7 @@ from dragonscan.discovery import DiscoveryError
 from dragonscan.models import ScanReport, Severity, Target
 from dragonscan.reporting import json_report, terminal_report
 from dragonscan.risk import meets_threshold
+from dragonscan.scanner import Scanner
 from dragonscan.scanner import scan as scan_target
 
 
@@ -32,10 +33,20 @@ def main() -> None:
     show_default=True,
     help="Exit 1 on findings at or above this severity.",
 )
-def scan(path: Path, output_format: str, fail_on: str) -> None:
+@click.option(
+    "--signature-pack",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Load static JSON signatures from an explicit local directory.",
+)
+def scan(path: Path, output_format: str, fail_on: str, signature_pack: Path | None) -> None:
     """Scan a local file or directory (recognized artifact names/context only)."""
     try:
-        report = scan_target(Target(path))
+        report = (
+            scan_target(Target(path))
+            if signature_pack is None
+            else Scanner(signature_pack=signature_pack).scan(Target(path))
+        )
     except DiscoveryError as exc:
         report = ScanReport(path, (), (), (str(exc),))
     click.echo(json_report(report) if output_format == "json" else terminal_report(report))

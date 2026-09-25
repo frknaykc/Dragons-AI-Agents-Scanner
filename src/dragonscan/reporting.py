@@ -28,6 +28,8 @@ def json_report(report: ScanReport) -> str:
         else:
             item.pop("path")
             item.pop("taint")
+        if finding.signature is None:
+            item.pop("signature")
         data["findings"].append(item)
     return json.dumps(data, indent=2, ensure_ascii=False)
 
@@ -55,6 +57,13 @@ def terminal_report(report: ScanReport) -> str:
                 f"  {finding.explanation}",
             )
         )
+        if finding.signature is not None:
+            info = finding.signature
+            version = f" v{info.version}" if info.version else ""
+            lines.append(
+                f"  Signature: {ascii(info.signature_id)} ({ascii(info.signature_type)}) "
+                f"from {ascii(info.pack)}{ascii(version)}; context={ascii(info.context)}"
+            )
         if finding.path:
             lines.append(f"  Source: {ascii(finding.source or 'unknown')}")
             lines.append(f"  Sink: {ascii(finding.sink or 'unknown')}")
