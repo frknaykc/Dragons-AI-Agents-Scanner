@@ -34,8 +34,11 @@ def json_report(report: ScanReport) -> str:
             item.pop("dependency")
         if finding.vulnerability is None:
             item.pop("vulnerability")
+        if finding.evasion is None:
+            item.pop("evasion")
         data["findings"].append(item)
-    return json.dumps(data, indent=2, ensure_ascii=False)
+    # JSON consumers get identical decoded values, but no live bidi/control glyphs.
+    return json.dumps(data, indent=2, ensure_ascii=True)
 
 
 def terminal_report(report: ScanReport) -> str:
@@ -67,6 +70,16 @@ def terminal_report(report: ScanReport) -> str:
             lines.append(
                 f"  Signature: {ascii(info.signature_id)} ({ascii(info.signature_type)}) "
                 f"from {ascii(info.pack)}{ascii(version)}; context={ascii(info.context)}"
+            )
+        if finding.evasion is not None:
+            evasion = finding.evasion
+            lines.append(
+                f"  Static view: {ascii(' > '.join(evasion.chain))}; "
+                f"depth={evasion.depth}; source={ascii(evasion.source_kind)}; "
+                f"range={evasion.source_start}-{evasion.source_end}; "
+                f"confidence={evasion.confidence.value}; "
+                f"original={ascii(evasion.original_excerpt)}; "
+                f"canonical={ascii(evasion.canonical_excerpt)}"
             )
         if finding.dependency is not None:
             dep = finding.dependency

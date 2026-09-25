@@ -255,6 +255,20 @@ class VulnerabilityEvidence:
 
 
 @dataclass(frozen=True)
+class EvasionEvidence:
+    """Bounded provenance of a static analysis view, never executable content."""
+
+    chain: tuple[str, ...]
+    depth: int
+    source_kind: str
+    source_start: int | None
+    source_end: int | None
+    original_excerpt: str
+    confidence: Confidence
+    canonical_excerpt: str = ""
+
+
+@dataclass(frozen=True)
 class Finding:
     detection_id: str
     category: str
@@ -277,6 +291,7 @@ class Finding:
     signature: SignatureEvidence | None = None
     dependency: DependencyEvidence | None = None
     vulnerability: VulnerabilityEvidence | None = None
+    evasion: EvasionEvidence | None = None
 
 
 @dataclass(frozen=True)

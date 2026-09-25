@@ -144,7 +144,9 @@ class SignatureEngine:
         self.signatures = signatures
         self.limit_reason: str | None = None
 
-    def detect(self, document: Document, text: str) -> tuple[Finding, ...]:
+    def detect(
+        self, document: Document, text: str, *, include_artifact_hash: bool = True
+    ) -> tuple[Finding, ...]:
         self.limit_reason = None
         output: list[Finding] = []
         seen: set[tuple[str, str, int | None, str]] = set()
@@ -153,7 +155,9 @@ class SignatureEngine:
         decoded_cache: dict[int, tuple[Region, ...]] = {}
         ioc_cache: dict[tuple[int, IndicatorType], tuple[str, ...]] = {}
         hashes = {}
-        if any("artifact_hash" in sig.contexts for sig in self.signatures):
+        if include_artifact_hash and any(
+            "artifact_hash" in sig.contexts for sig in self.signatures
+        ):
             data = text.encode("utf-8")
             hashes = {
                 IndicatorType.SHA256: hashlib.sha256(data).hexdigest(),

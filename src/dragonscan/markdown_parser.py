@@ -24,6 +24,7 @@ _LOAD_FILE = re.compile(
     r"(?P<path>(?:\.{1,2}/|[\w.-]+/)*[\w.-]+\.(?:md|json|yaml|yml|toml))\b",
     re.I,
 )
+_HTML_SOURCE = re.compile(r"^\s*<(?:!--|/?[A-Za-z][\w:-]*(?:\s|>|/))")
 _MAX_TOKENS = 40_000
 
 
@@ -107,10 +108,13 @@ def parse_markdown(artifact: Artifact, text: str) -> Document:
                         if relation is not None:
                             relations.append(relation)
         is_quote = "blockquote_open" in container
+        is_html = _HTML_SOURCE.match(token.content) is not None
         is_list = "list_item_open" in container
         is_heading = index > 0 and tokens[index - 1].type == "heading_open"
         kind = (
-            "heading"
+            "html"
+            if is_html
+            else "heading"
             if is_heading
             else "quote"
             if is_quote
@@ -119,7 +123,7 @@ def parse_markdown(artifact: Artifact, text: str) -> Document:
             else "paragraph"
         )
         blocks.append(MarkdownBlock(kind, token.content, location, tuple(spans)))
-        if not is_quote:
+        if not is_quote and not is_html:
             visible = "".join(
                 span.text
                 + (

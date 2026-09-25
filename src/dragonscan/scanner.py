@@ -10,9 +10,21 @@ from dragonscan.correlation import correlate
 from dragonscan.detection import DetectionContext, EngineDetector, Observation
 from dragonscan.detectors import BUILTIN_DETECTORS, SourceSinkDetector
 from dragonscan.discovery import discover
+from dragonscan.evasion import views
+from dragonscan.evasion_graph import annotate_views
 from dragonscan.loading import LoadError, load_text
 from dragonscan.mcp_correlation import correlate_mcp
-from dragonscan.models import Artifact, Document, Finding, ScanReport, Target
+from dragonscan.models import (
+    Artifact,
+    Classification,
+    Confidence,
+    Document,
+    Finding,
+    Instruction,
+    ScanReport,
+    Severity,
+    Target,
+)
 from dragonscan.parse_errors import ParseError
 from dragonscan.parsing import parse
 from dragonscan.risk import summarize
@@ -97,6 +109,108 @@ class Scanner:
                 document_findings.extend(self.signature_engine.detect(document, text))
                 if self.signature_engine.limit_reason:
                     errors.append(f"{artifact.path}: {self.signature_engine.limit_reason}")
+            # Derived views are evidence only; never add their observations or
+            # dependencies to the graph or vulnerability query plan.
+            derived, diagnostics = views(document)
+            errors.extend(f"{artifact.path}: {item}" for item in diagnostics)
+            seen = {
+                (
+                    f.detection_id,
+                    f.line,
+                    f.source,
+                    f.sink,
+                    f.signature.context if f.signature else None,
+                )
+                for f in document_findings
+            }
+            if document.artifact.path.name == "package.json":
+                seen.update(
+                    (
+                        f.detection_id,
+                        f.line,
+                        f.source,
+                        f.sink,
+                        None,
+                    )
+                    for f in analyze_dependencies(target, (document,))[1]
+                )
+            for view in derived:
+                candidates: list[Finding] = []
+                if "hidden-html" in view.evidence.chain:
+                    hidden = replace(
+                        view.document,
+                        instructions=(
+                            Instruction(view.text, view.location.line or 1, view.location),
+                        ),
+                    )
+                    for rule in self.rules:
+                        candidates.extend(rule.detect(hidden))
+                    hidden_observations = collect(hidden)
+                    for detector in self.detectors:
+                        candidates.extend(
+                            detector.detect(
+                                DetectionContext(hidden, hidden_observations, tuple(candidates))
+                            )
+                        )
+                if view.context == "lifecycle-script":
+                    candidates.extend(analyze_dependencies(target, (view.document,))[1])
+                for rule in self.rules:
+                    candidates.extend(rule.detect(view.document))
+                observations_view = collect(view.document)
+                for detector in self.detectors:
+                    candidates.extend(
+                        detector.detect(
+                            DetectionContext(view.document, observations_view, tuple(candidates))
+                        )
+                    )
+                if self.signature_engine is not None:
+                    candidates.extend(
+                        self.signature_engine.detect(
+                            view.document, text, include_artifact_hash=False
+                        )
+                    )
+                    if self.signature_engine.limit_reason:
+                        errors.append(f"{artifact.path}: {self.signature_engine.limit_reason}")
+                for candidate in candidates:
+                    if candidate.line not in {None, view.location.line}:
+                        continue
+                    key = (
+                        candidate.detection_id,
+                        candidate.line,
+                        candidate.source,
+                        candidate.sink,
+                        candidate.signature.context if candidate.signature else None,
+                    )
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    confidence = (
+                        Confidence.LOW
+                        if view.evidence.confidence == Confidence.LOW
+                        else Confidence.MEDIUM
+                        if candidate.confidence == Confidence.HIGH
+                        else candidate.confidence
+                    )
+                    document_findings.append(
+                        replace(
+                            candidate,
+                            line=view.location.line,
+                            severity=(
+                                Severity.LOW
+                                if "hidden-html" in view.evidence.chain
+                                else candidate.severity
+                            ),
+                            classification=(
+                                Classification.INFORMATIONAL
+                                if "hidden-html" in view.evidence.chain
+                                else candidate.classification
+                            ),
+                            confidence=confidence,
+                            taint=(),
+                            path=(),
+                            evasion=view.evidence,
+                        )
+                    )
             findings.extend(
                 replace(finding, capabilities=(*finding.capabilities, "remote-installer"))
                 if finding.detection_id in {"DRAGON-EXEC-001", "DAAS-002"}
@@ -114,10 +228,16 @@ class Scanner:
         if self.enable_correlation:
             try:
                 graph = build_graph(target.path.absolute(), tuple(documents), observations_by_path)
-                graph = annotate(graph, tuple(documents), tuple(findings))
+                graph = annotate(
+                    graph,
+                    tuple(documents),
+                    tuple(f for f in findings if f.evasion is None),
+                )
+                graph = annotate_views(graph, tuple(documents), tuple(findings))
+                original_findings = tuple(f for f in findings if f.evasion is None)
                 correlated = (
-                    *correlate(graph, tuple(documents), observations_by_path, tuple(findings)),
-                    *correlate_mcp(graph, tuple(documents), tuple(findings)),
+                    *correlate(graph, tuple(documents), observations_by_path, original_findings),
+                    *correlate_mcp(graph, tuple(documents), original_findings),
                 )
                 findings.extend(enrich_correlations(graph, correlated))
             except GraphLimitError as exc:
