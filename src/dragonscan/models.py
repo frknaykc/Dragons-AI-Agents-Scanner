@@ -235,6 +235,26 @@ class DependencyEvidence:
 
 
 @dataclass(frozen=True)
+class VulnerabilityEvidence:
+    provider: str
+    vulnerability_id: str
+    aliases: tuple[str, ...]
+    ecosystem: str
+    package: str
+    version: str
+    summary: str
+    upstream_severity: str | None
+    cvss: tuple[str, ...]
+    fixed_versions: tuple[str, ...]
+    affected_ranges: tuple[str, ...]
+    references: tuple[str, ...]
+    published: str | None
+    modified: str | None
+    provenance: str
+    query_status: str
+
+
+@dataclass(frozen=True)
 class Finding:
     detection_id: str
     category: str
@@ -256,6 +276,7 @@ class Finding:
     taint: tuple[str, ...] = ()
     signature: SignatureEvidence | None = None
     dependency: DependencyEvidence | None = None
+    vulnerability: VulnerabilityEvidence | None = None
 
 
 @dataclass(frozen=True)
@@ -267,3 +288,5 @@ class ScanReport:
     errors: tuple[str, ...] = ()
     risk: Severity | None = None
     counts: dict[str, int] = field(default_factory=dict)
+    vulnerability_status: str = "disabled"
+    vulnerability_diagnostics: tuple[str, ...] = ()

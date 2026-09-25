@@ -39,18 +39,34 @@ def main() -> None:
     default=None,
     help="Load static JSON signatures from an explicit local directory.",
 )
-def scan(path: Path, output_format: str, fail_on: str, signature_pack: Path | None) -> None:
+@click.option(
+    "--vuln-check",
+    is_flag=True,
+    help="Query OSV over HTTPS; sends normalized package names and exact versions to OSV.",
+)
+def scan(
+    path: Path,
+    output_format: str,
+    fail_on: str,
+    signature_pack: Path | None,
+    vuln_check: bool,
+) -> None:
     """Scan a local file or directory (recognized artifact names/context only)."""
     try:
-        report = (
-            scan_target(Target(path))
-            if signature_pack is None
-            else Scanner(signature_pack=signature_pack).scan(Target(path))
-        )
+        if vuln_check:
+            from dragonscan.osv import OSVProvider
+
+            report = Scanner(
+                signature_pack=signature_pack, vulnerability_provider=OSVProvider()
+            ).scan(Target(path))
+        elif signature_pack is None:
+            report = scan_target(Target(path))
+        else:
+            report = Scanner(signature_pack=signature_pack).scan(Target(path))
     except DiscoveryError as exc:
         report = ScanReport(path, (), (), (str(exc),))
     click.echo(json_report(report) if output_format == "json" else terminal_report(report))
-    if report.errors:
+    if report.errors or report.vulnerability_status == "partial":
         raise SystemExit(2)
     if meets_threshold(report.risk, Severity(fail_on)):
         raise SystemExit(1)

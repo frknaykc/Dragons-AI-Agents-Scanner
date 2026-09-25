@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
 
-from dragonscan.attack_graph import GraphLimitError, build_graph
+from dragonscan.attack_graph import AttackGraph, GraphLimitError, build_graph
 from dragonscan.behavior import collect
 from dragonscan.correlation import correlate
 from dragonscan.detection import DetectionContext, EngineDetector, Observation
@@ -21,6 +21,8 @@ from dragonscan.signature_graph import annotate, enrich_correlations
 from dragonscan.signature_packs import load_pack
 from dragonscan.signatures import BUILTIN_SIGNATURES, SignatureEngine
 from dragonscan.supply_chain import analyze as analyze_dependencies
+from dragonscan.vulnerability import VULNERABILITY_IDS, IntelligenceProvider
+from dragonscan.vulnerability import enrich as enrich_vulnerabilities
 
 
 class Scanner:
@@ -29,9 +31,12 @@ class Scanner:
         rules: Sequence[Rule] | None = None,
         detectors: Sequence[EngineDetector] | None = None,
         signature_pack: Path | None = None,
+        vulnerability_provider: IntelligenceProvider | None = None,
     ):
         # An explicit legacy rule selection keeps the old selection semantics.
         self.rules = tuple(BUILTIN_RULES if rules is None else rules)
+        self.vulnerability_provider = vulnerability_provider
+        self.graph: AttackGraph | None = None
         self.enable_correlation = rules is None
         self.detectors = tuple(
             BUILTIN_DETECTORS if detectors is None and rules is None else detectors or ()
@@ -45,7 +50,11 @@ class Scanner:
         )
         if len(identifiers) != len(set(identifiers)):
             raise ValueError("duplicate rule ID")
-        reserved = set(identifiers) | {signature.detection_id for signature in BUILTIN_SIGNATURES}
+        reserved = (
+            set(identifiers)
+            | {signature.detection_id for signature in BUILTIN_SIGNATURES}
+            | VULNERABILITY_IDS
+        )
         loaded, self.pack_diagnostics = (
             load_pack(signature_pack, reserved) if signature_pack is not None else ((), ())
         )
@@ -60,6 +69,7 @@ class Scanner:
         documents: list[Document] = []
         observations_by_path: dict[Path, tuple[Observation, ...]] = {}
         findings: list[Finding] = []
+        graph = None
         errors: list[str] = list(self.pack_diagnostics)
         for artifact in artifacts:
             try:
@@ -114,7 +124,13 @@ class Scanner:
                 errors.append(str(exc))
         results = tuple(findings)
         risk, counts = summarize(results)
-        return ScanReport(target.path, tuple(normalized), results, tuple(errors), risk, counts)
+        report = ScanReport(target.path, tuple(normalized), results, tuple(errors), risk, counts)
+        if self.vulnerability_provider is not None:
+            report, graph = enrich_vulnerabilities(
+                report, tuple(documents), graph, self.vulnerability_provider
+            )
+        self.graph = graph
+        return report
 
 
 def scan(path: Target) -> ScanReport:

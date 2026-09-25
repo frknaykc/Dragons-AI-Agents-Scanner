@@ -32,6 +32,8 @@ def json_report(report: ScanReport) -> str:
             item.pop("signature")
         if finding.dependency is None:
             item.pop("dependency")
+        if finding.vulnerability is None:
+            item.pop("vulnerability")
         data["findings"].append(item)
     return json.dumps(data, indent=2, ensure_ascii=False)
 
@@ -73,6 +75,14 @@ def terminal_report(report: ScanReport) -> str:
                 f"[{ascii(dep.pinning)}, {ascii(dep.source)}, {ascii(dep.manager)}; "
                 f"{ascii(dep.mechanism)}]"
             )
+        if finding.vulnerability is not None:
+            vuln = finding.vulnerability
+            lines.append(
+                f"  OSV: {ascii(vuln.vulnerability_id)} "
+                f"aliases={ascii(', '.join(vuln.aliases))}; "
+                f"upstream severity={ascii(vuln.upstream_severity or 'unknown')}; "
+                f"fixed={ascii(', '.join(vuln.fixed_versions) or 'not provided')}"
+            )
         if finding.path:
             lines.append(f"  Source: {ascii(finding.source or 'unknown')}")
             lines.append(f"  Sink: {ascii(finding.sink or 'unknown')}")
@@ -85,4 +95,8 @@ def terminal_report(report: ScanReport) -> str:
                 )
     for error in report.errors:
         lines.append(f"ERROR: {ascii(error)}")
+    if report.vulnerability_status != "disabled":
+        lines.append(f"Vulnerability intelligence: {report.vulnerability_status}")
+    for diagnostic in report.vulnerability_diagnostics:
+        lines.append(f"VULN DIAGNOSTIC: {ascii(diagnostic)}")
     return "\n".join(lines)
