@@ -30,6 +30,8 @@ from dragonscan.parse_errors import ParseError
 from dragonscan.parsing import parse
 from dragonscan.risk import summarize
 from dragonscan.rules import BUILTIN_RULES, Rule
+from dragonscan.semantic import SemanticLimits, SemanticProvider
+from dragonscan.semantic import enrich as enrich_semantic
 from dragonscan.signature_graph import annotate, enrich_correlations
 from dragonscan.signature_packs import load_pack
 from dragonscan.signatures import BUILTIN_SIGNATURES, SignatureEngine
@@ -45,10 +47,14 @@ class Scanner:
         detectors: Sequence[EngineDetector] | None = None,
         signature_pack: Path | None = None,
         vulnerability_provider: IntelligenceProvider | None = None,
+        semantic_provider: SemanticProvider | None = None,
+        semantic_limits: SemanticLimits | None = None,
     ):
         # An explicit legacy rule selection keeps the old selection semantics.
         self.rules = tuple(BUILTIN_RULES if rules is None else rules)
         self.vulnerability_provider = vulnerability_provider
+        self.semantic_provider = semantic_provider
+        self.semantic_limits = semantic_limits or SemanticLimits()
         self.graph: AttackGraph | None = None
         self.enable_correlation = rules is None
         self.detectors = tuple(
@@ -256,6 +262,10 @@ class Scanner:
         if self.vulnerability_provider is not None:
             report, graph = enrich_vulnerabilities(
                 report, tuple(documents), graph, self.vulnerability_provider
+            )
+        if self.semantic_provider is not None:
+            report = enrich_semantic(
+                report, tuple(documents), self.semantic_provider, self.semantic_limits
             )
         self.graph = graph
         return report

@@ -36,6 +36,8 @@ def json_report(report: ScanReport) -> str:
             item.pop("vulnerability")
         if finding.evasion is None:
             item.pop("evasion")
+        if finding.semantic is None:
+            item.pop("semantic")
         if finding.flow is None:
             item.pop("flow")
         else:
@@ -44,6 +46,20 @@ def json_report(report: ScanReport) -> str:
                 {**asdict(ref), "path": str(ref.path)} for ref in finding.flow.locations
             ]
         data["findings"].append(item)
+    for key in tuple(data):
+        if key.startswith("semantic_"):
+            data.pop(key)
+    if report.semantic_status != "disabled":
+        data["semantic"] = {
+            "enabled": True,
+            "status": report.semantic_status,
+            "provider": report.semantic_provider,
+            "model": report.semantic_model,
+            "candidates_selected": report.semantic_candidates_selected,
+            "candidates_analyzed": report.semantic_candidates_analyzed,
+            "findings": sum(f.semantic is not None for f in report.findings),
+            "diagnostics": report.semantic_diagnostics,
+        }
     # JSON consumers get identical decoded values, but no live bidi/control glyphs.
     return json.dumps(data, indent=2, ensure_ascii=True)
 
@@ -78,6 +94,15 @@ def terminal_report(report: ScanReport) -> str:
                 f"  Signature: {ascii(info.signature_id)} ({ascii(info.signature_type)}) "
                 f"from {ascii(info.pack)}{ascii(version)}; context={ascii(info.context)}"
             )
+        if finding.semantic is not None:
+            semantic_info = finding.semantic
+            lines.append(
+                f"  SEMANTIC: {ascii(semantic_info.category)} {ascii(semantic_info.verdict)}; "
+                f"candidate={ascii(semantic_info.candidate_id)}; "
+                f"evidence={ascii(', '.join(semantic_info.evidence_ids))}; "
+                f"provider={ascii(semantic_info.provider)}; model={ascii(semantic_info.model)}"
+            )
+            lines.append(f"  Rationale (model opinion): {ascii(semantic_info.rationale)}")
         if finding.evasion is not None:
             evasion = finding.evasion
             lines.append(
@@ -126,4 +151,15 @@ def terminal_report(report: ScanReport) -> str:
         lines.append(f"Vulnerability intelligence: {report.vulnerability_status}")
     for diagnostic in report.vulnerability_diagnostics:
         lines.append(f"VULN DIAGNOSTIC: {ascii(diagnostic)}")
+    if report.semantic_status != "disabled":
+        provider = ascii(report.semantic_provider)
+        model = ascii(report.semantic_model)
+        lines.append(
+            f"Semantic Analysis: {report.semantic_status}; provider={provider}; "
+            f"model={model}; candidates={report.semantic_candidates_selected}; "
+            f"analyzed={report.semantic_candidates_analyzed}; "
+            f"findings={sum(f.semantic is not None for f in report.findings)}"
+        )
+    for diagnostic in report.semantic_diagnostics:
+        lines.append(f"SEMANTIC DIAGNOSTIC: {ascii(diagnostic)}")
     return "\n".join(lines)

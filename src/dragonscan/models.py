@@ -288,6 +288,23 @@ class EvasionEvidence:
 
 
 @dataclass(frozen=True)
+class SemanticEvidence:
+    """Validated model opinion; never a deterministic source, edge or proof."""
+
+    candidate_id: str
+    provider: str
+    model: str
+    task: str
+    analyzer_version: str
+    category: str
+    verdict: str
+    evidence_ids: tuple[str, ...]
+    rationale: str
+    transformed: bool = False
+    transformation_confidence: Confidence | None = None
+
+
+@dataclass(frozen=True)
 class Finding:
     detection_id: str
     category: str
@@ -312,6 +329,7 @@ class Finding:
     vulnerability: VulnerabilityEvidence | None = None
     evasion: EvasionEvidence | None = None
     flow: FlowEvidence | None = None
+    semantic: SemanticEvidence | None = None
 
 
 @dataclass(frozen=True)
@@ -325,3 +343,9 @@ class ScanReport:
     counts: dict[str, int] = field(default_factory=dict)
     vulnerability_status: str = "disabled"
     vulnerability_diagnostics: tuple[str, ...] = ()
+    semantic_status: str = "disabled"
+    semantic_provider: str | None = None
+    semantic_model: str | None = None
+    semantic_candidates_selected: int = 0
+    semantic_candidates_analyzed: int = 0
+    semantic_diagnostics: tuple[str, ...] = ()
