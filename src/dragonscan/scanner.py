@@ -10,6 +10,8 @@ from dragonscan.correlation import correlate
 from dragonscan.detection import DetectionContext, EngineDetector, Observation
 from dragonscan.detectors import BUILTIN_DETECTORS, SourceSinkDetector
 from dragonscan.discovery import discover
+from dragonscan.dynamic_mcp import DynamicPolicy, DynamicResult
+from dragonscan.dynamic_mcp import inspect as inspect_mcp
 from dragonscan.evasion import views
 from dragonscan.evasion_graph import annotate_views
 from dragonscan.flow import correlate_flows, describe_existing_flow
@@ -49,12 +51,14 @@ class Scanner:
         vulnerability_provider: IntelligenceProvider | None = None,
         semantic_provider: SemanticProvider | None = None,
         semantic_limits: SemanticLimits | None = None,
+        dynamic_policy: DynamicPolicy | None = None,
     ):
         # An explicit legacy rule selection keeps the old selection semantics.
         self.rules = tuple(BUILTIN_RULES if rules is None else rules)
         self.vulnerability_provider = vulnerability_provider
         self.semantic_provider = semantic_provider
         self.semantic_limits = semantic_limits or SemanticLimits()
+        self.dynamic_policy = dynamic_policy or DynamicPolicy()
         self.graph: AttackGraph | None = None
         self.enable_correlation = rules is None
         self.detectors = tuple(
@@ -266,6 +270,18 @@ class Scanner:
         if self.semantic_provider is not None:
             report = enrich_semantic(
                 report, tuple(documents), self.semantic_provider, self.semantic_limits
+            )
+        if self.dynamic_policy.requested:
+            dynamic = (
+                DynamicResult("blocked", ("static scan incomplete; MCP launch skipped",))
+                if report.errors
+                else inspect_mcp(tuple(documents), self.dynamic_policy)
+            )
+            report = replace(
+                report,
+                dynamic_status=dynamic.status,
+                dynamic_diagnostics=dynamic.diagnostics,
+                dynamic_observations=dynamic.observations,
             )
         self.graph = graph
         return report

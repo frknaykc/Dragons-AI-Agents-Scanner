@@ -305,6 +305,22 @@ class SemanticEvidence:
 
 
 @dataclass(frozen=True)
+class DynamicMcpItem:
+    name: str
+    description_sha256: str  # Never retain server-controlled descriptions or URI bodies.
+
+
+@dataclass(frozen=True)
+class DynamicMcpObservation:
+    artifact: Path
+    server: str
+    provenance: str = "dynamic_observation"
+    tools: tuple[DynamicMcpItem, ...] = ()
+    prompts: tuple[DynamicMcpItem, ...] = ()
+    resources: tuple[DynamicMcpItem, ...] = ()
+
+
+@dataclass(frozen=True)
 class Finding:
     detection_id: str
     category: str
@@ -349,3 +365,6 @@ class ScanReport:
     semantic_candidates_selected: int = 0
     semantic_candidates_analyzed: int = 0
     semantic_diagnostics: tuple[str, ...] = ()
+    dynamic_status: str = "not_requested"
+    dynamic_diagnostics: tuple[str, ...] = ()
+    dynamic_observations: tuple[DynamicMcpObservation, ...] = ()

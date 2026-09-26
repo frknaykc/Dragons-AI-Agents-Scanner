@@ -49,6 +49,8 @@ def json_report(report: ScanReport) -> str:
     for key in tuple(data):
         if key.startswith("semantic_"):
             data.pop(key)
+        if key.startswith("dynamic_"):
+            data.pop(key)
     if report.semantic_status != "disabled":
         data["semantic"] = {
             "enabled": True,
@@ -59,6 +61,16 @@ def json_report(report: ScanReport) -> str:
             "candidates_analyzed": report.semantic_candidates_analyzed,
             "findings": sum(f.semantic is not None for f in report.findings),
             "diagnostics": report.semantic_diagnostics,
+        }
+    if report.dynamic_status != "not_requested":
+        data["dynamic_mcp"] = {
+            "status": report.dynamic_status,
+            "isolation": "process_only; no OS filesystem or network sandbox",
+            "diagnostics": report.dynamic_diagnostics,
+            "observations": [
+                {**asdict(item), "artifact": str(item.artifact)}
+                for item in report.dynamic_observations
+            ],
         }
     # JSON consumers get identical decoded values, but no live bidi/control glyphs.
     return json.dumps(data, indent=2, ensure_ascii=True)
@@ -162,4 +174,18 @@ def terminal_report(report: ScanReport) -> str:
         )
     for diagnostic in report.semantic_diagnostics:
         lines.append(f"SEMANTIC DIAGNOSTIC: {ascii(diagnostic)}")
+    if report.dynamic_status != "not_requested":
+        lines.append(
+            f"Dynamic MCP: {report.dynamic_status}; process-only, NO OS filesystem/network sandbox"
+        )
+    for observation in report.dynamic_observations:
+        lines.append(
+            f"Observed MCP server: {ascii(observation.server)} "
+            f"in {ascii(str(observation.artifact))}"
+        )
+        for kind in ("tools", "prompts", "resources"):
+            for item in getattr(observation, kind):
+                lines.append(f"  Observed {kind}: {ascii(item.name)}")
+    for diagnostic in report.dynamic_diagnostics:
+        lines.append(f"DYNAMIC DIAGNOSTIC: {ascii(diagnostic)}")
     return "\n".join(lines)
