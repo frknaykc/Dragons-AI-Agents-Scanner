@@ -390,3 +390,7 @@ class ScanReport:
     dynamic_observations: tuple[DynamicMcpObservation, ...] = ()
     installed_environments: tuple[InstalledEnvironment, ...] = ()
     artifact_origins: tuple[ArtifactOrigin, ...] = ()
+    acquisition_status: str = "not_required"
+    acquisition_kind: str | None = None
+    acquisition_source: str | None = None
+    acquisition_diagnostics: tuple[str, ...] = ()

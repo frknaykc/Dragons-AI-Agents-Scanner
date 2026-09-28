@@ -1,6 +1,7 @@
 """CLI adapter; scan and reporting remain usable without Click."""
 
 import os
+from dataclasses import replace
 from pathlib import Path
 
 import click
@@ -13,6 +14,7 @@ from dragonscan.risk import meets_threshold
 from dragonscan.scanner import Scanner
 from dragonscan.scanner import scan as scan_target
 from dragonscan.semantic_provider import OpenAICompatibleProvider
+from dragonscan.target_acquisition import AcquisitionCleanupError, acquire
 
 
 @click.group()
@@ -21,7 +23,16 @@ def main() -> None:
 
 
 @main.command()
-@click.argument("path", required=False, type=click.Path(path_type=Path))
+@click.argument("path", required=False)
+@click.option(
+    "--remote", is_flag=True, help="Explicitly download one public HTTPS artifact; network access."
+)
+@click.option(
+    "--git",
+    "git_target",
+    is_flag=True,
+    help="Scan a local Git working tree; remote Git is unavailable.",
+)
 @click.option(
     "--installed-agents", is_flag=True, help="Scan bounded known local agent environments"
 )
@@ -73,7 +84,9 @@ def main() -> None:
     help="Exact absolute executable path in the MCP config.",
 )
 def scan(
-    path: Path | None,
+    path: str | None,
+    remote: bool,
+    git_target: bool,
     installed_agents: bool,
     output_format: str,
     fail_on: str,
@@ -87,11 +100,24 @@ def scan(
     dynamic_mcp_server: str | None,
     dynamic_mcp_executable: Path | None,
 ) -> None:
-    """Scan a local file or directory (recognized artifact names/context only)."""
+    """Scan a local file, directory, or archive; remote access requires --remote."""
     if path is None and not installed_agents:
         raise click.UsageError("PATH is required unless --installed-agents is set")
     if installed_agents and dynamic_mcp:
         raise click.UsageError("--dynamic-mcp cannot be combined with --installed-agents")
+    if remote and (installed_agents or dynamic_mcp):
+        raise click.UsageError(
+            "--remote cannot be combined with --installed-agents or --dynamic-mcp"
+        )
+    if git_target and (installed_agents or dynamic_mcp):
+        raise click.UsageError("--git cannot be combined with --installed-agents or --dynamic-mcp")
+    if remote and path is None:
+        raise click.UsageError("--remote requires a target URL")
+    if path is not None and "://" in path and not remote:
+        raise click.UsageError("network targets require --remote")
+    if remote and path is not None and not path.startswith("https://"):
+        raise click.UsageError("--remote supports HTTPS targets only")
+    local_path = Path(path) if path is not None else None
     provider = None
     if not dynamic_mcp and (allow_uncontained_mcp or dynamic_mcp_server or dynamic_mcp_executable):
         raise click.UsageError("--dynamic-mcp is required for dynamic execution options")
@@ -107,6 +133,7 @@ def scan(
             )
         except ValueError:
             raise click.UsageError("invalid semantic provider configuration") from None
+    report: ScanReport | None = None
     try:
         if vuln_check:
             from dragonscan.osv import OSVProvider
@@ -126,22 +153,44 @@ def scan(
                 dynamic_policy=dynamic_policy,
             )
         if installed_agents:
-            report = scanner.scan_installed(Target(path) if path is not None else None)
+            report = scanner.scan_installed(Target(local_path) if local_path is not None else None)
         else:
             assert path is not None
-            report = (
-                scan_target(Target(path))
-                if signature_pack is None
-                and provider is None
-                and not dynamic_mcp
-                and not vuln_check
-                else scanner.scan(Target(path))
-            )
+            assert local_path is not None
+            if (
+                remote
+                or git_target
+                or (
+                    path.lower().endswith((".zip", ".tar", ".tar.gz", ".tgz"))
+                    and not local_path.is_dir()
+                )
+            ):
+                with acquire(path, remote=remote, git=git_target) as acquired:
+                    report = scanner.scan_acquired(acquired)
+            else:
+                report = (
+                    scan_target(Target(local_path))
+                    if signature_pack is None
+                    and provider is None
+                    and not dynamic_mcp
+                    and not vuln_check
+                    else scanner.scan(Target(local_path))
+                )
+    except AcquisitionCleanupError:
+        if report is None:
+            raise
+        report = replace(
+            report,
+            acquisition_status="partial",
+            acquisition_diagnostics=report.acquisition_diagnostics
+            + ("acquisition workspace cleanup failed",),
+        )
     except DiscoveryError as exc:
-        report = ScanReport(path or Path.home(), (), (), (str(exc),))
+        report = ScanReport(local_path or Path.home(), (), (), (str(exc),))
     click.echo(json_report(report) if output_format == "json" else terminal_report(report))
     if (
         report.errors
+        or report.acquisition_status in {"partial", "blocked", "failed"}
         or any(item.status == "diagnostic" for item in report.installed_environments)
         or report.vulnerability_status == "partial"
         or report.semantic_status == "partial"

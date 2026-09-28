@@ -1,10 +1,11 @@
 """Scanner orchestration; independent from CLI and report format."""
 
 from collections.abc import Sequence
-from dataclasses import replace
+from dataclasses import fields, is_dataclass, replace
+from enum import Enum
 from pathlib import Path
 
-from dragonscan.attack_graph import AttackGraph, GraphLimitError, build_graph
+from dragonscan.attack_graph import AttackGraph, GraphLimitError, build_graph, node_id
 from dragonscan.behavior import collect
 from dragonscan.correlation import correlate
 from dragonscan.detection import DetectionContext, EngineDetector, Observation
@@ -40,6 +41,7 @@ from dragonscan.signature_graph import annotate, enrich_correlations
 from dragonscan.signature_packs import load_pack
 from dragonscan.signatures import BUILTIN_SIGNATURES, SignatureEngine
 from dragonscan.supply_chain import analyze as analyze_dependencies
+from dragonscan.target_acquisition import AcquiredTarget
 from dragonscan.vulnerability import VULNERABILITY_IDS, IntelligenceProvider
 from dragonscan.vulnerability import enrich as enrich_vulnerabilities
 
@@ -375,6 +377,75 @@ class Scanner:
             report,
             installed_environments=discovered.environments,
             artifact_origins=tuple(resolved_origins),
+        )
+
+    def scan_acquired(self, acquired: AcquiredTarget) -> ScanReport:
+        """Run the existing static pipeline and replace ephemeral paths in public results."""
+        if self.dynamic_policy.requested:
+            raise DiscoveryError("dynamic MCP is unavailable for acquired targets")
+        source = Path(acquired.source)
+        if acquired.path is None:
+            return ScanReport(
+                source,
+                (),
+                (),
+                (),
+                acquisition_status=acquired.status,
+                acquisition_kind=acquired.kind,
+                acquisition_source=acquired.source,
+                acquisition_diagnostics=acquired.diagnostics,
+            )
+        report = self.scan(Target(acquired.path))
+        physical = acquired.root or acquired.path
+        logical = Path(acquired.source + "!") if acquired.root else source
+        # Graph identifiers are derived from physical artifact paths. Re-key them
+        # before releasing the workspace so flow evidence is stable across scans.
+        identifiers = (
+            {
+                node.id: node_id(
+                    node.kind,
+                    f"{index}:{node.label.replace(str(physical), str(logical))}",
+                )
+                for index, node in enumerate(self.graph.nodes)
+            }
+            if self.graph is not None
+            else {}
+        )
+
+        def rebase(value: object) -> object:
+            if isinstance(value, Enum):
+                return value
+            if isinstance(value, Path):
+                if value == physical:
+                    return logical
+                if value.is_relative_to(physical):
+                    return logical / value.relative_to(physical)
+                return value
+            if isinstance(value, str):
+                return identifiers.get(value, value.replace(str(physical), str(logical)))
+            if isinstance(value, tuple):
+                return tuple(rebase(item) for item in value)
+            if isinstance(value, list):
+                return [rebase(item) for item in value]
+            if isinstance(value, dict):
+                return {key: rebase(item) for key, item in value.items()}
+            if is_dataclass(value) and not isinstance(value, type):
+                return replace(
+                    value,
+                    **{field.name: rebase(getattr(value, field.name)) for field in fields(value)},
+                )
+            return value
+
+        rebased = rebase(report)
+        assert isinstance(rebased, ScanReport)
+        self.graph = rebase(self.graph)  # type: ignore[assignment]
+        return replace(
+            rebased,
+            target=source,
+            acquisition_status=acquired.status,
+            acquisition_kind=acquired.kind,
+            acquisition_source=acquired.source,
+            acquisition_diagnostics=acquired.diagnostics,
         )
 
 

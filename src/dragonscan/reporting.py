@@ -53,6 +53,20 @@ def json_report(report: ScanReport) -> str:
             data.pop(key)
     data.pop("installed_environments")
     data.pop("artifact_origins")
+    for key in (
+        "acquisition_status",
+        "acquisition_kind",
+        "acquisition_source",
+        "acquisition_diagnostics",
+    ):
+        data.pop(key)
+    if report.acquisition_status != "not_required":
+        data["acquisition"] = {
+            "status": report.acquisition_status,
+            "kind": report.acquisition_kind,
+            "source": report.acquisition_source,
+            "diagnostics": report.acquisition_diagnostics,
+        }
     if report.installed_environments:
         data["installed_agents"] = {
             "environments": [
@@ -188,6 +202,10 @@ def terminal_report(report: ScanReport) -> str:
                 )
     for error in report.errors:
         lines.append(f"ERROR: {ascii(error)}")
+    if report.acquisition_status != "not_required":
+        lines.append(f"Acquisition: {report.acquisition_status} ({report.acquisition_kind})")
+        for diagnostic in report.acquisition_diagnostics:
+            lines.append(f"ACQUISITION DIAGNOSTIC: {ascii(diagnostic)}")
     if report.installed_environments:
         lines.append("Installed agent environments (configuration evidence, not binary proof):")
         for item in report.installed_environments:
