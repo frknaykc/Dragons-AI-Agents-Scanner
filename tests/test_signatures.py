@@ -318,7 +318,7 @@ def test_malformed_user_json_and_cli_diagnostic(tmp_path):
     (directory / "bad.json").write_text('{"signatures":[],"signatures":[]}', encoding="utf-8")
     target = skill(tmp_path, "A plain note.\n")
     response = CliRunner().invoke(main, ["scan", str(target), "--signature-pack", str(directory)])
-    assert response.exit_code == 2
+    assert response.exit_code == 3
     assert "invalid pack" in response.output
     assert "Traceback" not in response.output
 

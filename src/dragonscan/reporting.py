@@ -4,6 +4,7 @@ import json
 from dataclasses import asdict
 
 from dragonscan.models import ScanReport
+from dragonscan.sarif import sarif_report as sarif_report
 
 
 def json_report(report: ScanReport) -> str:

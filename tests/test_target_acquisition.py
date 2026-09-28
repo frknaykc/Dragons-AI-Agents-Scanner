@@ -439,7 +439,7 @@ def test_cleanup_failure_preserves_findings(tmp_path: Path) -> None:
         "dragonscan.target_acquisition.tempfile.TemporaryDirectory.cleanup", cleanup_then_fail
     ):
         response = CliRunner().invoke(main, ["scan", str(path), "--format", "json"])
-    assert response.exit_code == 2
+    assert response.exit_code == 3
     body = json.loads(response.output)
     assert body["acquisition"]["status"] == "partial"
     assert body["findings"]

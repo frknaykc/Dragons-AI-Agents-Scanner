@@ -249,7 +249,7 @@ def test_partial_preserves_observed_metadata_and_static_result(tmp_path: Path) -
             "json",
         ],
     )
-    assert cli.exit_code == 2
+    assert cli.exit_code == 3
     assert json.loads(cli.output)["dynamic_mcp"]["status"] == "partial"
 
 
@@ -317,7 +317,7 @@ def test_cli_requires_stronger_consent(tmp_path: Path) -> None:
         "json",
     ]
     result = CliRunner().invoke(main, args)
-    assert result.exit_code == 2
+    assert result.exit_code == 3
     assert json.loads(result.output)["dynamic_mcp"]["status"] == "blocked"
     result = CliRunner().invoke(main, [*args, "--allow-uncontained-mcp"])
     assert result.exit_code == 0

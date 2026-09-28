@@ -174,7 +174,7 @@ def test_partial_scan_is_error_even_with_findings(tmp_path: Path) -> None:
     )
     (tmp_path / "mcp.json").write_text("{bad json")
     result = CliRunner().invoke(main, ["scan", str(tmp_path), "--format", "json"])
-    assert result.exit_code == 2
+    assert result.exit_code == 3
     data = json.loads(result.output)
     assert len(data["findings"]) == 1 and len(data["errors"]) == 1
 
@@ -194,7 +194,7 @@ def test_terminal_does_not_include_untrusted_server_names(tmp_path: Path) -> Non
         )
     )
     result = CliRunner().invoke(main, ["scan", str(path)])
-    assert result.exit_code == 1
+    assert result.exit_code == 0
     assert "\u001b" not in result.output and "bad" not in result.output
 
 
@@ -203,7 +203,7 @@ def test_cli_exit_codes_and_json_output(
 ) -> None:
     runner = CliRunner()
     bad = runner.invoke(main, ["scan", str(malicious_corpus), "--format", "json"])
-    assert bad.exit_code == 1, bad.output
+    assert bad.exit_code == 0, bad.output
     data = json.loads(bad.output)
     assert data["risk"] == "high"
     assert len(data["artifacts"]) == 2
@@ -214,7 +214,7 @@ def test_cli_exit_codes_and_json_output(
     assert high_but_not_critical.exit_code == 0
     assert runner.invoke(main, ["scan", str(benign_corpus)]).exit_code == 0
     missing = runner.invoke(main, ["scan", str(tmp_path / "missing"), "--format", "json"])
-    assert missing.exit_code == 2
+    assert missing.exit_code == 3
     assert json.loads(missing.output)["errors"]
     assert runner.invoke(main, ["scan", str(tmp_path), "--fail-on", "bogus"]).exit_code == 2
 

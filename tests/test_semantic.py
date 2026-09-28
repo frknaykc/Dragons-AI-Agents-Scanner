@@ -526,7 +526,7 @@ def test_cli_partial_preserves_static_findings(tmp_path, monkeypatch):
             "json",
         ],
     )
-    assert response.exit_code == 2
+    assert response.exit_code == 3
     data = json.loads(response.output)
     assert data["semantic"]["status"] == "partial"
     assert data["findings"]

@@ -9,7 +9,7 @@ import click
 from dragonscan.discovery import DiscoveryError
 from dragonscan.dynamic_mcp import DynamicPolicy
 from dragonscan.models import ScanReport, Severity, Target
-from dragonscan.reporting import json_report, terminal_report
+from dragonscan.reporting import json_report, sarif_report, terminal_report
 from dragonscan.risk import meets_threshold
 from dragonscan.scanner import Scanner
 from dragonscan.scanner import scan as scan_target
@@ -39,16 +39,15 @@ def main() -> None:
 @click.option(
     "--format",
     "output_format",
-    type=click.Choice(["terminal", "json"]),
+    type=click.Choice(["terminal", "json", "sarif"]),
     default="terminal",
     show_default=True,
 )
 @click.option(
     "--fail-on",
     type=click.Choice([level.value for level in Severity]),
-    default="high",
-    show_default=True,
-    help="Exit 1 on findings at or above this severity.",
+    default=None,
+    help="Opt in to exit 1 on findings at or above this severity.",
 )
 @click.option(
     "--signature-pack",
@@ -89,7 +88,7 @@ def scan(
     git_target: bool,
     installed_agents: bool,
     output_format: str,
-    fail_on: str,
+    fail_on: str | None,
     signature_pack: Path | None,
     vuln_check: bool,
     semantic: bool,
@@ -178,16 +177,29 @@ def scan(
                 )
     except AcquisitionCleanupError:
         if report is None:
-            raise
-        report = replace(
-            report,
-            acquisition_status="partial",
-            acquisition_diagnostics=report.acquisition_diagnostics
-            + ("acquisition workspace cleanup failed",),
-        )
+            report = ScanReport(
+                local_path or Path.home(),
+                (),
+                (),
+                acquisition_status="failed",
+                acquisition_diagnostics=("acquisition workspace cleanup failed",),
+            )
+        else:
+            report = replace(
+                report,
+                acquisition_status="partial",
+                acquisition_diagnostics=report.acquisition_diagnostics
+                + ("acquisition workspace cleanup failed",),
+            )
     except DiscoveryError as exc:
         report = ScanReport(local_path or Path.home(), (), (), (str(exc),))
-    click.echo(json_report(report) if output_format == "json" else terminal_report(report))
+    click.echo(
+        json_report(report)
+        if output_format == "json"
+        else sarif_report(report)
+        if output_format == "sarif"
+        else terminal_report(report)
+    )
     if (
         report.errors
         or report.acquisition_status in {"partial", "blocked", "failed"}
@@ -196,6 +208,8 @@ def scan(
         or report.semantic_status == "partial"
         or report.dynamic_status in {"blocked", "partial", "failed"}
     ):
-        raise SystemExit(2)
-    if meets_threshold(report.risk, Severity(fail_on)):
+        raise SystemExit(3)
+    if fail_on is not None and any(
+        meets_threshold(finding.severity, Severity(fail_on)) for finding in report.findings
+    ):
         raise SystemExit(1)

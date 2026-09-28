@@ -270,7 +270,7 @@ def test_cli_contextual_finding_and_benign_negation(tmp_path):
         encoding="utf-8",
     )
     malicious = runner.invoke(main, ["scan", str(path), "--format", "json"])
-    assert malicious.exit_code == 1
+    assert malicious.exit_code == 0
     finding = next(
         f
         for f in json.loads(malicious.output)["findings"]

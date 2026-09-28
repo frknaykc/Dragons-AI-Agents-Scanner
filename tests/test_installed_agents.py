@@ -224,7 +224,7 @@ def test_diagnostic_exit_is_distinct_from_not_found(
     assert CliRunner().invoke(main, ["scan", "--installed-agents"]).exit_code == 0
     (tmp_path / ".claude").symlink_to(tmp_path.parent, target_is_directory=True)
     result = CliRunner().invoke(main, ["scan", "--installed-agents", "--format", "json"])
-    assert result.exit_code == 2
+    assert result.exit_code == 3
     data = json.loads(result.output)
     assert not data["findings"]
     assert data["installed_agents"]["environments"][0]["status"] == "diagnostic"
