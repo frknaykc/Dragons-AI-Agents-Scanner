@@ -1,6 +1,7 @@
 """Static artifact discovery. Never follow symlinks or inspect arbitrary files."""
 
 import os
+import stat
 from pathlib import Path
 
 from dragonscan.models import Artifact, ArtifactKind, SourceFormat, Target
@@ -120,3 +121,48 @@ def discover(target: Target) -> tuple[Artifact, ...]:
                 if len(artifacts) > MAX_FILES:
                     raise DiscoveryError("artifact count exceeds limit")
     return tuple(artifacts)
+
+
+def discover_bounded(
+    target: Target, *, max_depth: int, max_entries: int, max_artifacts: int
+) -> tuple[Artifact, ...]:
+    """Reuse classification with strict directory/entry budgets for known agent roots.
+
+    A limit failure discards the root instead of silently omitting candidates.
+    """
+    path = target.path.absolute()
+    if path.is_symlink() or not path.is_dir():
+        raise DiscoveryError("agent root is not a regular directory")
+    pending = [(path, 0)]
+    entries = 0
+    artifacts: list[Artifact] = []
+    while pending:
+        root, depth = pending.pop()
+        try:
+            if not stat.S_ISDIR(root.lstat().st_mode):
+                raise DiscoveryError("agent directory changed during traversal")
+            with os.scandir(root) as stream:
+                names = []
+                for entry in stream:
+                    entries += 1
+                    if entries > max_entries:
+                        raise DiscoveryError("agent discovery entry limit exceeded")
+                    names.append(entry.name)
+        except OSError as exc:
+            raise DiscoveryError(f"agent directory inaccessible: {type(exc).__name__}") from None
+        for name in sorted(names, reverse=True):
+            candidate = root / name
+            try:
+                mode = candidate.lstat().st_mode
+            except OSError as exc:
+                raise DiscoveryError(f"agent entry inaccessible: {type(exc).__name__}") from None
+            if stat.S_ISDIR(mode):
+                if depth < max_depth and name not in SKIP_DIRS:
+                    pending.append((candidate, depth + 1))
+            elif stat.S_ISREG(mode):
+                artifact = classify(candidate)
+                if artifact is not None:
+                    artifacts.append(artifact)
+                    if len(artifacts) > max_artifacts:
+                        raise DiscoveryError("agent discovery artifact limit exceeded")
+    return tuple(sorted(artifacts, key=lambda item: str(item.path)))

@@ -321,6 +321,26 @@ class DynamicMcpObservation:
 
 
 @dataclass(frozen=True)
+class InstalledEnvironment:
+    agent: str
+    root: Path
+    source: str
+    artifact_roots: tuple[Path, ...]
+    status: str  # discovered, not_found, or diagnostic; not binary installation proof
+    diagnostic: str | None = None
+
+
+@dataclass(frozen=True)
+class ArtifactOrigin:
+    artifact: Path
+    provenance: str  # explicit_target or installed_agent
+    agent: str | None = None
+    environment: Path | None = None
+    source: str | None = None
+    scanned_artifact: Path | None = None
+
+
+@dataclass(frozen=True)
 class Finding:
     detection_id: str
     category: str
@@ -368,3 +388,5 @@ class ScanReport:
     dynamic_status: str = "not_requested"
     dynamic_diagnostics: tuple[str, ...] = ()
     dynamic_observations: tuple[DynamicMcpObservation, ...] = ()
+    installed_environments: tuple[InstalledEnvironment, ...] = ()
+    artifact_origins: tuple[ArtifactOrigin, ...] = ()

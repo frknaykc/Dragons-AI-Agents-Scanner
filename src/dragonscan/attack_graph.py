@@ -116,6 +116,8 @@ def build_graph(
     boundary: Path,
     documents: tuple[Document, ...],
     observations: dict[Path, tuple[Observation, ...]],
+    *,
+    reference_boundaries: Mapping[Path, Path] | None = None,
 ) -> AttackGraph:
     nodes: dict[str, GraphNode] = {}
     edges: dict[GraphEdge, None] = {}
@@ -161,7 +163,8 @@ def build_graph(
         return node("external_resource", clean, f"external HTTP(S) endpoint ({hostname[:80]})")
 
     def local(source: Path, target: str) -> tuple[str, Resolution]:
-        resolved = resolve_local(root, source, target, known, case_counts)
+        source_root = reference_boundaries.get(source, root) if reference_boundaries else root
+        resolved = resolve_local(source_root, source, target, known, case_counts)
         if resolved.path is not None:
             return artifact_node(resolved.path), resolved
         return (

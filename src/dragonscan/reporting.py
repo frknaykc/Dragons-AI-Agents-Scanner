@@ -51,6 +51,35 @@ def json_report(report: ScanReport) -> str:
             data.pop(key)
         if key.startswith("dynamic_"):
             data.pop(key)
+    data.pop("installed_environments")
+    data.pop("artifact_origins")
+    if report.installed_environments:
+        data["installed_agents"] = {
+            "environments": [
+                {
+                    "agent": item.agent,
+                    "root": str(item.root),
+                    "source": item.source,
+                    "artifact_roots": [str(root) for root in item.artifact_roots],
+                    "status": item.status,
+                    "diagnostic": item.diagnostic,
+                }
+                for item in report.installed_environments
+            ],
+            "artifacts": [
+                {
+                    "artifact": str(item.artifact),
+                    "scanned_artifact": (
+                        str(item.scanned_artifact) if item.scanned_artifact is not None else None
+                    ),
+                    "provenance": item.provenance,
+                    "agent": item.agent,
+                    "environment": str(item.environment) if item.environment else None,
+                    "source": item.source,
+                }
+                for item in report.artifact_origins
+            ],
+        }
     if report.semantic_status != "disabled":
         data["semantic"] = {
             "enabled": True,
@@ -159,6 +188,18 @@ def terminal_report(report: ScanReport) -> str:
                 )
     for error in report.errors:
         lines.append(f"ERROR: {ascii(error)}")
+    if report.installed_environments:
+        lines.append("Installed agent environments (configuration evidence, not binary proof):")
+        for item in report.installed_environments:
+            lines.append(f"  {ascii(item.agent)}: {item.status} [{ascii(item.source)}]")
+            if item.diagnostic:
+                lines.append(f"    DIAGNOSTIC: {ascii(item.diagnostic)}")
+        lines.append(
+            f"Installed artifact roots: "
+            f"{sum(len(item.artifact_roots) for item in report.installed_environments)}; "
+            f"discovered artifact origins: "
+            f"{sum(item.provenance == 'installed_agent' for item in report.artifact_origins)}"
+        )
     if report.vulnerability_status != "disabled":
         lines.append(f"Vulnerability intelligence: {report.vulnerability_status}")
     for diagnostic in report.vulnerability_diagnostics:

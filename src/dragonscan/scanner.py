@@ -9,16 +9,18 @@ from dragonscan.behavior import collect
 from dragonscan.correlation import correlate
 from dragonscan.detection import DetectionContext, EngineDetector, Observation
 from dragonscan.detectors import BUILTIN_DETECTORS, SourceSinkDetector
-from dragonscan.discovery import discover
+from dragonscan.discovery import DiscoveryError, discover
 from dragonscan.dynamic_mcp import DynamicPolicy, DynamicResult
 from dragonscan.dynamic_mcp import inspect as inspect_mcp
 from dragonscan.evasion import views
 from dragonscan.evasion_graph import annotate_views
 from dragonscan.flow import correlate_flows, describe_existing_flow
+from dragonscan.installed_agents import discover_installed
 from dragonscan.loading import LoadError, load_text
 from dragonscan.mcp_correlation import correlate_mcp
 from dragonscan.models import (
     Artifact,
+    ArtifactOrigin,
     Classification,
     Confidence,
     Document,
@@ -86,8 +88,20 @@ class Scanner:
             SignatureEngine((*builtins, *loaded)) if builtins or loaded else None
         )
 
-    def scan(self, target: Target) -> ScanReport:
-        artifacts = discover(target)
+    def scan(
+        self,
+        target: Target,
+        *,
+        artifacts: tuple[Artifact, ...] | None = None,
+        boundaries: dict[Path, Path] | None = None,
+        reference_boundaries: dict[Path, Path] | None = None,
+    ) -> ScanReport:
+        if artifacts is None:
+            artifacts = discover(target)
+
+        def boundary_for(path: Path) -> Target:
+            return Target(boundaries[path]) if boundaries is not None else target
+
         normalized: list[Artifact] = []
         documents: list[Document] = []
         observations_by_path: dict[Path, tuple[Observation, ...]] = {}
@@ -143,7 +157,9 @@ class Scanner:
                         f.sink,
                         None,
                     )
-                    for f in analyze_dependencies(target, (document,))[1]
+                    for f in analyze_dependencies(
+                        boundary_for(document.artifact.path), (document,)
+                    )[1]
                 )
             for view in derived:
                 candidates: list[Finding] = []
@@ -164,7 +180,11 @@ class Scanner:
                             )
                         )
                 if view.context == "lifecycle-script":
-                    candidates.extend(analyze_dependencies(target, (view.document,))[1])
+                    candidates.extend(
+                        analyze_dependencies(
+                            boundary_for(view.document.artifact.path), (view.document,)
+                        )[1]
+                    )
                 for rule in self.rules:
                     candidates.extend(rule.detect(view.document))
                 observations_view = collect(view.document)
@@ -230,15 +250,37 @@ class Scanner:
                 for finding in document_findings
             )
         if self.enable_correlation:
-            analyzed, supply_findings, supply_errors = analyze_dependencies(
-                target, tuple(documents)
-            )
-            documents = list(analyzed)
-            findings.extend(describe_existing_flow(f, tuple(documents)) for f in supply_findings)
-            errors.extend(supply_errors)
+            if boundaries is None:
+                analyzed, supply_findings, supply_errors = analyze_dependencies(
+                    target, tuple(documents)
+                )
+                documents = list(analyzed)
+                findings.extend(
+                    describe_existing_flow(f, tuple(documents)) for f in supply_findings
+                )
+                errors.extend(supply_errors)
+            else:
+                groups: dict[Path, list[Document]] = {}
+                for document in documents:
+                    groups.setdefault(boundaries[document.artifact.path], []).append(document)
+                documents = []
+                for boundary, group in groups.items():
+                    analyzed, supply_findings, supply_errors = analyze_dependencies(
+                        Target(boundary), tuple(group)
+                    )
+                    documents.extend(analyzed)
+                    findings.extend(
+                        describe_existing_flow(f, tuple(analyzed)) for f in supply_findings
+                    )
+                    errors.extend(supply_errors)
         if self.enable_correlation:
             try:
-                graph = build_graph(target.path.absolute(), tuple(documents), observations_by_path)
+                graph = build_graph(
+                    target.path.absolute(),
+                    tuple(documents),
+                    observations_by_path,
+                    reference_boundaries=reference_boundaries,
+                )
                 graph = annotate(
                     graph,
                     tuple(documents),
@@ -285,6 +327,55 @@ class Scanner:
             )
         self.graph = graph
         return report
+
+    def scan_installed(
+        self, target: Target | None = None, *, home: Path | None = None, platform: str | None = None
+    ) -> ScanReport:
+        if self.dynamic_policy.requested:
+            raise DiscoveryError("dynamic MCP is unavailable during installed-agent discovery")
+        discovered = discover_installed(home=home, platform=platform)
+        explicit = discover(target) if target is not None else ()
+        all_artifacts = (*explicit, *discovered.artifacts)
+        origins = (
+            *(ArtifactOrigin(artifact.path, "explicit_target") for artifact in explicit),
+            *discovered.origins,
+        )
+        unique: list[Artifact] = []
+        resolved_origins: list[ArtifactOrigin] = []
+        boundaries: dict[Path, Path] = {}
+        reference_boundaries: dict[Path, Path] = {}
+        seen: dict[tuple[object, ...], Path] = {}
+        for artifact, origin in zip(all_artifacts, origins, strict=True):
+            try:
+                info = artifact.path.lstat()
+                identity: tuple[object, ...] = (info.st_dev, info.st_ino)
+            except OSError:
+                identity = ("missing", str(artifact.path))
+            if identity in seen:
+                resolved_origins.append(replace(origin, scanned_artifact=seen[identity]))
+                continue
+            seen[identity] = artifact.path
+            resolved_origins.append(replace(origin, scanned_artifact=artifact.path))
+            unique.append(artifact)
+            boundaries[artifact.path] = (
+                target.path
+                if origin.provenance == "explicit_target" and target is not None
+                else origin.environment or artifact.path.parent
+            )
+        for origin in resolved_origins:
+            if origin.provenance == "installed_agent" and origin.scanned_artifact is not None:
+                reference_boundaries[origin.scanned_artifact] = (home or Path.home()).absolute()
+        report = self.scan(
+            target or Target((home or Path.home()).absolute()),
+            artifacts=tuple(unique),
+            boundaries=boundaries,
+            reference_boundaries=reference_boundaries,
+        )
+        return replace(
+            report,
+            installed_environments=discovered.environments,
+            artifact_origins=tuple(resolved_origins),
+        )
 
 
 def scan(path: Target) -> ScanReport:

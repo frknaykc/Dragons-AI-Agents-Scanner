@@ -21,7 +21,10 @@ def main() -> None:
 
 
 @main.command()
-@click.argument("path", type=click.Path(path_type=Path))
+@click.argument("path", required=False, type=click.Path(path_type=Path))
+@click.option(
+    "--installed-agents", is_flag=True, help="Scan bounded known local agent environments"
+)
 @click.option(
     "--format",
     "output_format",
@@ -70,7 +73,8 @@ def main() -> None:
     help="Exact absolute executable path in the MCP config.",
 )
 def scan(
-    path: Path,
+    path: Path | None,
+    installed_agents: bool,
     output_format: str,
     fail_on: str,
     signature_pack: Path | None,
@@ -84,6 +88,10 @@ def scan(
     dynamic_mcp_executable: Path | None,
 ) -> None:
     """Scan a local file or directory (recognized artifact names/context only)."""
+    if path is None and not installed_agents:
+        raise click.UsageError("PATH is required unless --installed-agents is set")
+    if installed_agents and dynamic_mcp:
+        raise click.UsageError("--dynamic-mcp cannot be combined with --installed-agents")
     provider = None
     if not dynamic_mcp and (allow_uncontained_mcp or dynamic_mcp_server or dynamic_mcp_executable):
         raise click.UsageError("--dynamic-mcp is required for dynamic execution options")
@@ -103,25 +111,38 @@ def scan(
         if vuln_check:
             from dragonscan.osv import OSVProvider
 
-            report = Scanner(
+            scanner = Scanner(
                 signature_pack=signature_pack,
                 vulnerability_provider=OSVProvider(),
                 semantic_provider=provider,
                 dynamic_policy=dynamic_policy,
-            ).scan(Target(path))
+            )
         elif signature_pack is None and provider is None and not dynamic_mcp:
-            report = scan_target(Target(path))
+            scanner = Scanner()
         else:
-            report = Scanner(
+            scanner = Scanner(
                 signature_pack=signature_pack,
                 semantic_provider=provider,
                 dynamic_policy=dynamic_policy,
-            ).scan(Target(path))
+            )
+        if installed_agents:
+            report = scanner.scan_installed(Target(path) if path is not None else None)
+        else:
+            assert path is not None
+            report = (
+                scan_target(Target(path))
+                if signature_pack is None
+                and provider is None
+                and not dynamic_mcp
+                and not vuln_check
+                else scanner.scan(Target(path))
+            )
     except DiscoveryError as exc:
-        report = ScanReport(path, (), (), (str(exc),))
+        report = ScanReport(path or Path.home(), (), (), (str(exc),))
     click.echo(json_report(report) if output_format == "json" else terminal_report(report))
     if (
         report.errors
+        or any(item.status == "diagnostic" for item in report.installed_environments)
         or report.vulnerability_status == "partial"
         or report.semantic_status == "partial"
         or report.dynamic_status in {"blocked", "partial", "failed"}
