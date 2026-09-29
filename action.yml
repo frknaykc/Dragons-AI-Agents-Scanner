@@ -1,0 +1,61 @@
+name: Dragons AI Agent Scanner
+description: Scan a checked-out repository with Dragons and optionally upload SARIF to Code Scanning.
+inputs:
+  target:
+    description: Local path within GITHUB_WORKSPACE to scan (checkout is required).
+    default: .
+  fail-on:
+    description: Optional Dragons severity gate (critical, high, medium, low, info); unset by default.
+    default: ''
+  upload-sarif:
+    description: Upload SARIF with GitHub's Code Scanning action (requires security-events write permission).
+    default: 'false'
+outputs:
+  sarif-path:
+    description: Absolute path to the generated SARIF file, when available.
+    value: ${{ steps.scan.outputs.sarif-path }}
+  exit-code:
+    description: Dragons CLI exit code (0 scan pass, 1 gate fail, 2 usage, 3 operational/partial).
+    value: ${{ steps.scan.outputs.exit-code }}
+runs:
+  using: composite
+  steps:
+    - name: Install pinned uv
+      uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+      with:
+        version: '0.11.7'
+        python-version: '3.12'
+        enable-cache: 'false'
+        working-directory: ${{ github.action_path }}
+    - name: Install Dragons from this Action's locked source
+      shell: bash
+      env:
+        ACTION_ROOT: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        cd "$ACTION_ROOT"
+        uv python install 3.12
+        UV_PROJECT_ENVIRONMENT="$RUNNER_TEMP/dragons-venv" uv sync --locked --no-dev --no-editable --no-config --project "$ACTION_ROOT"
+    - name: Scan checked-out repository
+      id: scan
+      shell: bash
+      env:
+        INPUT_TARGET: ${{ inputs.target }}
+        INPUT_FAIL_ON: ${{ inputs.fail-on }}
+        ACTION_ROOT: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        "$RUNNER_TEMP/dragons-venv/bin/python" "$ACTION_ROOT/scripts/action_scan.py"
+    - name: Upload SARIF to Code Scanning
+      if: ${{ inputs.upload-sarif == 'true' && steps.scan.outputs.sarif-path != '' }}
+      uses: github/codeql-action/upload-sarif@2d92b76c45b91eb80fc44c74ce3fce0ee94e8f9d # v3.30.0
+      with:
+        sarif_file: ${{ steps.scan.outputs.sarif-path }}
+    - name: Preserve Dragons exit status
+      if: ${{ always() && steps.scan.outputs.exit-code != '' }}
+      shell: bash
+      env:
+        DRAGONS_EXIT_CODE: ${{ steps.scan.outputs.exit-code }}
+      run: |
+        set -euo pipefail
+        exit "$DRAGONS_EXIT_CODE"
