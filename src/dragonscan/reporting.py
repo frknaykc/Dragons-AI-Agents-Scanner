@@ -35,6 +35,8 @@ def json_report(report: ScanReport) -> str:
             item.pop("dependency")
         if finding.vulnerability is None:
             item.pop("vulnerability")
+        if finding.intelligence is None:
+            item.pop("intelligence")
         if finding.evasion is None:
             item.pop("evasion")
         if finding.semantic is None:
@@ -54,6 +56,18 @@ def json_report(report: ScanReport) -> str:
             data.pop(key)
     data.pop("installed_environments")
     data.pop("artifact_origins")
+    for key in ("intelligence_status", "intelligence_feeds", "intelligence_diagnostics"):
+        data.pop(key)
+    if report.intelligence_status != "disabled":
+        data["threat_intelligence"] = {
+            "status": report.intelligence_status,
+            "feeds": [
+                {"feed_id": feed_id, "version": version, "records_loaded": count}
+                for feed_id, version, count in report.intelligence_feeds
+            ],
+            "matches": sum(item.intelligence is not None for item in report.findings),
+            "diagnostics": report.intelligence_diagnostics,
+        }
     for key in (
         "acquisition_status",
         "acquisition_kind",
@@ -150,6 +164,14 @@ def terminal_report(report: ScanReport) -> str:
                 f"  Signature: {ascii(info.signature_id)} ({ascii(info.signature_type)}) "
                 f"from {ascii(info.pack)}{ascii(version)}; context={ascii(info.context)}"
             )
+        if finding.intelligence is not None:
+            for source in finding.intelligence.sources:
+                lines.append(
+                    f"  Intelligence: {ascii(source.feed_id)} v{ascii(source.feed_version)} "
+                    f"record={ascii(source.record_id)}; "
+                    f"classification={ascii(source.classification)}; "
+                    f"source={ascii(source.source)}"
+                )
         if finding.semantic is not None:
             semantic_info = finding.semantic
             lines.append(
@@ -223,6 +245,15 @@ def terminal_report(report: ScanReport) -> str:
         lines.append(f"Vulnerability intelligence: {report.vulnerability_status}")
     for diagnostic in report.vulnerability_diagnostics:
         lines.append(f"VULN DIAGNOSTIC: {ascii(diagnostic)}")
+    if report.intelligence_status != "disabled":
+        lines.append(
+            f"Threat intelligence: {report.intelligence_status}; "
+            f"matches={sum(item.intelligence is not None for item in report.findings)}"
+        )
+        for feed_id, version, count in report.intelligence_feeds:
+            lines.append(f"  Feed: {ascii(feed_id)} v{ascii(version)}; records loaded: {count}")
+        for diagnostic in report.intelligence_diagnostics:
+            lines.append(f"  INTEL DIAGNOSTIC: {ascii(diagnostic)}")
     if report.semantic_status != "disabled":
         provider = ascii(report.semantic_provider)
         model = ascii(report.semantic_model)

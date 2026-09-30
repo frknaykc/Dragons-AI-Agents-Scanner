@@ -1,5 +1,6 @@
 """Scanner orchestration; independent from CLI and report format."""
 
+import hashlib
 from collections.abc import Sequence
 from dataclasses import fields, is_dataclass, replace
 from enum import Enum
@@ -17,7 +18,7 @@ from dragonscan.evasion import views
 from dragonscan.evasion_graph import annotate_views
 from dragonscan.flow import correlate_flows, describe_existing_flow
 from dragonscan.installed_agents import discover_installed
-from dragonscan.loading import LoadError, load_text
+from dragonscan.loading import LoadError, load_text, load_text_with_bytes
 from dragonscan.mcp_correlation import correlate_mcp
 from dragonscan.models import (
     Artifact,
@@ -42,6 +43,7 @@ from dragonscan.signature_packs import load_pack
 from dragonscan.signatures import BUILTIN_SIGNATURES, SignatureEngine
 from dragonscan.supply_chain import analyze as analyze_dependencies
 from dragonscan.target_acquisition import AcquiredTarget
+from dragonscan.threat_intel import INTELLIGENCE_IDS, STORE_NAME, Matcher, load_feeds
 from dragonscan.vulnerability import VULNERABILITY_IDS, IntelligenceProvider
 from dragonscan.vulnerability import enrich as enrich_vulnerabilities
 
@@ -56,6 +58,8 @@ class Scanner:
         semantic_provider: SemanticProvider | None = None,
         semantic_limits: SemanticLimits | None = None,
         dynamic_policy: DynamicPolicy | None = None,
+        intel_feeds: tuple[Path, ...] = (),
+        intel_store: Path | None = None,
     ):
         # An explicit legacy rule selection keeps the old selection semantics.
         self.rules = tuple(BUILTIN_RULES if rules is None else rules)
@@ -63,6 +67,11 @@ class Scanner:
         self.semantic_provider = semantic_provider
         self.semantic_limits = semantic_limits or SemanticLimits()
         self.dynamic_policy = dynamic_policy or DynamicPolicy()
+        self.intel_requested = bool(intel_feeds or intel_store is not None)
+        self.intel_paths = (
+            *intel_feeds,
+            *((intel_store / STORE_NAME,) if intel_store is not None else ()),
+        )
         self.graph: AttackGraph | None = None
         self.enable_correlation = rules is None
         self.detectors = tuple(
@@ -81,6 +90,7 @@ class Scanner:
             set(identifiers)
             | {signature.detection_id for signature in BUILTIN_SIGNATURES}
             | VULNERABILITY_IDS
+            | INTELLIGENCE_IDS
         )
         loaded, self.pack_diagnostics = (
             load_pack(signature_pack, reserved) if signature_pack is not None else ((), ())
@@ -98,6 +108,11 @@ class Scanner:
         boundaries: dict[Path, Path] | None = None,
         reference_boundaries: dict[Path, Path] | None = None,
     ) -> ScanReport:
+        # A reused scanner must observe the current installed feed, never a stale index.
+        intel_feeds, intel_diagnostics = (
+            load_feeds(self.intel_paths) if self.intel_requested else ((), ())
+        )
+        intel_matcher = Matcher(intel_feeds) if self.intel_requested else None
         if artifacts is None:
             artifacts = discover(target)
 
@@ -106,13 +121,18 @@ class Scanner:
 
         normalized: list[Artifact] = []
         documents: list[Document] = []
+        intel_digests: dict[Path, str] = {}
         observations_by_path: dict[Path, tuple[Observation, ...]] = {}
         findings: list[Finding] = []
         graph = None
         errors: list[str] = list(self.pack_diagnostics)
         for artifact in artifacts:
             try:
-                text = load_text(artifact.path)
+                if intel_matcher is not None:
+                    text, raw = load_text_with_bytes(artifact.path)
+                    intel_digests[artifact.path] = hashlib.sha256(raw).hexdigest()
+                else:
+                    text = load_text(artifact.path)
                 document = parse(artifact, text)
             except (LoadError, ParseError) as exc:
                 errors.append(f"{artifact.path}: {exc}")
@@ -326,6 +346,24 @@ class Scanner:
                 dynamic_status=dynamic.status,
                 dynamic_diagnostics=dynamic.diagnostics,
                 dynamic_observations=dynamic.observations,
+            )
+        # Intelligence has no effect on graph, semantic candidate selection or MCP launch.
+        if intel_matcher is not None:
+            intel_findings: list[Finding] = []
+            for doc in documents:
+                intel_findings.extend(intel_matcher.detect(doc, intel_digests[doc.artifact.path]))
+            combined = (*report.findings, *intel_findings)
+            risk, counts = summarize(combined)
+            report = replace(
+                report,
+                findings=combined,
+                risk=risk,
+                counts=counts,
+                intelligence_status="partial" if intel_diagnostics else "complete",
+                intelligence_feeds=tuple(
+                    (feed.id, feed.version, len(feed.records)) for feed in intel_feeds
+                ),
+                intelligence_diagnostics=intel_diagnostics,
             )
         self.graph = graph
         return report

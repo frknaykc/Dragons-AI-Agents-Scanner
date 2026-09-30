@@ -74,6 +74,23 @@ def _result(report: ScanReport, finding: Finding) -> dict[str, Any]:
             "classification": finding.classification.value,
         },
     }
+    if finding.intelligence is not None:
+        info = finding.intelligence
+        result["properties"]["threatIntelligence"] = {
+            "indicatorType": info.indicator_type,
+            "indicator": _safe(info.indicator, 256),
+            "context": info.context,
+            "sources": [
+                {
+                    "feed": source.feed_id,
+                    "version": source.feed_version,
+                    "record": source.record_id,
+                    "source": _safe(source.source, 128),
+                    "classification": source.classification,
+                }
+                for source in info.sources
+            ],
+        }
     uri = _uri(report, finding.artifact)
     if uri is not None:
         physical: dict[str, Any] = {"artifactLocation": {"uri": uri}}
@@ -93,7 +110,7 @@ def _rule(findings: list[Finding]) -> dict[str, Any]:
             _safe(item.category),
         ),
     )
-    contextual = representative.signature is not None
+    contextual = representative.signature is not None or representative.intelligence is not None
     rule: dict[str, Any] = {
         "id": representative.detection_id,
         "name": _safe(representative.title, 256),

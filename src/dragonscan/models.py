@@ -274,6 +274,23 @@ class VulnerabilityEvidence:
 
 
 @dataclass(frozen=True)
+class IntelligenceSource:
+    feed_id: str
+    feed_version: str
+    record_id: str
+    source: str
+    classification: str
+
+
+@dataclass(frozen=True)
+class IntelligenceEvidence:
+    indicator_type: str
+    indicator: str
+    context: str
+    sources: tuple[IntelligenceSource, ...]
+
+
+@dataclass(frozen=True)
 class EvasionEvidence:
     """Bounded provenance of a static analysis view, never executable content."""
 
@@ -363,6 +380,7 @@ class Finding:
     signature: SignatureEvidence | None = None
     dependency: DependencyEvidence | None = None
     vulnerability: VulnerabilityEvidence | None = None
+    intelligence: IntelligenceEvidence | None = None
     evasion: EvasionEvidence | None = None
     flow: FlowEvidence | None = None
     semantic: SemanticEvidence | None = None
@@ -379,6 +397,9 @@ class ScanReport:
     counts: dict[str, int] = field(default_factory=dict)
     vulnerability_status: str = "disabled"
     vulnerability_diagnostics: tuple[str, ...] = ()
+    intelligence_status: str = "disabled"
+    intelligence_feeds: tuple[tuple[str, str, int], ...] = ()
+    intelligence_diagnostics: tuple[str, ...] = ()
     semantic_status: str = "disabled"
     semantic_provider: str | None = None
     semantic_model: str | None = None

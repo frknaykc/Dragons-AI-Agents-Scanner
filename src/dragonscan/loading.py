@@ -12,6 +12,11 @@ class LoadError(ValueError):
 
 
 def load_text(path: Path) -> str:
+    return load_text_with_bytes(path)[0]
+
+
+def load_text_with_bytes(path: Path) -> tuple[str, bytes]:
+    """Return the parsed text and exact bounded file bytes for identity checks."""
     try:
         before = path.lstat()
         if not stat.S_ISREG(before.st_mode):
@@ -33,7 +38,7 @@ def load_text(path: Path) -> str:
                 raise LoadError("artifact exceeds 1 MiB limit")
             if b"\x00" in data:
                 raise LoadError("artifact contains binary data")
-            return data.decode("utf-8-sig")
+            return data.decode("utf-8-sig"), data
         finally:
             os.close(fd)
     except (OSError, UnicodeError) as exc:

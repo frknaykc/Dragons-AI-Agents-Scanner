@@ -303,7 +303,8 @@ class _PinnedHTTPS(http.client.HTTPSConnection):
             raise
 
 
-def _download(url: str, destination: Path) -> str:
+def _download(url: str, destination: Path, *, max_bytes: int | None = None) -> str:
+    max_bytes = MAX_DOWNLOAD if max_bytes is None else max_bytes
     current = url
     for hop in range(MAX_REDIRECTS + 1):
         host, ip, route = validate_url(current)
@@ -332,14 +333,14 @@ def _download(url: str, destination: Path) -> str:
             if response.status != 200:
                 raise AcquisitionError("remote download failed: HTTP status not successful")
             length = response.getheader("Content-Length")
-            if length is not None and (not length.isdecimal() or int(length) > MAX_DOWNLOAD):
+            if length is not None and (not length.isdecimal() or int(length) > max_bytes):
                 raise AcquisitionError("download limit exceeded: Content-Length")
             declared_length = int(length) if length is not None else None
             with destination.open("xb") as output:
                 received = 0
-                while chunk := response.read(min(CHUNK, MAX_DOWNLOAD + 1 - received)):
+                while chunk := response.read(min(CHUNK, max_bytes + 1 - received)):
                     received += len(chunk)
-                    if received > MAX_DOWNLOAD:
+                    if received > max_bytes:
                         raise AcquisitionError("download limit exceeded: response bytes")
                     output.write(chunk)
             if declared_length is not None and received != declared_length:

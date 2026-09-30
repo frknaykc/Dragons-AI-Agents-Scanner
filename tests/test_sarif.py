@@ -230,9 +230,10 @@ def test_repo_relative_uri_and_finding_id_count(tmp_path: Path) -> None:
         ids.update(
             re.findall(r"(?<![A-Z0-9-])(?:DAAS|DRAGON-[A-Z]+)-\d{3}(?!\d)", module.read_text())
         )
-    assert len(ids) == 45
+    assert len(ids) == 46
+    assert "DRAGON-TI-001" in ids
     assert sum(identifier.startswith("DRAGON-SEM-") for identifier in ids) == 5
-    assert sum(not identifier.startswith("DRAGON-SEM-") for identifier in ids) == 40
+    assert sum(not identifier.startswith("DRAGON-SEM-") for identifier in ids) == 41
 
 
 def test_archive_inside_repository_does_not_claim_member_is_repository_file(

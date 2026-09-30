@@ -15,11 +15,34 @@ from dragonscan.scanner import Scanner
 from dragonscan.scanner import scan as scan_target
 from dragonscan.semantic_provider import OpenAICompatibleProvider
 from dragonscan.target_acquisition import AcquisitionCleanupError, acquire
+from dragonscan.threat_intel import FeedError, update_feed
 
 
 @click.group()
 def main() -> None:
     """Scan local AI agent artifacts; execution requires separate MCP consent."""
+
+
+@main.group()
+def intel() -> None:
+    """Manage optional intelligence; scans never update feeds."""
+
+
+@intel.command("update")
+@click.option("--url", required=True, help="Explicit public HTTPS feed URL.")
+@click.option(
+    "--sha256",
+    required=True,
+    help="Operator-supplied expected SHA-256 digest (not publisher authentication).",
+)
+@click.option("--store", type=click.Path(path_type=Path), required=True)
+def intel_update(url: str, sha256: str, store: Path) -> None:
+    """Verify and atomically install a feed without submitting scan data."""
+    try:
+        feed = update_feed(url, sha256, store)
+    except FeedError as exc:
+        raise click.ClickException(str(exc)) from None
+    click.echo(f"Installed feed {feed.id} version {feed.version} ({len(feed.records)} records)")
 
 
 @main.command()
@@ -56,6 +79,18 @@ def main() -> None:
     help="Load static JSON signatures from an explicit local directory.",
 )
 @click.option(
+    "--intel",
+    "intel_feeds",
+    multiple=True,
+    type=click.Path(path_type=Path),
+    help="Explicit local intelligence JSON (repeatable).",
+)
+@click.option(
+    "--intel-store",
+    type=click.Path(path_type=Path),
+    help="Use an explicitly selected offline intelligence store.",
+)
+@click.option(
     "--vuln-check",
     is_flag=True,
     help="Query OSV over HTTPS; sends normalized package names and exact versions to OSV.",
@@ -90,6 +125,8 @@ def scan(
     output_format: str,
     fail_on: str | None,
     signature_pack: Path | None,
+    intel_feeds: tuple[Path, ...],
+    intel_store: Path | None,
     vuln_check: bool,
     semantic: bool,
     semantic_url: str | None,
@@ -142,14 +179,24 @@ def scan(
                 vulnerability_provider=OSVProvider(),
                 semantic_provider=provider,
                 dynamic_policy=dynamic_policy,
+                intel_feeds=intel_feeds,
+                intel_store=intel_store,
             )
-        elif signature_pack is None and provider is None and not dynamic_mcp:
+        elif (
+            signature_pack is None
+            and provider is None
+            and not dynamic_mcp
+            and not intel_feeds
+            and intel_store is None
+        ):
             scanner = Scanner()
         else:
             scanner = Scanner(
                 signature_pack=signature_pack,
                 semantic_provider=provider,
                 dynamic_policy=dynamic_policy,
+                intel_feeds=intel_feeds,
+                intel_store=intel_store,
             )
         if installed_agents:
             report = scanner.scan_installed(Target(local_path) if local_path is not None else None)
@@ -173,6 +220,8 @@ def scan(
                     and provider is None
                     and not dynamic_mcp
                     and not vuln_check
+                    and not intel_feeds
+                    and intel_store is None
                     else scanner.scan(Target(local_path))
                 )
     except AcquisitionCleanupError:
@@ -205,6 +254,7 @@ def scan(
         or report.acquisition_status in {"partial", "blocked", "failed"}
         or any(item.status == "diagnostic" for item in report.installed_environments)
         or report.vulnerability_status == "partial"
+        or report.intelligence_status == "partial"
         or report.semantic_status == "partial"
         or report.dynamic_status in {"blocked", "partial", "failed"}
     ):
