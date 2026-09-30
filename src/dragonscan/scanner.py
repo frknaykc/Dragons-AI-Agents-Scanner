@@ -352,6 +352,7 @@ class Scanner:
             intel_findings: list[Finding] = []
             for doc in documents:
                 intel_findings.extend(intel_matcher.detect(doc, intel_digests[doc.artifact.path]))
+                intel_diagnostics = (*intel_diagnostics, *intel_matcher.diagnostics)
             combined = (*report.findings, *intel_findings)
             risk, counts = summarize(combined)
             report = replace(
@@ -363,7 +364,7 @@ class Scanner:
                 intelligence_feeds=tuple(
                     (feed.id, feed.version, len(feed.records)) for feed in intel_feeds
                 ),
-                intelligence_diagnostics=intel_diagnostics,
+                intelligence_diagnostics=tuple(dict.fromkeys(intel_diagnostics)),
             )
         self.graph = graph
         return report

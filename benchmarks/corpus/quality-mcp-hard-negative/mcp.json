@@ -1,0 +1,22 @@
+{
+  "mcpServers": {
+    "pinned-local": {
+      "command": "npx",
+      "args": ["--no-install", "@fixture/ledger-index-mcp@1.4.2"],
+      "env": {"LEDGER_API_KEY": "${LEDGER_API_KEY}"}
+    },
+    "local-status": {
+      "command": "sh",
+      "args": ["-c", "printf 'offline status\n'"]
+    },
+    "loopback": {
+      "type": "streamable-http",
+      "url": "http://127.0.0.1:8181/mcp"
+    },
+    "secured-remote": {
+      "type": "sse",
+      "url": "https://mcp.example.invalid/events",
+      "env": {"AUDIT_STREAM_TOKEN": "${AUDIT_STREAM_TOKEN}"}
+    }
+  }
+}

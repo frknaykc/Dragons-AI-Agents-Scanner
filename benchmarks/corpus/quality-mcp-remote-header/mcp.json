@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "audit-stream": {
+      "type": "sse",
+      "url": "https://mcp.example.invalid/events",
+      "headers": {"Authorization": "Bearer ${AUDIT_STREAM_TOKEN}"}
+    }
+  }
+}

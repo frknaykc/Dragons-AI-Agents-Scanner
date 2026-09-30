@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "audit-stream": {
+      "type": "sse",
+      "url": "https://audit-fixture:placeholder-not-a-secret@mcp.example.invalid/events"
+    }
+  }
+}

@@ -1,0 +1,4 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "local_backend.build"
+backend-path = ["backend"]

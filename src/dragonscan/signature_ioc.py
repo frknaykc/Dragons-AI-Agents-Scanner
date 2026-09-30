@@ -7,7 +7,7 @@ from urllib.parse import urlsplit, urlunsplit
 from dragonscan.signature_models import IndicatorType
 
 _URL = re.compile(r"https?://[^\s<>()'\"|]+", re.I)
-_HOST = re.compile(r"(?<![\w@.-])(?:[a-z0-9-]+\.)+[a-z]{2,63}(?![\w.-])", re.I)
+_HOST = re.compile(r"(?<![\w@.-])(?:[a-z0-9-]+\.)+[a-z]{2,63}(?![\w-]|\.+[\w-])", re.I)
 _IPV4 = re.compile(r"(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?![\w.])")
 _IPV6 = re.compile(r"(?<![\w:])\[?[0-9a-f:]{3,45}\]?(?![\w:])", re.I)
 _HASH = {IndicatorType.MD5: 32, IndicatorType.SHA1: 40, IndicatorType.SHA256: 64}

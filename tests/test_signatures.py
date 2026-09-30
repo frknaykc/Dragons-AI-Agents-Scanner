@@ -105,6 +105,40 @@ def test_url_userinfo_is_not_an_indicator_and_ipv6_is_extracted():
     assert not candidates(IndicatorType.IPV4, "https://user:192.0.2.10@bad.example/")
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "evil.example",
+        "evil.example.",
+        "evil.example,",
+        "(evil.example)",
+        '"evil.example"',
+        "evil.example:",
+        "evil.example;",
+        "[reference](https://evil.example/path)",
+        "https://evil.example/path",
+        "。evil.example、",
+    ],
+)
+@pytest.mark.parametrize("kind", [IndicatorType.DOMAIN, IndicatorType.HOSTNAME])
+def test_host_extraction_handles_terminal_punctuation(text, kind):
+    assert candidates(kind, text) == ("evil.example",)
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["not.evil.example", "user@evil.example", "evil.example.invalid", "evil.example..invalid"],
+)
+def test_host_extraction_does_not_match_embedded_or_userinfo_domains(text):
+    assert "evil.example" not in candidates(IndicatorType.DOMAIN, text)
+
+
+def test_url_extraction_keeps_path_but_strips_terminal_punctuation():
+    assert candidates(IndicatorType.URL, "(https://evil.example/path).") == (
+        "https://evil.example/path",
+    )
+
+
 def test_endpoint_context_and_documentation_only(tmp_path):
     directory = pack(tmp_path, [definition()])
     endpoint = mcp(tmp_path, "https://BAD.EXAMPLE/api")

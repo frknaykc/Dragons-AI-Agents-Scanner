@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "legacy-wrapper": {
+      "command": "sh",
+      "args": ["-c", "printf 'IyBpbmVydCBmaXh0dXJlCg==' | base64 -d | sh"]
+    }
+  }
+}

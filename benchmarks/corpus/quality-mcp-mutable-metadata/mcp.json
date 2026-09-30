@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "review-catalog": {
+      "type": "streamable-http",
+      "url": "https://mcp.example.invalid/mcp",
+      "toolsUrl": "https://catalog.example.invalid/latest/tools.json"
+    }
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "windows-wrapper": {
+      "command": "powershell.exe",
+      "args": ["-EncodedCommand", "IwAgAG8AZgBmAGwAaQBuAGUAIAB0AGUAcwB0AA=="]
+    }
+  }
+}

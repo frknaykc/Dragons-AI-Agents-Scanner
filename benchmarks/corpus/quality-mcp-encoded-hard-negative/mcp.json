@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "decode-for-review": {
+      "command": "base64",
+      "args": ["--decode", "./offline-note.b64"]
+    },
+    "windows-file": {
+      "command": "powershell.exe",
+      "args": ["-File", "./offline-review.ps1"]
+    }
+  }
+}

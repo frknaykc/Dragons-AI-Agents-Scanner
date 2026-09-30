@@ -1,5 +1,12 @@
 {
-  "corpus_version": "1.1",
+  "corpus_version": "1.4",
+  "correctness": {
+    "checked": 58,
+    "failed": 0,
+    "hard_negative_checked": 31,
+    "hard_negative_failed": 0,
+    "status": "passed"
+  },
   "coverage": {
     "semantic_excluded": [
       "DRAGON-SEM-001",
@@ -15,84 +22,67 @@
       "DRAGON-EXEC-001",
       "DRAGON-EXFIL-001",
       "DRAGON-FLOW-001",
-      "DRAGON-MCP-006",
-      "DRAGON-MCP-007",
-      "DRAGON-MCP-008",
-      "DRAGON-MCP-010",
-      "DRAGON-MCP-012",
-      "DRAGON-PERSIST-001",
-      "DRAGON-PI-001",
-      "DRAGON-SC-001",
-      "DRAGON-TI-001"
-    ],
-    "total_rules": 46,
-    "unsupported": [
       "DRAGON-FLOW-002",
       "DRAGON-MCP-001",
       "DRAGON-MCP-002",
       "DRAGON-MCP-003",
       "DRAGON-MCP-004",
       "DRAGON-MCP-005",
+      "DRAGON-MCP-006",
+      "DRAGON-MCP-007",
+      "DRAGON-MCP-008",
       "DRAGON-MCP-009",
+      "DRAGON-MCP-010",
       "DRAGON-MCP-011",
+      "DRAGON-MCP-012",
       "DRAGON-OBF-001",
       "DRAGON-OBF-002",
       "DRAGON-PATH-001",
       "DRAGON-PATH-002",
       "DRAGON-PATH-003",
       "DRAGON-PATH-004",
+      "DRAGON-PERSIST-001",
+      "DRAGON-PI-001",
       "DRAGON-PI-002",
+      "DRAGON-SC-001",
       "DRAGON-SC-002",
       "DRAGON-SC-003",
       "DRAGON-SC-004",
       "DRAGON-SC-005",
       "DRAGON-SC-006",
       "DRAGON-SC-007",
+      "DRAGON-SIG-001",
+      "DRAGON-TI-001",
+      "DRAGON-TRUST-001"
+    ],
+    "total_rules": 46,
+    "unsupported": [
       "DRAGON-SEM-001",
       "DRAGON-SEM-002",
       "DRAGON-SEM-003",
       "DRAGON-SEM-004",
       "DRAGON-SEM-005",
-      "DRAGON-SIG-001",
-      "DRAGON-TRUST-001",
       "DRAGON-VULN-001",
       "DRAGON-VULN-002",
       "DRAGON-VULN-003"
     ]
   },
   "failures": [],
-  "false_negatives": [
-    {
-      "actual_ids": [
-        "DRAGON-EXFIL-001"
-      ],
-      "case": "multi-credential-exfil",
-      "category": "credential",
-      "id": "DRAGON-CRED-001",
-      "notes": "Two independent threats in one artifact."
-    },
-    {
-      "actual_ids": [],
-      "case": "ti-punctuation",
-      "category": "threat-intelligence",
-      "id": "DRAGON-TI-001",
-      "notes": "Known issue: terminal punctuation may suppress IOC extraction; retain as FN."
-    }
-  ],
+  "false_negatives": [],
   "false_positives": [],
   "per_rule": {
     "DAAS-001": {
-      "benign_exposure": 9,
+      "benign_exposure": 12,
       "f1": 1.0,
       "fn": 0,
       "fp": 0,
-      "positive_support": 1,
+      "positive_support": 2,
       "precision": 1.0,
       "recall": 1.0,
-      "tp": 1
+      "tp": 2
     },
     "DAAS-002": {
-      "benign_exposure": 9,
+      "benign_exposure": 12,
       "f1": 1.0,
       "fn": 0,
       "fp": 0,
@@ -102,17 +92,7 @@
       "tp": 2
     },
     "DRAGON-CRED-001": {
-      "benign_exposure": 9,
-      "f1": 0.0,
-      "fn": 1,
-      "fp": 0,
-      "positive_support": 1,
-      "precision": null,
-      "recall": 0.0,
-      "tp": 0
-    },
-    "DRAGON-EXEC-001": {
-      "benign_exposure": 9,
+      "benign_exposure": 12,
       "f1": 1.0,
       "fn": 0,
       "fp": 0,
@@ -121,8 +101,18 @@
       "recall": 1.0,
       "tp": 1
     },
+    "DRAGON-EXEC-001": {
+      "benign_exposure": 12,
+      "f1": 1.0,
+      "fn": 0,
+      "fp": 0,
+      "positive_support": 2,
+      "precision": 1.0,
+      "recall": 1.0,
+      "tp": 2
+    },
     "DRAGON-EXFIL-001": {
-      "benign_exposure": 9,
+      "benign_exposure": 12,
       "f1": 1.0,
       "fn": 0,
       "fp": 0,
@@ -132,7 +122,7 @@
       "tp": 1
     },
     "DRAGON-FLOW-001": {
-      "benign_exposure": 9,
+      "benign_exposure": 12,
       "f1": 1.0,
       "fn": 0,
       "fp": 0,
@@ -142,67 +132,67 @@
       "tp": 1
     },
     "DRAGON-FLOW-002": {
-      "benign_exposure": 9,
-      "f1": null,
+      "benign_exposure": 12,
+      "f1": 1.0,
       "fn": 0,
       "fp": 0,
-      "positive_support": 0,
-      "precision": null,
-      "recall": null,
-      "tp": 0
+      "positive_support": 1,
+      "precision": 1.0,
+      "recall": 1.0,
+      "tp": 1
     },
     "DRAGON-MCP-001": {
-      "benign_exposure": 9,
-      "f1": null,
+      "benign_exposure": 12,
+      "f1": 1.0,
       "fn": 0,
       "fp": 0,
-      "positive_support": 0,
-      "precision": null,
-      "recall": null,
-      "tp": 0
+      "positive_support": 1,
+      "precision": 1.0,
+      "recall": 1.0,
+      "tp": 1
     },
     "DRAGON-MCP-002": {
-      "benign_exposure": 9,
-      "f1": null,
+      "benign_exposure": 12,
+      "f1": 1.0,
       "fn": 0,
       "fp": 0,
-      "positive_support": 0,
-      "precision": null,
-      "recall": null,
-      "tp": 0
+      "positive_support": 1,
+      "precision": 1.0,
+      "recall": 1.0,
+      "tp": 1
     },
     "DRAGON-MCP-003": {
-      "benign_exposure": 9,
-      "f1": null,
+      "benign_exposure": 12,
+      "f1": 1.0,
       "fn": 0,
       "fp": 0,
-      "positive_support": 0,
-      "precision": null,
-      "recall": null,
-      "tp": 0
+      "positive_support": 1,
+      "precision": 1.0,
+      "recall": 1.0,
+      "tp": 1
     },
     "DRAGON-MCP-004": {
-      "benign_exposure": 9,
-      "f1": null,
+      "benign_exposure": 12,
+      "f1": 1.0,
       "fn": 0,
       "fp": 0,
-      "positive_support": 0,
-      "precision": null,
-      "recall": null,
-      "tp": 0
+      "positive_support": 3,
+      "precision": 1.0,
+      "recall": 1.0,
+      "tp": 3
     },
     "DRAGON-MCP-005": {
-      "benign_exposure": 9,
-      "f1": null,
+      "benign_exposure": 12,
+      "f1": 1.0,
       "fn": 0,
       "fp": 0,
-      "positive_support": 0,
-      "precision": null,
-      "recall": null,
-      "tp": 0
+      "positive_support": 1,
+      "precision": 1.0,
+      "recall": 1.0,
+      "tp": 1
     },
     "DRAGON-MCP-006": {
-      "benign_exposure": 9,
+      "benign_exposure": 12,
       "f1": 1.0,
       "fn": 0,
       "fp": 0,
@@ -212,7 +202,7 @@
       "tp": 1
     },
     "DRAGON-MCP-007": {
-      "benign_exposure": 9,
+      "benign_exposure": 12,
       "f1": 1.0,
       "fn": 0,
       "fp": 0,
@@ -222,7 +212,7 @@
       "tp": 1
     },
     "DRAGON-MCP-008": {
-      "benign_exposure": 9,
+      "benign_exposure": 12,
       "f1": 1.0,
       "fn": 0,
       "fp": 0,
@@ -232,17 +222,17 @@
       "tp": 1
     },
     "DRAGON-MCP-009": {
-      "benign_exposure": 9,
-      "f1": null,
+      "benign_exposure": 12,
+      "f1": 1.0,
       "fn": 0,
       "fp": 0,
-      "positive_support": 0,
-      "precision": null,
-      "recall": null,
-      "tp": 0
+      "positive_support": 1,
+      "precision": 1.0,
+      "recall": 1.0,
+      "tp": 1
     },
     "DRAGON-MCP-010": {
-      "benign_exposure": 9,
+      "benign_exposure": 12,
       "f1": 1.0,
       "fn": 0,
       "fp": 0,
@@ -252,17 +242,17 @@
       "tp": 1
     },
     "DRAGON-MCP-011": {
-      "benign_exposure": 9,
-      "f1": null,
+      "benign_exposure": 12,
+      "f1": 1.0,
       "fn": 0,
       "fp": 0,
-      "positive_support": 0,
-      "precision": null,
-      "recall": null,
-      "tp": 0
+      "positive_support": 1,
+      "precision": 1.0,
+      "recall": 1.0,
+      "tp": 1
     },
     "DRAGON-MCP-012": {
-      "benign_exposure": 9,
+      "benign_exposure": 12,
       "f1": 1.0,
       "fn": 0,
       "fp": 0,
@@ -272,67 +262,7 @@
       "tp": 1
     },
     "DRAGON-OBF-001": {
-      "benign_exposure": 9,
-      "f1": null,
-      "fn": 0,
-      "fp": 0,
-      "positive_support": 0,
-      "precision": null,
-      "recall": null,
-      "tp": 0
-    },
-    "DRAGON-OBF-002": {
-      "benign_exposure": 9,
-      "f1": null,
-      "fn": 0,
-      "fp": 0,
-      "positive_support": 0,
-      "precision": null,
-      "recall": null,
-      "tp": 0
-    },
-    "DRAGON-PATH-001": {
-      "benign_exposure": 9,
-      "f1": null,
-      "fn": 0,
-      "fp": 0,
-      "positive_support": 0,
-      "precision": null,
-      "recall": null,
-      "tp": 0
-    },
-    "DRAGON-PATH-002": {
-      "benign_exposure": 9,
-      "f1": null,
-      "fn": 0,
-      "fp": 0,
-      "positive_support": 0,
-      "precision": null,
-      "recall": null,
-      "tp": 0
-    },
-    "DRAGON-PATH-003": {
-      "benign_exposure": 9,
-      "f1": null,
-      "fn": 0,
-      "fp": 0,
-      "positive_support": 0,
-      "precision": null,
-      "recall": null,
-      "tp": 0
-    },
-    "DRAGON-PATH-004": {
-      "benign_exposure": 9,
-      "f1": null,
-      "fn": 0,
-      "fp": 0,
-      "positive_support": 0,
-      "precision": null,
-      "recall": null,
-      "tp": 0
-    },
-    "DRAGON-PERSIST-001": {
-      "benign_exposure": 9,
+      "benign_exposure": 12,
       "f1": 1.0,
       "fn": 0,
       "fp": 0,
@@ -341,8 +271,58 @@
       "recall": 1.0,
       "tp": 1
     },
-    "DRAGON-PI-001": {
-      "benign_exposure": 9,
+    "DRAGON-OBF-002": {
+      "benign_exposure": 12,
+      "f1": 1.0,
+      "fn": 0,
+      "fp": 0,
+      "positive_support": 1,
+      "precision": 1.0,
+      "recall": 1.0,
+      "tp": 1
+    },
+    "DRAGON-PATH-001": {
+      "benign_exposure": 12,
+      "f1": 1.0,
+      "fn": 0,
+      "fp": 0,
+      "positive_support": 1,
+      "precision": 1.0,
+      "recall": 1.0,
+      "tp": 1
+    },
+    "DRAGON-PATH-002": {
+      "benign_exposure": 12,
+      "f1": 1.0,
+      "fn": 0,
+      "fp": 0,
+      "positive_support": 1,
+      "precision": 1.0,
+      "recall": 1.0,
+      "tp": 1
+    },
+    "DRAGON-PATH-003": {
+      "benign_exposure": 12,
+      "f1": 1.0,
+      "fn": 0,
+      "fp": 0,
+      "positive_support": 1,
+      "precision": 1.0,
+      "recall": 1.0,
+      "tp": 1
+    },
+    "DRAGON-PATH-004": {
+      "benign_exposure": 12,
+      "f1": 1.0,
+      "fn": 0,
+      "fp": 0,
+      "positive_support": 1,
+      "precision": 1.0,
+      "recall": 1.0,
+      "tp": 1
+    },
+    "DRAGON-PERSIST-001": {
+      "benign_exposure": 12,
       "f1": 1.0,
       "fn": 0,
       "fp": 0,
@@ -351,18 +331,28 @@
       "recall": 1.0,
       "tp": 2
     },
-    "DRAGON-PI-002": {
-      "benign_exposure": 9,
-      "f1": null,
+    "DRAGON-PI-001": {
+      "benign_exposure": 12,
+      "f1": 1.0,
       "fn": 0,
       "fp": 0,
-      "positive_support": 0,
-      "precision": null,
-      "recall": null,
-      "tp": 0
+      "positive_support": 3,
+      "precision": 1.0,
+      "recall": 1.0,
+      "tp": 3
+    },
+    "DRAGON-PI-002": {
+      "benign_exposure": 12,
+      "f1": 1.0,
+      "fn": 0,
+      "fp": 0,
+      "positive_support": 1,
+      "precision": 1.0,
+      "recall": 1.0,
+      "tp": 1
     },
     "DRAGON-SC-001": {
-      "benign_exposure": 9,
+      "benign_exposure": 12,
       "f1": 1.0,
       "fn": 0,
       "fp": 0,
@@ -372,67 +362,67 @@
       "tp": 1
     },
     "DRAGON-SC-002": {
-      "benign_exposure": 9,
-      "f1": null,
+      "benign_exposure": 12,
+      "f1": 1.0,
       "fn": 0,
       "fp": 0,
-      "positive_support": 0,
-      "precision": null,
-      "recall": null,
-      "tp": 0
+      "positive_support": 2,
+      "precision": 1.0,
+      "recall": 1.0,
+      "tp": 2
     },
     "DRAGON-SC-003": {
-      "benign_exposure": 9,
-      "f1": null,
+      "benign_exposure": 12,
+      "f1": 1.0,
       "fn": 0,
       "fp": 0,
-      "positive_support": 0,
-      "precision": null,
-      "recall": null,
-      "tp": 0
+      "positive_support": 1,
+      "precision": 1.0,
+      "recall": 1.0,
+      "tp": 1
     },
     "DRAGON-SC-004": {
-      "benign_exposure": 9,
-      "f1": null,
+      "benign_exposure": 12,
+      "f1": 1.0,
       "fn": 0,
       "fp": 0,
-      "positive_support": 0,
-      "precision": null,
-      "recall": null,
-      "tp": 0
+      "positive_support": 1,
+      "precision": 1.0,
+      "recall": 1.0,
+      "tp": 1
     },
     "DRAGON-SC-005": {
-      "benign_exposure": 9,
-      "f1": null,
+      "benign_exposure": 12,
+      "f1": 1.0,
       "fn": 0,
       "fp": 0,
-      "positive_support": 0,
-      "precision": null,
-      "recall": null,
-      "tp": 0
+      "positive_support": 1,
+      "precision": 1.0,
+      "recall": 1.0,
+      "tp": 1
     },
     "DRAGON-SC-006": {
-      "benign_exposure": 9,
-      "f1": null,
+      "benign_exposure": 12,
+      "f1": 1.0,
       "fn": 0,
       "fp": 0,
-      "positive_support": 0,
-      "precision": null,
-      "recall": null,
-      "tp": 0
+      "positive_support": 1,
+      "precision": 1.0,
+      "recall": 1.0,
+      "tp": 1
     },
     "DRAGON-SC-007": {
-      "benign_exposure": 9,
-      "f1": null,
+      "benign_exposure": 12,
+      "f1": 1.0,
       "fn": 0,
       "fp": 0,
-      "positive_support": 0,
-      "precision": null,
-      "recall": null,
-      "tp": 0
+      "positive_support": 1,
+      "precision": 1.0,
+      "recall": 1.0,
+      "tp": 1
     },
     "DRAGON-SEM-001": {
-      "benign_exposure": 9,
+      "benign_exposure": 12,
       "f1": null,
       "fn": 0,
       "fp": 0,
@@ -442,7 +432,7 @@
       "tp": 0
     },
     "DRAGON-SEM-002": {
-      "benign_exposure": 9,
+      "benign_exposure": 12,
       "f1": null,
       "fn": 0,
       "fp": 0,
@@ -452,7 +442,7 @@
       "tp": 0
     },
     "DRAGON-SEM-003": {
-      "benign_exposure": 9,
+      "benign_exposure": 12,
       "f1": null,
       "fn": 0,
       "fp": 0,
@@ -462,7 +452,7 @@
       "tp": 0
     },
     "DRAGON-SEM-004": {
-      "benign_exposure": 9,
+      "benign_exposure": 12,
       "f1": null,
       "fn": 0,
       "fp": 0,
@@ -472,7 +462,7 @@
       "tp": 0
     },
     "DRAGON-SEM-005": {
-      "benign_exposure": 9,
+      "benign_exposure": 12,
       "f1": null,
       "fn": 0,
       "fp": 0,
@@ -482,37 +472,37 @@
       "tp": 0
     },
     "DRAGON-SIG-001": {
-      "benign_exposure": 9,
-      "f1": null,
+      "benign_exposure": 12,
+      "f1": 1.0,
       "fn": 0,
       "fp": 0,
-      "positive_support": 0,
-      "precision": null,
-      "recall": null,
-      "tp": 0
+      "positive_support": 1,
+      "precision": 1.0,
+      "recall": 1.0,
+      "tp": 1
     },
     "DRAGON-TI-001": {
-      "benign_exposure": 9,
-      "f1": 0.666667,
-      "fn": 1,
+      "benign_exposure": 12,
+      "f1": 1.0,
+      "fn": 0,
       "fp": 0,
       "positive_support": 2,
       "precision": 1.0,
-      "recall": 0.5,
-      "tp": 1
+      "recall": 1.0,
+      "tp": 2
     },
     "DRAGON-TRUST-001": {
-      "benign_exposure": 9,
-      "f1": null,
+      "benign_exposure": 12,
+      "f1": 1.0,
       "fn": 0,
       "fp": 0,
-      "positive_support": 0,
-      "precision": null,
-      "recall": null,
-      "tp": 0
+      "positive_support": 3,
+      "precision": 1.0,
+      "recall": 1.0,
+      "tp": 3
     },
     "DRAGON-VULN-001": {
-      "benign_exposure": 9,
+      "benign_exposure": 12,
       "f1": null,
       "fn": 0,
       "fp": 0,
@@ -522,7 +512,7 @@
       "tp": 0
     },
     "DRAGON-VULN-002": {
-      "benign_exposure": 9,
+      "benign_exposure": 12,
       "f1": null,
       "fn": 0,
       "fp": 0,
@@ -532,7 +522,7 @@
       "tp": 0
     },
     "DRAGON-VULN-003": {
-      "benign_exposure": 9,
+      "benign_exposure": 12,
       "f1": null,
       "fn": 0,
       "fp": 0,
@@ -545,35 +535,35 @@
   "schema_version": 1,
   "splits": {
     "development": {
-      "evaluated_cases": 14,
+      "evaluated_cases": 40,
       "f1": 1.0,
       "fn": 0,
       "fp": 0,
       "precision": 1.0,
       "recall": 1.0,
-      "tp": 14
+      "tp": 46
     },
     "holdout": {
       "evaluated_cases": 8,
-      "f1": 0.666667,
-      "fn": 2,
+      "f1": 1.0,
+      "fn": 0,
       "fp": 0,
       "precision": 1.0,
-      "recall": 0.5,
-      "tp": 2
+      "recall": 1.0,
+      "tp": 4
     }
   },
   "status": "completed",
   "summary": {
-    "benign_cases": 9,
-    "evaluated_cases": 22,
-    "f1": 0.941176,
+    "benign_cases": 12,
+    "evaluated_cases": 48,
+    "f1": 1.0,
     "failed_cases": 0,
-    "fn": 2,
+    "fn": 0,
     "fp": 0,
-    "malicious_cases": 13,
+    "malicious_cases": 36,
     "precision": 1.0,
-    "recall": 0.888889,
-    "tp": 16
+    "recall": 1.0,
+    "tp": 50
   }
 }

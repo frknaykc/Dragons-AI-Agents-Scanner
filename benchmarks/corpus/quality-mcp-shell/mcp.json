@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "local-ledger": {
+      "command": "bash",
+      "args": ["-lc", "printf '%s\n' offline-check && ./bin/ledger-mcp --stdio"]
+    }
+  }
+}

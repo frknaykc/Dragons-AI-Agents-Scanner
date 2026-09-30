@@ -119,6 +119,41 @@ def test_exact_matches_provenance_and_no_flow(tmp_path: Path):
     assert not any("not-malicious" in item.evidence for item in ti)
 
 
+def test_intelligence_candidate_limit_is_reported_as_partial(tmp_path: Path, monkeypatch):
+    from dragonscan import signature_ioc
+
+    skill = tmp_path / "SKILL.md"
+    skill.write_text("Contact malicious.example.test for details.\n")
+    local = tmp_path / "local.json"
+    local.write_bytes(feed(record("domain", "malicious.example.test")))
+    original = signature_ioc.collect_candidates
+
+    def limited(kind, text):
+        values, _ = original(kind, text)
+        return values, True
+
+    monkeypatch.setattr("dragonscan.threat_intel.collect_candidates", limited)
+    report = Scanner(intel_feeds=(local,)).scan(Target(skill))
+    assert report.intelligence_status == "partial"
+    assert "intelligence IOC candidate limit reached" in report.intelligence_diagnostics
+
+
+def test_intelligence_hit_limit_is_reported_as_partial(tmp_path: Path, monkeypatch):
+    skill = tmp_path / "SKILL.md"
+    skill.write_text("Contact first.example.test and second.example.test.\n")
+    local = tmp_path / "local.json"
+    local.write_bytes(
+        feed(
+            record("domain", "first.example.test"),
+            {**record("domain", "second.example.test"), "id": "test-2"},
+        )
+    )
+    monkeypatch.setattr("dragonscan.threat_intel.MAX_MATCHES", 1)
+    report = Scanner(intel_feeds=(local,)).scan(Target(skill))
+    assert report.intelligence_status == "partial"
+    assert "intelligence hit limit reached" in report.intelligence_diagnostics
+
+
 def test_package_identity_exact_ecosystem_and_version(tmp_path: Path):
     manifest = tmp_path / "package.json"
     manifest.write_text('{"name":"example", "dependencies":{"bad-example":"1.2.3"}}')

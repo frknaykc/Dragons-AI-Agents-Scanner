@@ -26,10 +26,28 @@ _ALLOWED = frozenset(
         "notes",
         "expected",
         "expected_categories",
+        "expected_findings",
+        "expected_absent",
         "intel_feed",
     }
 )
 _MAX_MANIFEST = 256_000
+_FIELDS = frozenset(
+    {
+        "id",
+        "category",
+        "artifact",
+        "line",
+        "evidence_contains",
+        "source",
+        "sink",
+        "severity",
+        "path_edges",
+        "path_nodes",
+        "flow_edges",
+        "flow_nodes",
+    }
+)
 
 
 class BenchmarkError(ValueError):
@@ -134,6 +152,14 @@ def load_manifest(path: Path) -> tuple[str, list[dict[str, Any]]]:
             or (entry["classification"] == "malicious" and not expected)
         ):
             raise BenchmarkError("invalid or duplicate expected finding IDs")
+        absent = entry.get("expected_absent", [])
+        if (
+            not isinstance(absent, list)
+            or any(not isinstance(item, str) or item not in ids for item in absent)
+            or len(absent) != len(set(absent))
+            or set(absent) & set(expected)
+        ):
+            raise BenchmarkError("invalid or conflicting hard-negative IDs")
         categories = entry.get("expected_categories", {})
         if (
             not isinstance(categories, dict)
@@ -144,6 +170,43 @@ def load_manifest(path: Path) -> tuple[str, list[dict[str, Any]]]:
             )
         ):
             raise BenchmarkError("invalid expected categories")
+        findings = entry.get("expected_findings", [])
+        if not isinstance(findings, list) or len(findings) > 128:
+            raise BenchmarkError("invalid expected findings")
+        for item in findings:
+            if (
+                not isinstance(item, dict)
+                or not set(item) <= _FIELDS
+                or item.get("id") not in expected
+            ):
+                raise BenchmarkError("invalid expected finding fields or ID")
+            for key, value in item.items():
+                if key == "id":
+                    continue
+                if key == "line":
+                    if type(value) is not int or value < 1:
+                        raise BenchmarkError("invalid finding line")
+                elif key == "artifact":
+                    _inside(root, value, file_only=True)
+                elif key in {"path_edges", "path_nodes", "flow_edges", "flow_nodes"}:
+                    if (
+                        not isinstance(value, list)
+                        or len(value) > 32
+                        or any(
+                            not isinstance(part, str)
+                            or not 1 <= len(part) <= 256
+                            or not part.isprintable()
+                            for part in value
+                        )
+                    ):
+                        raise BenchmarkError("invalid finding path")
+                elif key == "severity":
+                    if value not in {"info", "low", "medium", "high", "critical"}:
+                        raise BenchmarkError("invalid finding severity")
+                elif key in {"source", "sink"} and value is None:
+                    pass
+                else:
+                    _string(value, f"finding {key}")
     return version, sorted(cases, key=lambda item: item["id"])
 
 
@@ -183,6 +246,126 @@ def _totals(rows: list[dict[str, Any]]) -> dict[str, Any]:
     return total
 
 
+def _differences(expected: dict[str, Any], actual: dict[str, Any]) -> list[str]:
+    return [
+        field
+        for field, value in expected.items()
+        if field != "id"
+        and (
+            value not in (actual.get("evidence") or "")
+            if field == "evidence_contains"
+            else value != actual.get(field)
+        )
+    ]
+
+
+def _assign_exact(
+    entry_index: int,
+    expected: list[dict[str, Any]],
+    actual: list[dict[str, Any]],
+    matches: dict[int, int],
+    visited: set[int],
+) -> bool:
+    entry = expected[entry_index]
+    for index, item in enumerate(actual):
+        if index in visited or item["id"] != entry["id"] or _differences(entry, item):
+            continue
+        visited.add(index)
+        if index not in matches or _assign_exact(
+            matches[index], expected, actual, matches, visited
+        ):
+            matches[index] = entry_index
+            return True
+    return False
+
+
+def _correctness(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    cases: list[dict[str, Any]] = []
+    checked = failed = negative_checked = negative_failed = 0
+    for row in rows:
+        actual = row["actual"]
+        categories = row.get("expected_categories", {})
+        category_mismatches = [
+            {
+                "id": item["id"],
+                "expected": categories[item["id"]],
+                "actual": item.get("category"),
+                "artifact": item.get("artifact"),
+                "line": item.get("line"),
+            }
+            for item in actual
+            if item["id"] in categories and item.get("category") != categories[item["id"]]
+        ]
+        expected_findings = row.get("expected_findings", [])
+        forbidden = row.get("expected_absent", [])
+        present = {item["id"] for item in actual}
+        negative_mismatches = sorted(set(forbidden) & present)
+        negative_checked += len(forbidden)
+        negative_failed += len(negative_mismatches)
+        paired: set[int] = set()
+        missing: list[dict[str, Any]] = []
+        mismatches: list[dict[str, Any]] = []
+        # Augment exact matches so broad expectations cannot steal a specific one's only match.
+        matches: dict[int, int] = {}
+        exact = {
+            index
+            for index in range(len(expected_findings))
+            if _assign_exact(index, expected_findings, actual, matches, set())
+        }
+        paired.update(matches)
+        for index, entry in enumerate(expected_findings):
+            if index in exact:
+                continue
+            candidates = [
+                (len(_differences(entry, item)), item_index, _differences(entry, item))
+                for item_index, item in enumerate(actual)
+                if item_index not in paired and item["id"] == entry["id"]
+            ]
+            if candidates:
+                _, item_index, fields = min(candidates)
+                paired.add(item_index)
+                mismatches.append(
+                    {"expected": entry, "actual": actual[item_index], "fields": fields}
+                )
+            else:
+                missing.append(entry)
+        asserted_ids = {entry["id"] for entry in expected_findings}
+        extra = [
+            item
+            for index, item in enumerate(actual)
+            if item["id"] in asserted_ids and index not in paired
+        ]
+        assertions = len(category_mismatches) + len(expected_findings) + len(extra)
+        checked += len(expected_findings) + sum(item["id"] in categories for item in actual)
+        failed += (
+            len(category_mismatches)
+            + len(missing)
+            + len(mismatches)
+            + len(extra)
+            + len(negative_mismatches)
+        )
+        if assertions or missing or mismatches or forbidden:
+            cases.append(
+                {
+                    "case": row["id"],
+                    "split": row["split"],
+                    "category_mismatches": category_mismatches,
+                    "missing_occurrences": missing,
+                    "mismatches": mismatches,
+                    "unexpected_occurrences": extra,
+                    "hard_negative_mismatches": negative_mismatches,
+                }
+            )
+    return {
+        "checked": checked,
+        "failed": failed,
+        "hard_negative_checked": negative_checked,
+        "hard_negative_failed": negative_failed,
+        "status": "failed" if failed else "passed",
+        "cases": cases,
+    }
+
+
 def evaluate(
     rows: list[dict[str, Any]], corpus_version: str, *, failures: list[dict[str, str]] | None = None
 ) -> dict[str, Any]:
@@ -194,9 +377,11 @@ def evaluate(
     for row in rows:
         expected = set(row["expected"])
         actual = {item["id"] for item in row["actual"]}
+        unexpected_seen: set[str] = set()
         for finding in row["actual"]:
-            if finding["id"] not in expected:
+            if finding["id"] not in expected and finding["id"] not in unexpected_seen:
                 fp.append({"case": row["id"], **finding})
+                unexpected_seen.add(finding["id"])
         for identifier in sorted(expected - actual):
             fn.append(
                 {
@@ -266,6 +451,7 @@ def evaluate(
             "semantic_excluded": [i for i in all_ids if i.startswith("DRAGON-SEM-")],
         },
         "per_rule": per_rule,
+        "correctness": _correctness(rows),
         "cases": rows,
         "false_positives": fp,
         "false_negatives": fn,
@@ -298,16 +484,24 @@ def run(manifest: Path) -> dict[str, Any]:
                 actual.append(
                     {
                         "id": finding.detection_id,
+                        "category": finding.category,
                         "severity": finding.severity.value,
                         "artifact": artifact,
                         "line": finding.line,
+                        "evidence": finding.evidence,
+                        "source": finding.source,
+                        "sink": finding.sink,
+                        "path_edges": [step.edge for step in finding.path],
+                        "path_nodes": (
+                            [finding.path[0].source] + [step.target for step in finding.path]
+                        )
+                        if finding.path
+                        else [],
+                        "flow_edges": list(finding.flow.edges) if finding.flow else [],
+                        "flow_nodes": list(finding.flow.nodes) if finding.flow else [],
                     }
                 )
-            # One binary decision per (case, ID); locations retained for FP triage.
-            unique = {
-                item["id"]: item
-                for item in sorted(actual, key=lambda x: (x["id"], x["artifact"], x["line"] or 0))
-            }
+            actual.sort(key=lambda x: (x["id"], x["artifact"], x["line"] or 0, x["source"] or ""))
             rows.append(
                 {
                     "id": case["id"],
@@ -318,7 +512,9 @@ def run(manifest: Path) -> dict[str, Any]:
                     "notes": case["notes"],
                     "expected": case["expected"],
                     "expected_categories": case.get("expected_categories", {}),
-                    "actual": [unique[key] for key in sorted(unique, key=str)],
+                    "expected_findings": case.get("expected_findings", []),
+                    "expected_absent": case.get("expected_absent", []),
+                    "actual": actual,
                 }
             )
         except (BenchmarkError, DiscoveryError, OSError, ValueError, RuntimeError) as exc:
@@ -336,6 +532,9 @@ def baseline(result: dict[str, Any]) -> dict[str, Any]:
         "splits": result["splits"],
         "coverage": result["coverage"],
         "per_rule": result["per_rule"],
+        "correctness": {
+            key: value for key, value in result["correctness"].items() if key != "cases"
+        },
         "false_positives": result["false_positives"],
         "false_negatives": result["false_negatives"],
         "failures": result["failures"],
@@ -370,9 +569,39 @@ def main() -> int:
             )
         coverage = result["coverage"]
         print(f"Rule support: {len(coverage['supported'])}/{coverage['total_rules']}")
+        correctness = result["correctness"]
+        print(
+            f"Correctness: {correctness['checked']} field/occurrence checks, "
+            f"{correctness['hard_negative_checked']} targeted negatives, "
+            f"{correctness['failed']} failed"
+        )
+        for case in correctness["cases"]:
+            if any(
+                case[key]
+                for key in (
+                    "category_mismatches",
+                    "missing_occurrences",
+                    "mismatches",
+                    "unexpected_occurrences",
+                    "hard_negative_mismatches",
+                )
+            ):
+                summary = ", ".join(
+                    f"{label} {len(case[key])}"
+                    for label, key in (
+                        ("category", "category_mismatches"),
+                        ("missing", "missing_occurrences"),
+                        ("wrong", "mismatches"),
+                        ("extra", "unexpected_occurrences"),
+                        ("hard-negative", "hard_negative_mismatches"),
+                    )
+                )
+                print(f"  {case['case']}: {summary}")
         for kind in ("false_positives", "false_negatives"):
             print(f"{kind}: {[(item['case'], item['id']) for item in result[kind]]}")
-    return 0 if result["status"] == "completed" else 2
+    if result["status"] != "completed":
+        return 2
+    return 1 if result["correctness"]["failed"] else 0
 
 
 if __name__ == "__main__":

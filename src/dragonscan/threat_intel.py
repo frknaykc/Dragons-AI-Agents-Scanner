@@ -294,6 +294,7 @@ class Matcher:
 
     def __init__(self, feeds: tuple[Feed, ...]):
         self.feeds = feeds
+        self.diagnostics: list[str] = []
         self.index: dict[
             tuple[str, str, str | None, str | None, ArtifactKind | None], list[IntelligenceSource]
         ] = {}
@@ -315,6 +316,7 @@ class Matcher:
             sources.sort(key=lambda item: (item.feed_id, item.record_id))
 
     def detect(self, document: Document, artifact_sha256: str) -> tuple[Finding, ...]:
+        self.diagnostics = []
         if not self.index:
             return ()
         matches: dict[
@@ -350,7 +352,9 @@ class Matcher:
             for indicator_kind in sorted(kinds):
                 if indicator_kind in {IndicatorType.SHA256, IndicatorType.SHA1, IndicatorType.MD5}:
                     continue  # Hashes identify the artifact, not arbitrary prose tokens.
-                tokens, _ = collect_candidates(indicator_kind, region.text)
+                tokens, limited = collect_candidates(indicator_kind, region.text)
+                if limited and "intelligence IOC candidate limit reached" not in self.diagnostics:
+                    self.diagnostics.append("intelligence IOC candidate limit reached")
                 for token in tokens:
                     add(indicator_kind.value, token, region.location, region.context)
         location = SourceRef(document.artifact.path, document.artifact.source_format)
@@ -411,6 +415,7 @@ class Matcher:
         for kind, value, line in sorted(matches, key=lambda key: (key[0], key[1], key[2] or 0)):
             location, context, sources = matches[(kind, value, line)]
             if len(findings) >= MAX_MATCHES:
+                self.diagnostics.append("intelligence hit limit reached")
                 break
             sources = sorted(set(sources), key=lambda item: (item.feed_id, item.record_id))
             # Feed classification/confidence never sets severity; active context or exact

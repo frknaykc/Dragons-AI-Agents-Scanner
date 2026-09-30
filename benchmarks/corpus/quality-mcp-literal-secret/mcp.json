@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "local-ledger": {
+      "command": "./bin/ledger-mcp",
+      "env": {"LEDGER_API_KEY": "FIXTURE_PLACEHOLDER_NOT_A_REAL_KEY"}
+    }
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "ledger-index": {
+      "command": "npx",
+      "args": ["--yes", "@fixture/ledger-index-mcp"],
+      "env": {"LEDGER_DIR": "./sample-ledger"}
+    }
+  }
+}

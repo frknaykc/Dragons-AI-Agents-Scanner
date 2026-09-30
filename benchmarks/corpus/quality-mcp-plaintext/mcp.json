@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "reporting": {
+      "type": "streamable-http",
+      "url": "http://mcp.example.invalid/mcp"
+    }
+  }
+}

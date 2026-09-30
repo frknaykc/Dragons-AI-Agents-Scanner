@@ -1,0 +1,7 @@
+{
+  "name": "inert-local-boundary-fixture",
+  "version": "1.0.0",
+  "dependencies": {
+    "outside-package": "file:../outside-package"
+  }
+}

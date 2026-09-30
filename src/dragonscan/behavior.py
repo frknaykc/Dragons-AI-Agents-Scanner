@@ -143,7 +143,13 @@ def collect(document: Document) -> tuple[Observation, ...]:
             if transfer and _HTTP.search(sentence):
                 add("external_transfer", "external HTTP(S) endpoint", "network-egress")
                 object_text = sentence[transfer.end() :]
-                if _PRONOUN.search(object_text):
+                named = [
+                    label for label, pattern in _SOURCE_PATTERNS if pattern.search(object_text)
+                ]
+                if named:
+                    for label in named:
+                        add("named_transfer", label, "network-egress")
+                elif _PRONOUN.search(object_text):
                     add("linked_transfer", "previously read data", "network-egress")
                 elif re.match(r"\s+to\s+https?://", object_text, re.I):
                     add("implicit_transfer", "previously read data", "network-egress")
@@ -183,23 +189,46 @@ def related_transfer(
     """Correlate a read with an explicit or implicit transfer, never by keyword proximity alone."""
     if source.location.line is None:
         return None
-    linked = {
-        (item.context, item.segment) for item in observations if item.kind == "linked_transfer"
-    }
-    implicit = {
-        (item.context, item.segment) for item in observations if item.kind == "implicit_transfer"
-    }
+    sources = [item for item in observations if item.kind == "sensitive_access"]
     for sink in observations:
         if sink.kind != "external_transfer" or sink.location.line is None:
             continue
         if not 0 <= sink.location.line - source.location.line <= 2:
             continue
-        if sink.context == source.context and sink.segment == source.segment:
-            if (sink.context, sink.segment) in linked | implicit:
-                return sink
-        elif (
-            sink.context in {source.context, source.context + 1}
-            and (sink.context, sink.segment) in linked
+        if source.context > sink.context or (
+            source.context == sink.context and source.segment > sink.segment
         ):
+            continue
+        markers = [
+            item
+            for item in observations
+            if item.context == sink.context and item.segment == sink.segment
+        ]
+        named = {item.label for item in markers if item.kind == "named_transfer"}
+        if named:
+            if source.label in named and (
+                source.context == sink.context or source.context + 1 == sink.context
+            ):
+                return sink
+            continue
+        same_segment = source.context == sink.context and source.segment == sink.segment
+        adjacent = (source.context == sink.context and sink.segment == source.segment + 1) or (
+            sink.context == source.context + 1 and sink.segment == 0
+        )
+        if not (same_segment or adjacent):
+            continue
+        if not any(item.kind in {"linked_transfer", "implicit_transfer"} for item in markers):
+            continue
+        # A pronoun cannot refer to every earlier credential in a document.
+        closest = [
+            item for item in sources if (item.context, item.segment) <= (sink.context, sink.segment)
+        ]
+        if not closest:
+            continue
+        last_position = max((item.context, item.segment) for item in closest)
+        antecedents = {
+            item.label for item in closest if (item.context, item.segment) == last_position
+        }
+        if (source.context, source.segment) == last_position and antecedents == {source.label}:
             return sink
     return None

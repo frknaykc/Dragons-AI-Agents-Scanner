@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "corpus_version": "1.1",
+  "corpus_version": "1.4",
   "cases": [
     {
       "id": "pi-override",
@@ -13,7 +13,7 @@
         "DRAGON-PI-001"
       ],
       "expected_categories": {
-        "DRAGON-PI-001": "prompt-injection"
+        "DRAGON-PI-001": "prompt-manipulation"
       }
     },
     {
@@ -41,7 +41,7 @@
         "DRAGON-EXEC-001"
       ],
       "expected_categories": {
-        "DRAGON-EXEC-001": "remote-code-execution"
+        "DRAGON-EXEC-001": "dangerous-execution"
       }
     },
     {
@@ -97,7 +97,7 @@
         "DRAGON-PI-001"
       ],
       "expected_categories": {
-        "DRAGON-PI-001": "prompt-injection"
+        "DRAGON-PI-001": "prompt-manipulation"
       }
     },
     {
@@ -122,7 +122,8 @@
       "provenance": "curated",
       "artifact": "benign-security-guide/SKILL.md",
       "notes": "Security education, not override.",
-      "expected": []
+      "expected": [],
+      "expected_absent": ["DRAGON-PI-001", "DRAGON-PI-002"]
     },
     {
       "id": "benign-credential-guide",
@@ -131,7 +132,8 @@
       "provenance": "curated",
       "artifact": "benign-credential-guide/AGENTS.md",
       "notes": "Explicit negative guidance about secrets.",
-      "expected": []
+      "expected": [],
+      "expected_absent": ["DAAS-001", "DRAGON-CRED-001", "DRAGON-EXFIL-001"]
     },
     {
       "id": "benign-encoded",
@@ -140,7 +142,8 @@
       "provenance": "synthetic",
       "artifact": "benign-encoded/SKILL.md",
       "notes": "Encoded-looking non-executable data.",
-      "expected": []
+      "expected": [],
+      "expected_absent": ["DRAGON-OBF-002", "DRAGON-SIG-001"]
     },
     {
       "id": "benign-mcp",
@@ -149,7 +152,8 @@
       "provenance": "curated",
       "artifact": "benign-mcp/mcp.json",
       "notes": "Local MCP example without poisoning.",
-      "expected": []
+      "expected": [],
+      "expected_absent": ["DRAGON-MCP-006", "DRAGON-MCP-007", "DRAGON-MCP-008"]
     },
     {
       "id": "ti-punctuation",
@@ -157,7 +161,7 @@
       "classification": "malicious",
       "provenance": "synthetic",
       "artifact": "ti-punctuation/SKILL.md",
-      "notes": "Known issue: terminal punctuation may suppress IOC extraction; retain as FN.",
+      "notes": "Terminal punctuation IOC extraction regression; exact local feed match.",
       "expected": [
         "DRAGON-TI-001"
       ],
@@ -172,15 +176,37 @@
       "classification": "malicious",
       "provenance": "synthetic",
       "artifact": "multi-credential-exfil/SKILL.md",
-      "notes": "Two independent threats in one artifact.",
+      "notes": "Two independent threats: SSH access without transfer and API token transfer; only the latter is an exfil occurrence.",
       "expected": [
         "DRAGON-CRED-001",
         "DRAGON-EXFIL-001"
       ],
       "expected_categories": {
-        "DRAGON-CRED-001": "credential",
-        "DRAGON-EXFIL-001": "credential"
-      }
+        "DRAGON-CRED-001": "credential-access",
+        "DRAGON-EXFIL-001": "data-exfiltration"
+      },
+      "expected_findings": [
+        {
+          "id": "DRAGON-CRED-001",
+          "category": "credential-access",
+          "artifact": "multi-credential-exfil/SKILL.md",
+          "line": 1,
+          "source": "SSH private key",
+          "sink": null,
+          "severity": "medium",
+          "evidence_contains": "without a proven transfer"
+        },
+        {
+          "id": "DRAGON-EXFIL-001",
+          "category": "data-exfiltration",
+          "artifact": "multi-credential-exfil/SKILL.md",
+          "line": 3,
+          "source": "API token",
+          "sink": "external HTTP(S) endpoint",
+          "severity": "high",
+          "evidence_contains": "API token"
+        }
+      ]
     },
     {
       "id": "mcp-poisoning",
@@ -203,7 +229,8 @@
       "provenance": "curated",
       "artifact": "benign-curl/SKILL.md",
       "notes": "Documentation of curl without execution.",
-      "expected": []
+      "expected": [],
+      "expected_absent": ["DRAGON-EXEC-001", "DAAS-002"]
     },
     {
       "id": "benign-dependency",
@@ -212,7 +239,8 @@
       "provenance": "synthetic",
       "artifact": "benign-dependency/requirements.txt",
       "notes": "Pinned ordinary dependency.",
-      "expected": []
+      "expected": [],
+      "expected_absent": ["DRAGON-SC-001", "DRAGON-SC-004"]
     },
     {
       "id": "benign-persistence",
@@ -221,7 +249,8 @@
       "provenance": "curated",
       "artifact": "benign-persistence/SOUL.md",
       "notes": "Discussion of persistence without behavioral command.",
-      "expected": []
+      "expected": [],
+      "expected_absent": ["DRAGON-PERSIST-001", "DRAGON-TRUST-001"]
     },
     {
       "id": "flow-control",
@@ -234,7 +263,17 @@
       "expected_categories": {
         "DRAGON-FLOW-001": "static-toxic-flow",
         "DRAGON-MCP-007": "mcp-security"
-      }
+      },
+      "expected_findings": [
+        {
+          "id": "DRAGON-FLOW-001",
+          "category": "static-toxic-flow",
+          "source": "MCP tool instruction",
+          "sink": "persistent-configuration-write",
+          "path_edges": ["defines", "exposes", "influences", "defines"],
+          "flow_edges": ["defines", "exposes", "influences", "defines"]
+        }
+      ]
     },
     {
       "id": "mcp-tool-injection",
@@ -263,7 +302,8 @@
       "provenance": "synthetic",
       "artifact": "benign-git-dependency/requirements.in",
       "notes": "Pinned Git source at a full inert commit ID.",
-      "expected": []
+      "expected": [],
+      "expected_absent": ["DRAGON-SC-001", "DRAGON-SC-002"]
     },
     {
       "id": "ti-benign-negative",
@@ -273,7 +313,221 @@
       "artifact": "ti-benign-negative/SKILL.md",
       "intel_feed": "synthetic-feed.json",
       "notes": "Nonmatching synthetic domain under the same local feed.",
-      "expected": []
+      "expected": [],
+      "expected_absent": ["DRAGON-TI-001"]
+    },
+    {
+      "id": "quality-graph-config-takeover", "split": "development",
+      "classification": "malicious", "provenance": "synthetic",
+      "artifact": "quality-graph-config-takeover",
+      "notes": "Loaded skill delegates external policy into agent configuration.",
+      "expected": ["DRAGON-TRUST-001", "DRAGON-PATH-004"],
+      "expected_categories": {"DRAGON-TRUST-001": "remote-instruction-trust", "DRAGON-PATH-004": "cross-artifact-path"},
+      "expected_findings": [{"id": "DRAGON-PATH-004", "artifact": "quality-graph-config-takeover/AGENTS.md", "line": 1, "source": "remote instructions", "sink": "agent configuration", "path_edges": ["loads", "defines", "modifies"]}]
+    },
+    {
+      "id": "quality-graph-exfil", "split": "development",
+      "classification": "malicious", "provenance": "synthetic",
+      "artifact": "quality-graph-exfil",
+      "notes": "An explicitly loaded local skill reads credentials and sends them outside.",
+      "expected": ["DAAS-001", "DRAGON-PATH-001"],
+      "expected_categories": {"DAAS-001": "data-exfiltration", "DRAGON-PATH-001": "cross-artifact-path"},
+      "expected_findings": [{"id": "DRAGON-PATH-001", "artifact": "quality-graph-exfil/AGENTS.md", "line": 1, "source": "cloud credentials", "sink": "external HTTP(S) endpoint", "path_edges": ["loads", "defines", "reads", "sends_to"]}]
+    },
+    {
+      "id": "quality-graph-persistent-policy", "split": "development",
+      "classification": "malicious", "provenance": "synthetic",
+      "artifact": "quality-graph-persistent-policy",
+      "notes": "Loaded skill uses remote policy to modify persistent memory instructions.",
+      "expected": ["DRAGON-PERSIST-001", "DRAGON-TRUST-001", "DRAGON-PATH-003"],
+      "expected_categories": {"DRAGON-PERSIST-001": "persistence", "DRAGON-TRUST-001": "remote-instruction-trust", "DRAGON-PATH-003": "cross-artifact-path"},
+      "expected_findings": [{"id": "DRAGON-PATH-003", "artifact": "quality-graph-persistent-policy/skills/policy/SKILL.md", "line": 1, "source": "remote instructions", "sink": "persistent instruction", "path_edges": ["loads", "defines", "modifies"]}]
+    },
+    {
+      "id": "quality-graph-remote-execution", "split": "development",
+      "classification": "malicious", "provenance": "synthetic",
+      "artifact": "quality-graph-remote-execution",
+      "notes": "Loaded skill fetches a remote installer into a shell.",
+      "expected": ["DRAGON-EXEC-001", "DRAGON-PATH-002"],
+      "expected_categories": {"DRAGON-EXEC-001": "dangerous-execution", "DRAGON-PATH-002": "cross-artifact-path"},
+      "expected_findings": [{"id": "DRAGON-PATH-002", "artifact": "quality-graph-remote-execution/AGENTS.md", "line": 1, "source": "remote content", "sink": "shell execution", "path_edges": ["loads", "defines", "fetches", "executes"]}]
+    },
+    {
+      "id": "quality-graph-tool-data", "split": "development",
+      "classification": "malicious", "provenance": "synthetic",
+      "artifact": "quality-graph-tool-data/mcp.json",
+      "notes": "One MCP tool transfers a sensitive result into another tool's egress instruction.",
+      "expected": ["DRAGON-FLOW-002"],
+      "expected_categories": {"DRAGON-FLOW-002": "static-toxic-flow"},
+      "expected_findings": [{"id": "DRAGON-FLOW-002", "artifact": "quality-graph-tool-data/mcp.json", "source": "sensitive MCP tool result", "sink": "MCP network egress capability", "path_edges": ["defines", "exposes", "defines", "passes_to", "defines"]}]
+    },
+    {
+      "id": "quality-supply-build-backend", "split": "development",
+      "classification": "malicious", "provenance": "synthetic",
+      "artifact": "quality-supply-build-backend/pyproject.toml",
+      "notes": "A local backend-path allows build-time code from this repository; risk, not proven malice.",
+      "expected": ["DRAGON-SC-007"],
+      "expected_categories": {"DRAGON-SC-007": "supply-chain"}
+    },
+    {
+      "id": "quality-supply-install-execute", "split": "development",
+      "classification": "malicious", "provenance": "synthetic",
+      "artifact": "quality-supply-install-execute/AGENTS.md",
+      "notes": "Mutable remote package install immediately followed by execution.",
+      "expected": ["DRAGON-SC-002", "DRAGON-SC-006"],
+      "expected_categories": {"DRAGON-SC-002": "supply-chain", "DRAGON-SC-006": "supply-chain"}
+    },
+    {
+      "id": "quality-supply-lifecycle", "split": "development",
+      "classification": "malicious", "provenance": "synthetic",
+      "artifact": "quality-supply-lifecycle/package.json",
+      "notes": "Package postinstall pipes remote content into a shell; inert metadata only.",
+      "expected": ["DRAGON-SC-004"],
+      "expected_categories": {"DRAGON-SC-004": "supply-chain"}
+    },
+    {
+      "id": "quality-supply-local-boundary", "split": "development",
+      "classification": "malicious", "provenance": "synthetic",
+      "artifact": "quality-supply-local-boundary/package.json",
+      "notes": "Local dependency points outside the scan root; boundary risk, not proven malice.",
+      "expected": ["DRAGON-SC-005"],
+      "expected_categories": {"DRAGON-SC-005": "supply-chain"}
+    },
+    {
+      "id": "quality-supply-mutable-remote", "split": "development",
+      "classification": "malicious", "provenance": "synthetic",
+      "artifact": "quality-supply-mutable-remote/requirements.in",
+      "notes": "Direct dependency uses a mutable Git branch without integrity pin.",
+      "expected": ["DRAGON-SC-002"],
+      "expected_categories": {"DRAGON-SC-002": "supply-chain"}
+    },
+    {
+      "id": "quality-supply-runtime", "split": "development",
+      "classification": "malicious", "provenance": "synthetic",
+      "artifact": "quality-supply-runtime/SKILL.md",
+      "notes": "An instruction runs a mutable registry package at scan-target runtime.",
+      "expected": ["DRAGON-SC-003"],
+      "expected_categories": {"DRAGON-SC-003": "supply-chain"}
+    },
+    {
+      "id": "quality-mcp-unpinned", "split": "development",
+      "classification": "malicious", "provenance": "synthetic",
+      "artifact": "quality-mcp-unpinned/mcp.json",
+      "notes": "An MCP server starts an unpinned registry package.",
+      "expected": ["DRAGON-MCP-001"],
+      "expected_categories": {"DRAGON-MCP-001": "mcp-supply-chain"}
+    },
+    {
+      "id": "quality-mcp-url-userinfo", "split": "development",
+      "classification": "malicious", "provenance": "synthetic",
+      "artifact": "quality-mcp-url-userinfo/mcp.json",
+      "notes": "MCP remote URL includes synthetic placeholder userinfo.",
+      "expected": ["DRAGON-MCP-002"],
+      "expected_categories": {"DRAGON-MCP-002": "mcp-credential-exposure"}
+    },
+    {
+      "id": "quality-mcp-literal-secret", "split": "development",
+      "classification": "malicious", "provenance": "synthetic",
+      "artifact": "quality-mcp-literal-secret/mcp.json",
+      "notes": "MCP environment includes a synthetic placeholder literal credential.",
+      "expected": ["DRAGON-MCP-003"],
+      "expected_categories": {"DRAGON-MCP-003": "mcp-security"}
+    },
+    {
+      "id": "quality-mcp-shell", "split": "development",
+      "classification": "malicious", "provenance": "synthetic",
+      "artifact": "quality-mcp-shell/mcp.json",
+      "notes": "MCP command uses a shell operator before launching a local server.",
+      "expected": ["DRAGON-MCP-004"],
+      "expected_categories": {"DRAGON-MCP-004": "mcp-security"}
+    },
+    {
+      "id": "quality-mcp-plaintext", "split": "development",
+      "classification": "malicious", "provenance": "synthetic",
+      "artifact": "quality-mcp-plaintext/mcp.json",
+      "notes": "MCP declares an unencrypted remote HTTP endpoint.",
+      "expected": ["DRAGON-MCP-005"],
+      "expected_categories": {"DRAGON-MCP-005": "mcp-security"}
+    },
+    {
+      "id": "quality-mcp-mutable-metadata", "split": "development",
+      "classification": "malicious", "provenance": "synthetic",
+      "artifact": "quality-mcp-mutable-metadata/mcp.json",
+      "notes": "MCP tool metadata is delegated to a mutable remote catalog.",
+      "expected": ["DRAGON-MCP-009"],
+      "expected_categories": {"DRAGON-MCP-009": "mcp-security"}
+    },
+    {
+      "id": "quality-mcp-remote-header", "split": "development",
+      "classification": "malicious", "provenance": "synthetic",
+      "artifact": "quality-mcp-remote-header/mcp.json",
+      "notes": "Remote MCP header references an environment credential.",
+      "expected": ["DRAGON-MCP-011"],
+      "expected_categories": {"DRAGON-MCP-011": "mcp-security"}
+    },
+    {
+      "id": "quality-mcp-encoded-pipe", "split": "development",
+      "classification": "malicious", "provenance": "synthetic",
+      "artifact": "quality-mcp-encoded-pipe/mcp.json",
+      "notes": "Encoded content is decoded and piped into a configured shell; never executed by the scanner.",
+      "expected": ["DRAGON-OBF-002", "DRAGON-MCP-004"],
+      "expected_categories": {"DRAGON-OBF-002": "obfuscated-execution", "DRAGON-MCP-004": "mcp-security"}
+    },
+    {
+      "id": "quality-mcp-powershell", "split": "development",
+      "classification": "malicious", "provenance": "synthetic",
+      "artifact": "quality-mcp-powershell/mcp.json",
+      "notes": "PowerShell encoded-command invocation; encoded payload is inert.",
+      "expected": ["DRAGON-SIG-001", "DRAGON-MCP-004"],
+      "expected_categories": {"DRAGON-SIG-001": "signature-content", "DRAGON-MCP-004": "mcp-security"}
+    },
+    {
+      "id": "quality-instruction-bidi-override", "split": "development",
+      "classification": "malicious", "provenance": "synthetic",
+      "artifact": "quality-instruction-bidi-override/SKILL.md",
+      "notes": "A bidi control is embedded in an instruction to override previous instructions.",
+      "expected": ["DRAGON-OBF-001", "DRAGON-PI-001"],
+      "expected_categories": {"DRAGON-OBF-001": "hidden-content", "DRAGON-PI-001": "prompt-manipulation"}
+    },
+    {
+      "id": "quality-instruction-safety-bypass", "split": "development",
+      "classification": "malicious", "provenance": "synthetic",
+      "artifact": "quality-instruction-safety-bypass/SKILL.md",
+      "notes": "Explicit instruction to disable safety checks before third-party review.",
+      "expected": ["DRAGON-PI-002"],
+      "expected_categories": {"DRAGON-PI-002": "prompt-manipulation"}
+    },
+    {
+      "id": "quality-instruction-remote-policy", "split": "development",
+      "classification": "malicious", "provenance": "synthetic",
+      "artifact": "quality-instruction-remote-policy/SKILL.md",
+      "notes": "An external policy URL is promoted into agent instruction authority.",
+      "expected": ["DRAGON-TRUST-001"],
+      "expected_categories": {"DRAGON-TRUST-001": "remote-instruction-trust"}
+    },
+    {
+      "id": "quality-mcp-hard-negative", "split": "development",
+      "classification": "benign", "provenance": "synthetic",
+      "artifact": "quality-mcp-hard-negative/mcp.json",
+      "notes": "Pinned local runtime, placeholder env values, loopback and variable-based remote auth.",
+      "expected": [],
+      "expected_absent": ["DRAGON-MCP-001", "DRAGON-MCP-003", "DRAGON-MCP-004", "DRAGON-MCP-005", "DRAGON-MCP-011"]
+    },
+    {
+      "id": "quality-mcp-encoded-hard-negative", "split": "development",
+      "classification": "benign", "provenance": "synthetic",
+      "artifact": "quality-mcp-encoded-hard-negative/mcp.json",
+      "notes": "Local decode and PowerShell file operations have no encoded shell execution.",
+      "expected": [],
+      "expected_absent": ["DRAGON-OBF-002", "DRAGON-SIG-001", "DRAGON-MCP-004"]
+    },
+    {
+      "id": "quality-instruction-hard-negative", "split": "development",
+      "classification": "benign", "provenance": "synthetic",
+      "artifact": "quality-instruction-hard-negative/SKILL.md",
+      "notes": "Negative safety guidance and a quoted bidi example are not directives.",
+      "expected": [],
+      "expected_absent": ["DRAGON-PI-001", "DRAGON-PI-002", "DRAGON-OBF-001", "DRAGON-TRUST-001"]
     }
   ]
 }
