@@ -1,0 +1,67 @@
+name: Build distribution artifacts (no publish)
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  standalone:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            platform: linux-x86_64
+          - runner: macos-15
+            platform: macos-arm64
+          - runner: macos-15-intel
+            platform: macos-x86_64
+          - runner: windows-2022
+            platform: windows-x86_64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        with:
+          version: '0.11.7'
+          python-version: '3.12.12'
+          enable-cache: 'false'
+      - name: Install locked development and build dependencies
+        run: uv sync --locked --python 3.12.12 --group standalone
+      - name: Test scanner
+        run: uv run --locked --group standalone pytest -q
+      - name: Build native executable
+        run: uv run --locked --group standalone python scripts/build_standalone.py
+      - name: Smoke test executable
+        run: uv run --locked --group standalone python -m scripts.smoke_standalone
+      - name: Stage only this runner's verified executable
+        run: uv run --locked --group standalone python -m scripts.stage_standalone
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: binary-${{ matrix.platform }}
+          path: release-staging/
+          if-no-files-found: error
+          retention-days: 7
+  checksum:
+    needs: standalone
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: binary-*
+          path: dist
+          merge-multiple: true
+      - name: Generate sorted SHA-256 sums
+        run: python3 -m scripts.checksums dist --require-all
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-staging-bundle
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7

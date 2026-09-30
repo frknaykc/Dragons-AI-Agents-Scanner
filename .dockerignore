@@ -1,0 +1,8 @@
+# Allowlist only the package inputs. No target checkout data, caches or credentials.
+*
+!pyproject.toml
+!uv.lock
+!README.md
+!src/
+!src/dragonscan/
+!src/dragonscan/*.py

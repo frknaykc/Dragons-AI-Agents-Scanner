@@ -5,6 +5,7 @@ __pycache__/
 .ruff_cache/
 dist/
 build/
+release-staging/
 *.egg-info/
 
 # Coverage and test output
