@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "feed_id": "benchmark-synthetic",
+  "feed_version": "1.0",
+  "records": [
+    {
+      "id": "domain-1",
+      "indicator_type": "domain",
+      "value": "synthetic-review.example.test",
+      "classification": "malicious",
+      "source": "Benchmark Synthetic"
+    },
+    {
+      "id": "ipv4-1",
+      "indicator_type": "ipv4",
+      "value": "198.51.100.42",
+      "classification": "malicious",
+      "source": "Benchmark Synthetic"
+    }
+  ]
+}

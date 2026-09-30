@@ -1,0 +1,24 @@
+# Detection-quality benchmark (source checkout only)
+
+Run offline from the repository root:
+
+```sh
+uv run --offline python -m scripts.benchmark benchmarks/corpus/manifest.json
+uv run --offline python -m scripts.benchmark benchmarks/corpus/manifest.json --format json
+```
+
+`--format json` includes case-level actual IDs, FP locations/severity, FN IDs/categories/notes, per-rule results and split metrics. `--format baseline` prints the compact measured summary; redirect it to `benchmarks/baseline.json` **only after an explicit review**. A normal run never updates the baseline. The command exits 0 on a complete evaluation even when quality is poor; configuration/partial evaluations exit nonzero. This is not a CI or release gate. Neither the corpus nor the runner is bundled into the runtime wheel.
+
+## Ground truth and isolation
+
+`corpus/manifest.json` schema 1 is authoritative: each stable case ID declares a local artifact (file or directory), malicious/benign classification, development/holdout split, synthetic/curated/real-world-derived provenance, notes, explicit expected security finding IDs, optional expected categories for FN triage, and an optional explicit local synthetic TI feed. Case labels and expected IDs never reach the scanner. Only local targets are permitted; invalid IDs, repeated JSON keys/expectations, missing or escaping paths and symlinks are rejected. Corpus files are **untrusted data**; never execute their contents. A fresh default static `Scanner` is created for each case, with no home-installed TI feed, semantic provider, dynamic MCP, OSV, remote acquisition, subprocess or update. Only listed local TI cases opt into a synthetic feed. The runner never requests network access. There is no OS-level sandbox: these are static API choices, input validation, and regression checks, not a guarantee against an unrelated scanner vulnerability.
+
+`development` is for measurement and subsequent separate tuning; `holdout` should not be changed to tune detectors. It is checked into Git, **not hidden/blind**. Review near-duplicates before adding cases. In corpus 1.1, the development TI positive uses a documentation IPv4 IOC rather than the holdout's punctuation-domain minimal pair; development MCP uses a mixed multi-server config rather than the holdout's single server; and development/holdout dependency names differ. Holdout artifacts, expectations, and splits were left untouched. Current cases are small, inert, mostly synthetic/locally curated examples; no external malicious dataset or active IOC. Reserved `.test` / `.invalid` domains and a documentation IPv4 address are used. The TI punctuation case intentionally expects `DRAGON-TI-001` despite the currently missed terminal-period IOC; this is a real measured FN, not a gate failure. A local TI nonmatch is included. No live semantic models (five semantic IDs), dynamic MCP runtime behavior or real-world prevalence are measured.
+
+## Interpretation
+
+The evaluation unit is **(case, finding ID)**, not occurrence: TP = expected ID present; FN = expected ID absent; FP = actual security ID absent from expected IDs, including extra detections on a malicious case. Repeated locations for one ID in a case collapse to one decision (first sorted location retained for triage); occurrence count, source→sink correctness and severity correctness are **not** scored. Operational errors/partial scans are separate failures; metrics then apply only to evaluated cases and `status=partial`, not to the full corpus. Diagnostics are not security FP. No inflated 46-rules × cases true negatives or accuracy claim.
+
+Micro precision = TP/(TP+FP), recall = TP/(TP+FN), F1 = 2TP/(2TP+FP+FN), rounded to six decimals. Undefined denominator is JSON `null`, not 100%; F1 is `null` when all three counts are zero. Per-rule `positive_support` is the count of expected positive cases, `benign_exposure` is the number of evaluated benign cases, independent of support. Rule coverage is supported IDs / all registry IDs; unsupported semantic IDs are excluded from this default deterministic suite. Coverage is not recall. Small support does not prove generalization. Unit-test counts do not measure precision or recall. These scores describe **this corpus**, not Dragons' real-world accuracy.
+
+The initial baseline reflects the measured scanner as-is. Ground truth was manually reviewed for composite MCP behavior: shadowing plus flow, and poisoning plus hidden sensitive read/transfer and toxic-flow signals are all expected IDs; this is not detector tuning. The remaining FN list is not suppressed. Cross-artifact path correlation is not yet represented by a directory case; the MCP tool-to-tool/flow cases are only partial substitutes. When corpus cases change, bump `corpus_version` and explicitly regenerate/review the baseline. The baseline does not replace ground truth. No timestamps, absolute machine paths, or timing data are persisted.

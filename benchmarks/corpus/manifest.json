@@ -1,0 +1,279 @@
+{
+  "schema_version": 1,
+  "corpus_version": "1.1",
+  "cases": [
+    {
+      "id": "pi-override",
+      "split": "development",
+      "classification": "malicious",
+      "provenance": "synthetic",
+      "artifact": "pi-override/SKILL.md",
+      "notes": "Direct instruction hierarchy override.",
+      "expected": [
+        "DRAGON-PI-001"
+      ],
+      "expected_categories": {
+        "DRAGON-PI-001": "prompt-injection"
+      }
+    },
+    {
+      "id": "credential-transfer",
+      "split": "development",
+      "classification": "malicious",
+      "provenance": "synthetic",
+      "artifact": "credential-transfer/AGENTS.md",
+      "notes": "Sensitive private key read and external transfer.",
+      "expected": [
+        "DAAS-001"
+      ],
+      "expected_categories": {
+        "DAAS-001": "data-exfiltration"
+      }
+    },
+    {
+      "id": "remote-execution",
+      "split": "development",
+      "classification": "malicious",
+      "provenance": "synthetic",
+      "artifact": "remote-execution/SKILL.md",
+      "notes": "Fetch-to-shell instruction, text only.",
+      "expected": [
+        "DRAGON-EXEC-001"
+      ],
+      "expected_categories": {
+        "DRAGON-EXEC-001": "remote-code-execution"
+      }
+    },
+    {
+      "id": "persistence",
+      "split": "development",
+      "classification": "malicious",
+      "provenance": "synthetic",
+      "artifact": "persistence/SOUL.md",
+      "notes": "Persistent modification instruction.",
+      "expected": [
+        "DRAGON-PERSIST-001"
+      ],
+      "expected_categories": {
+        "DRAGON-PERSIST-001": "persistence"
+      }
+    },
+    {
+      "id": "mcp-execution",
+      "split": "development",
+      "classification": "malicious",
+      "provenance": "synthetic",
+      "artifact": "mcp-execution/mcp.json",
+      "notes": "Multi-server static MCP config with one benign server and one fetch-to-shell; never launched.",
+      "expected": [
+        "DAAS-002"
+      ],
+      "expected_categories": {
+        "DAAS-002": "remote-code-execution"
+      }
+    },
+    {
+      "id": "supply-unpinned",
+      "split": "development",
+      "classification": "malicious",
+      "provenance": "synthetic",
+      "artifact": "supply-unpinned/requirements.in",
+      "notes": "Unpinned dependency policy risk, not proven malicious package.",
+      "expected": [
+        "DRAGON-SC-001"
+      ],
+      "expected_categories": {
+        "DRAGON-SC-001": "supply-chain"
+      }
+    },
+    {
+      "id": "obfuscated-instruction",
+      "split": "development",
+      "classification": "malicious",
+      "provenance": "synthetic",
+      "artifact": "obfuscated-instruction/SKILL.md",
+      "notes": "Format-control obfuscation of override.",
+      "expected": [
+        "DRAGON-PI-001"
+      ],
+      "expected_categories": {
+        "DRAGON-PI-001": "prompt-injection"
+      }
+    },
+    {
+      "id": "ti-positive",
+      "split": "development",
+      "classification": "malicious",
+      "provenance": "synthetic",
+      "artifact": "ti-positive/SKILL.md",
+      "notes": "Exact synthetic IPv4 IOC in local feed; no remote update.",
+      "expected": [
+        "DRAGON-TI-001"
+      ],
+      "expected_categories": {
+        "DRAGON-TI-001": "threat-intelligence"
+      },
+      "intel_feed": "synthetic-feed.json"
+    },
+    {
+      "id": "benign-security-guide",
+      "split": "development",
+      "classification": "benign",
+      "provenance": "curated",
+      "artifact": "benign-security-guide/SKILL.md",
+      "notes": "Security education, not override.",
+      "expected": []
+    },
+    {
+      "id": "benign-credential-guide",
+      "split": "development",
+      "classification": "benign",
+      "provenance": "curated",
+      "artifact": "benign-credential-guide/AGENTS.md",
+      "notes": "Explicit negative guidance about secrets.",
+      "expected": []
+    },
+    {
+      "id": "benign-encoded",
+      "split": "development",
+      "classification": "benign",
+      "provenance": "synthetic",
+      "artifact": "benign-encoded/SKILL.md",
+      "notes": "Encoded-looking non-executable data.",
+      "expected": []
+    },
+    {
+      "id": "benign-mcp",
+      "split": "development",
+      "classification": "benign",
+      "provenance": "curated",
+      "artifact": "benign-mcp/mcp.json",
+      "notes": "Local MCP example without poisoning.",
+      "expected": []
+    },
+    {
+      "id": "ti-punctuation",
+      "split": "holdout",
+      "classification": "malicious",
+      "provenance": "synthetic",
+      "artifact": "ti-punctuation/SKILL.md",
+      "notes": "Known issue: terminal punctuation may suppress IOC extraction; retain as FN.",
+      "expected": [
+        "DRAGON-TI-001"
+      ],
+      "expected_categories": {
+        "DRAGON-TI-001": "threat-intelligence"
+      },
+      "intel_feed": "synthetic-feed.json"
+    },
+    {
+      "id": "multi-credential-exfil",
+      "split": "holdout",
+      "classification": "malicious",
+      "provenance": "synthetic",
+      "artifact": "multi-credential-exfil/SKILL.md",
+      "notes": "Two independent threats in one artifact.",
+      "expected": [
+        "DRAGON-CRED-001",
+        "DRAGON-EXFIL-001"
+      ],
+      "expected_categories": {
+        "DRAGON-CRED-001": "credential",
+        "DRAGON-EXFIL-001": "credential"
+      }
+    },
+    {
+      "id": "mcp-poisoning",
+      "split": "holdout",
+      "classification": "malicious",
+      "provenance": "synthetic",
+      "artifact": "mcp-poisoning/mcp.json",
+      "notes": "Alternate static MCP fetch-to-shell configuration.",
+      "expected": [
+        "DAAS-002"
+      ],
+      "expected_categories": {
+        "DAAS-002": "remote-code-execution"
+      }
+    },
+    {
+      "id": "benign-curl",
+      "split": "holdout",
+      "classification": "benign",
+      "provenance": "curated",
+      "artifact": "benign-curl/SKILL.md",
+      "notes": "Documentation of curl without execution.",
+      "expected": []
+    },
+    {
+      "id": "benign-dependency",
+      "split": "holdout",
+      "classification": "benign",
+      "provenance": "synthetic",
+      "artifact": "benign-dependency/requirements.txt",
+      "notes": "Pinned ordinary dependency.",
+      "expected": []
+    },
+    {
+      "id": "benign-persistence",
+      "split": "holdout",
+      "classification": "benign",
+      "provenance": "curated",
+      "artifact": "benign-persistence/SOUL.md",
+      "notes": "Discussion of persistence without behavioral command.",
+      "expected": []
+    },
+    {
+      "id": "flow-control",
+      "split": "development",
+      "classification": "malicious",
+      "provenance": "synthetic",
+      "artifact": "flow-control/mcp.json",
+      "notes": "Source tool changes target arguments; sink writes agent config. Expect source-to-sink control flow, not mere coexistence.",
+      "expected": ["DRAGON-FLOW-001", "DRAGON-MCP-007"],
+      "expected_categories": {
+        "DRAGON-FLOW-001": "static-toxic-flow",
+        "DRAGON-MCP-007": "mcp-security"
+      }
+    },
+    {
+      "id": "mcp-tool-injection",
+      "split": "development",
+      "classification": "malicious",
+      "provenance": "synthetic",
+      "artifact": "mcp-tool-injection/mcp.json",
+      "notes": "Tool instructions tell the agent to read and transmit a private key; static metadata only.",
+      "expected": [
+        "DRAGON-MCP-006",
+        "DRAGON-MCP-008",
+        "DRAGON-MCP-010",
+        "DRAGON-MCP-012"
+      ],
+      "expected_categories": {
+        "DRAGON-MCP-006": "mcp-security",
+        "DRAGON-MCP-008": "mcp-security",
+        "DRAGON-MCP-010": "mcp-security",
+        "DRAGON-MCP-012": "mcp-security"
+      }
+    },
+    {
+      "id": "benign-git-dependency",
+      "split": "holdout",
+      "classification": "benign",
+      "provenance": "synthetic",
+      "artifact": "benign-git-dependency/requirements.in",
+      "notes": "Pinned Git source at a full inert commit ID.",
+      "expected": []
+    },
+    {
+      "id": "ti-benign-negative",
+      "split": "holdout",
+      "classification": "benign",
+      "provenance": "synthetic",
+      "artifact": "ti-benign-negative/SKILL.md",
+      "intel_feed": "synthetic-feed.json",
+      "notes": "Nonmatching synthetic domain under the same local feed.",
+      "expected": []
+    }
+  ]
+}

@@ -4,6 +4,8 @@
 
 Local-first, static security scanning of selected AI agent artifacts. See [IDEA.md](IDEA.md) for the broader product vision and [AGENTS.md](AGENTS.md) for contributor safety rules.
 
+Development detection-quality measurements (not unit-test pass rates or a production gate) are documented in [benchmarks/README.md](benchmarks/README.md). The source-only offline runner reports corpus-specific precision, recall, F1, rule support, and explicit false positives/negatives for separate development and holdout splits; it does not change normal scanning or bundle the corpus.
+
 ## Current scope
 
 `dragonscan scan PATH` accepts a local file, directory, or supported local archive. It recognizes `SKILL.md`, `AGENTS.md`, `SOUL.md`, `MEMORY.md`, `CLAUDE.md`, `mcp.json`, `.mcp.json`, `mcp-config.json`, and `claude_desktop_config.json` (case-insensitive). Within `.claude`, `.codex`, `.cursor`, `.gemini`, `.windsurf` and `.openclaw` trees it also recognizes `config`/`settings` JSON, YAML or TOML files and `hooks.json`; `.claude-plugin/plugin.json` is plugin metadata. Python/Node dependency manifests and supported lockfiles are recognized by name in local directory scans (see below). Explicit `config`/`settings` files are accepted even without ecosystem context. Other unrelated JSON/YAML/TOML files are ignored in directory scans; explicit unsupported files produce an error. Ecosystem is reported for recognized Python/Node dependency artifacts or when an agent directory context identifies it; `package.json` under `skills/` retains its previous agent ecosystem classification. A generic config with a top-level `mcpServers` object is reclassified as MCP configuration after parsing.
