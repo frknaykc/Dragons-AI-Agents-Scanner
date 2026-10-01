@@ -123,7 +123,14 @@ def json_report(report: ScanReport) -> str:
     if report.dynamic_status != "not_requested":
         data["dynamic_mcp"] = {
             "status": report.dynamic_status,
-            "isolation": "process_only; no OS filesystem or network sandbox",
+            "isolation": (
+                "not_executed"
+                if report.dynamic_status == "blocked"
+                else "process_only; no OS filesystem or network sandbox"
+            ),
+            "mode": report.dynamic_mode,
+            "capabilities": report.dynamic_capabilities,
+            "timings_ms": report.dynamic_timings_ms,
             "diagnostics": report.dynamic_diagnostics,
             "observations": [
                 {**asdict(item), "artifact": str(item.artifact)}
@@ -267,7 +274,12 @@ def terminal_report(report: ScanReport) -> str:
         lines.append(f"SEMANTIC DIAGNOSTIC: {ascii(diagnostic)}")
     if report.dynamic_status != "not_requested":
         lines.append(
-            f"Dynamic MCP: {report.dynamic_status}; process-only, NO OS filesystem/network sandbox"
+            f"Dynamic MCP: {report.dynamic_status}; mode={report.dynamic_mode}; "
+            "NO OS filesystem/network sandbox"
+        )
+        lines.append(
+            "  Isolation capabilities: "
+            + ", ".join(f"{name}={status}" for name, status in report.dynamic_capabilities.items())
         )
     for observation in report.dynamic_observations:
         lines.append(

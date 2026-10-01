@@ -105,11 +105,18 @@ def intel_update(url: str, sha256: str, store: Path) -> None:
 )
 @click.option("--semantic-url", help="Trusted OpenAI-compatible /v1/chat/completions URL.")
 @click.option("--semantic-model", help="Trusted semantic model name.")
-@click.option("--dynamic-mcp", is_flag=True, help="Request local stdio MCP metadata inspection.")
+@click.option(
+    "--dynamic-mcp",
+    is_flag=True,
+    help="Request local stdio MCP metadata inspection (blocked without required isolation).",
+)
 @click.option(
     "--allow-uncontained-mcp",
     is_flag=True,
-    help="Separately consent to running untrusted code WITHOUT network or filesystem sandboxing.",
+    help=(
+        "Legacy uncontained execution: consent to running code WITHOUT network "
+        "or filesystem sandboxing."
+    ),
 )
 @click.option("--dynamic-mcp-server", help="Exact declared server name (must be unique).")
 @click.option(

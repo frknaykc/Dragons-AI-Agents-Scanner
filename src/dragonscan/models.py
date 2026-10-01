@@ -328,13 +328,24 @@ class DynamicMcpItem:
 
 
 @dataclass(frozen=True)
+class DynamicMcpComparison:
+    kind: str
+    name: str
+    status: str  # declared_and_observed, declared_only, observed_only
+
+
+@dataclass(frozen=True)
 class DynamicMcpObservation:
     artifact: Path
     server: str
     provenance: str = "dynamic_observation"
+    transport: str = "stdio"
+    session_id: str = ""
+    observed_methods: tuple[str, ...] = ()
     tools: tuple[DynamicMcpItem, ...] = ()
     prompts: tuple[DynamicMcpItem, ...] = ()
     resources: tuple[DynamicMcpItem, ...] = ()
+    inventory_comparison: tuple[DynamicMcpComparison, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -409,6 +420,9 @@ class ScanReport:
     dynamic_status: str = "not_requested"
     dynamic_diagnostics: tuple[str, ...] = ()
     dynamic_observations: tuple[DynamicMcpObservation, ...] = ()
+    dynamic_mode: str = "required_isolation"
+    dynamic_capabilities: dict[str, str] = field(default_factory=dict)
+    dynamic_timings_ms: dict[str, float] = field(default_factory=dict)
     installed_environments: tuple[InstalledEnvironment, ...] = ()
     artifact_origins: tuple[ArtifactOrigin, ...] = ()
     acquisition_status: str = "not_required"

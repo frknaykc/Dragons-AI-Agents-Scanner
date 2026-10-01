@@ -12,7 +12,7 @@ from dragonscan.correlation import correlate
 from dragonscan.detection import DetectionContext, EngineDetector, Observation
 from dragonscan.detectors import BUILTIN_DETECTORS, SourceSinkDetector
 from dragonscan.discovery import DiscoveryError, discover
-from dragonscan.dynamic_mcp import DynamicPolicy, DynamicResult
+from dragonscan.dynamic_mcp import DynamicPolicy, DynamicResult, available_capabilities
 from dragonscan.dynamic_mcp import inspect as inspect_mcp
 from dragonscan.evasion import views
 from dragonscan.evasion_graph import annotate_views
@@ -337,7 +337,14 @@ class Scanner:
             )
         if self.dynamic_policy.requested:
             dynamic = (
-                DynamicResult("blocked", ("static scan incomplete; MCP launch skipped",))
+                DynamicResult(
+                    "blocked",
+                    ("static scan incomplete; MCP launch skipped",),
+                    mode="legacy_uncontained"
+                    if self.dynamic_policy.allow_uncontained
+                    else "required_isolation",
+                    capabilities=available_capabilities(),
+                )
                 if report.errors
                 else inspect_mcp(tuple(documents), self.dynamic_policy)
             )
@@ -346,6 +353,9 @@ class Scanner:
                 dynamic_status=dynamic.status,
                 dynamic_diagnostics=dynamic.diagnostics,
                 dynamic_observations=dynamic.observations,
+                dynamic_mode=dynamic.mode,
+                dynamic_capabilities=dynamic.capabilities or {},
+                dynamic_timings_ms=dynamic.timings_ms or {},
             )
         # Intelligence has no effect on graph, semantic candidate selection or MCP launch.
         if intel_matcher is not None:

@@ -12,11 +12,18 @@ import stat
 import subprocess
 import tempfile
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
-from dragonscan.models import Document, DynamicMcpItem, DynamicMcpObservation, McpServer
+from dragonscan.models import (
+    Document,
+    DynamicMcpComparison,
+    DynamicMcpItem,
+    DynamicMcpObservation,
+    McpServer,
+)
 
 _STARTUP_SECONDS = 2.0
 _SESSION_SECONDS = 5.0
@@ -27,6 +34,7 @@ _MAX_MESSAGES = 32
 _MAX_ITEMS = 32
 _MAX_NODES = 2048
 _MAX_DEPTH = 20
+_LIST_METHODS = ("tools/list", "prompts/list", "resources/list")
 _BLOCKED_EXECUTABLES = {
     "npx",
     "uvx",
@@ -64,6 +72,25 @@ class DynamicResult:
     status: str
     diagnostics: tuple[str, ...] = ()
     observations: tuple[DynamicMcpObservation, ...] = ()
+    mode: str = "required_isolation"
+    capabilities: dict[str, str] | None = None
+    timings_ms: dict[str, float] | None = None
+
+
+def available_capabilities() -> dict[str, str]:
+    """What this implementation can enforce, not a claim about the current target."""
+    posix = os.name == "posix"
+    return {
+        "environment_filtering": "available" if posix else "unsupported",
+        "private_cwd": "available" if posix else "unsupported",
+        "shell_free_launch": "available" if posix else "unsupported",
+        "wall_timeout": "available" if posix else "unsupported",
+        "output_and_protocol_limits": "available" if posix else "unsupported",
+        "process_group_cleanup": "available" if posix else "unsupported",
+        "filesystem_read_write": "unsupported",
+        "network_denial": "unsupported",
+        "cpu_memory_process_file_limits": "unsupported",
+    }
 
 
 class _SessionError(Exception):
@@ -71,8 +98,13 @@ class _SessionError(Exception):
 
 
 def _validate(policy: DynamicPolicy, documents: tuple[Document, ...]) -> tuple[Document, McpServer]:
-    if not policy.allow_uncontained or not policy.server or policy.executable is None:
-        raise ValueError("uncontained execution requires consent, server name and executable")
+    if not policy.allow_uncontained:
+        raise ValueError(
+            "required isolation unavailable: filesystem read/write and network denial; "
+            "uncontained execution requires separate legacy consent"
+        )
+    if not policy.server or policy.executable is None:
+        raise ValueError("uncontained execution requires server name and executable")
     if os.name != "posix":
         raise ValueError("process groups and pipe multiplexing unavailable on this platform")
     matches = [
@@ -168,14 +200,46 @@ def _items(result: dict[str, Any], kind: str) -> tuple[DynamicMcpItem, ...]:
 
 
 def _observation(
-    doc: Document, server: McpServer, observed: dict[str, tuple[DynamicMcpItem, ...]]
+    doc: Document,
+    server: McpServer,
+    observed: dict[str, tuple[DynamicMcpItem, ...]],
+    session_id: str = "",
 ) -> DynamicMcpObservation:
+    comparison: list[DynamicMcpComparison] = []
+    for kind in ("tools", "prompts", "resources"):
+        static_names = tuple(item.name for item in getattr(server, kind))
+        # No declared inventory is not an empty declared inventory; partial lists
+        # cannot be compared to a complete static declaration either. Only
+        # individual completed list methods appear in `observed`.
+        if static_names and len(set(static_names)) == len(static_names) and kind in observed:
+            comparison.extend(_compare_inventory(kind, static_names, observed[kind]))
     return DynamicMcpObservation(
         doc.artifact.path,
         server.name,
+        session_id=session_id,
+        observed_methods=("initialize", *(f"{kind}/list" for kind in observed)),
         tools=observed.get("tools", ()),
         prompts=observed.get("prompts", ()),
         resources=observed.get("resources", ()),
+        inventory_comparison=tuple(comparison),
+    )
+
+
+def _compare_inventory(
+    kind: str, declared: tuple[str, ...], observed: tuple[DynamicMcpItem, ...]
+) -> tuple[DynamicMcpComparison, ...]:
+    static, runtime = set(declared), {item.name for item in observed}
+    return tuple(
+        DynamicMcpComparison(
+            kind,
+            name,
+            "declared_and_observed"
+            if name in static and name in runtime
+            else "declared_only"
+            if name in static
+            else "observed_only",
+        )
+        for name in sorted(static | runtime)
     )
 
 
@@ -201,6 +265,8 @@ class _Session:
 
     def exchange(self, method: str, request_id: int, *, startup: bool = False) -> dict[str, Any]:
         assert self.process.stdin is not None and self.process.stdout is not None
+        if (method, startup) != ("initialize", True) and (startup or method not in _LIST_METHODS):
+            raise _SessionError("MCP method not allowed")
         deadline = (
             min(self.session_deadline, time.monotonic() + _STARTUP_SECONDS)
             if startup
@@ -296,6 +362,8 @@ class _Session:
 
 
 def _run(doc: Document, server: McpServer, executable: Path) -> DynamicResult:
+    started = time.monotonic()
+    timings: dict[str, float] = {}
     with tempfile.TemporaryDirectory(
         prefix="dragonscan-mcp-", dir=os.environ.get("TMPDIR")
     ) as workspace:
@@ -313,12 +381,16 @@ def _run(doc: Document, server: McpServer, executable: Path) -> DynamicResult:
                 close_fds=True,
             )
         except OSError:
-            return DynamicResult("failed", ("server launch failed",))
+            return DynamicResult("failed", ("server launch failed",), timings_ms=timings)
+        timings["startup"] = round((time.monotonic() - started) * 1000, 3)
         session: _Session | None = None
+        session_id = uuid.uuid4().hex
         observed: dict[str, tuple[DynamicMcpItem, ...]] = {}
         try:
             session = _Session(process)
+            phase = time.monotonic()
             init = session.exchange("initialize", 1, startup=True)
+            timings["initialize"] = round((time.monotonic() - phase) * 1000, 3)
             capabilities = init.get("capabilities")
             server_info = init.get("serverInfo")
             if (
@@ -337,63 +409,102 @@ def _run(doc: Document, server: McpServer, executable: Path) -> DynamicResult:
                 if kind in capabilities:
                     if not isinstance(capabilities[kind], dict):
                         raise _SessionError("invalid capability declaration")
+                    phase = time.monotonic()
                     observed[kind] = _items(session.exchange(f"{kind}/list", index), kind)
-            return DynamicResult("completed", observations=(_observation(doc, server, observed),))
+                    timings[f"{kind}/list"] = round((time.monotonic() - phase) * 1000, 3)
+            result = DynamicResult(
+                "completed",
+                observations=(_observation(doc, server, observed, session_id),),
+                timings_ms=timings,
+            )
         except _SessionError as exc:
             # No raw stdout/stderr, environment, executable path or exception detail.
-            return DynamicResult(
+            result = DynamicResult(
                 "partial" if observed else "failed",
                 (str(exc),),
-                (_observation(doc, server, observed),) if observed else (),
+                (_observation(doc, server, observed, session_id),) if observed else (),
+                timings_ms=timings,
             )
         finally:
             try:
                 if session is not None:
                     session.close()
             finally:
-                _terminate(process)
+                cleaned = _terminate(process)
+                timings["total"] = round((time.monotonic() - started) * 1000, 3)
+        if not cleaned:
+            return DynamicResult(
+                "partial" if result.observations else "failed",
+                (*result.diagnostics, "process group cleanup not confirmed"),
+                result.observations,
+                timings_ms=timings,
+            )
+        return result
 
 
-def _terminate(process: subprocess.Popen[bytes]) -> None:
+def _terminate(process: subprocess.Popen[bytes]) -> bool:
+    group_signalled = True
     try:
         os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass  # The group has already gone away.
     except OSError:
+        group_signalled = False
         # The process may already have exited. A fallback kill must survive that race.
         try:
             if process.poll() is None:
                 process.kill()
         except OSError:
-            pass
+            group_signalled = False
     for pipe in (process.stdin, process.stdout, process.stderr):
         if pipe is not None:
             try:
                 pipe.close()
             except OSError:
                 pass
+    reaped = True
     try:
         process.wait(timeout=1)
     except subprocess.TimeoutExpired:
+        reaped = False
         try:
             process.kill()
         except OSError:
             pass
         try:
             process.wait(timeout=1)
+            reaped = True
         except subprocess.TimeoutExpired:
             # An uninterruptible child must not hang the static scan indefinitely.
             pass
+    return group_signalled and reaped
 
 
 def inspect(documents: tuple[Document, ...], policy: DynamicPolicy) -> DynamicResult:
     """Only this lower-layer gate may launch a process; config cannot grant consent."""
     if not policy.requested:
         return DynamicResult("not_requested")
+    mode = "legacy_uncontained" if policy.allow_uncontained else "required_isolation"
+    capabilities = available_capabilities()
     try:
         doc, server = _validate(policy, documents)
     except ValueError as exc:
-        return DynamicResult("blocked", (str(exc),))
+        return DynamicResult("blocked", (str(exc),), mode=mode, capabilities=capabilities)
     assert policy.executable is not None
     try:
-        return _run(doc, server, policy.executable)
+        result = _run(doc, server, policy.executable)
+        return DynamicResult(
+            result.status,
+            result.diagnostics,
+            result.observations,
+            mode,
+            capabilities,
+            result.timings_ms,
+        )
     except (OSError, ValueError):
-        return DynamicResult("failed", ("dynamic inspection infrastructure failed",))
+        return DynamicResult(
+            "failed",
+            ("dynamic inspection infrastructure failed",),
+            mode=mode,
+            capabilities=capabilities,
+        )
