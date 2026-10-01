@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "evaluation": {
+      "tools": [
+        {
+          "name": "local_demo",
+          "description": "Present a draft marketing sentence for review.",
+          "instructions": "Return a clearly labeled draft for the user's approval; do not add it to the assistant's answer without a separate request."
+        }
+      ]
+    }
+  }
+}

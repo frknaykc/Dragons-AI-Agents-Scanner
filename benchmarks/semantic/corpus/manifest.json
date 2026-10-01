@@ -1,0 +1,421 @@
+{
+  "version": "1.0",
+  "cases": [
+    {
+      "id": "sem-001-control",
+      "artifact": "sem-001-control/AGENTS.md",
+      "semantic_id": "DRAGON-SEM-001",
+      "expected": true,
+      "class": "deterministic-control",
+      "split": "development"
+    },
+    {
+      "id": "sem-001-p01",
+      "artifact": "sem-001-p01/AGENTS.md",
+      "semantic_id": "DRAGON-SEM-001",
+      "expected": true,
+      "expected_finding": {
+        "id": "DRAGON-SEM-001",
+        "category": "semantic",
+        "artifact": "sem-001-p01/AGENTS.md",
+        "line": 3,
+        "evidence_contains": "Semantic opinion",
+        "severity": "low"
+      },
+      "class": "clear",
+      "split": "development"
+    },
+    {
+      "id": "sem-001-p02",
+      "artifact": "sem-001-p02/AGENTS.md",
+      "semantic_id": "DRAGON-SEM-001",
+      "expected": true,
+      "class": "paraphrase",
+      "split": "development"
+    },
+    {
+      "id": "sem-001-p03",
+      "artifact": "sem-001-p03/AGENTS.md",
+      "semantic_id": "DRAGON-SEM-001",
+      "expected": true,
+      "class": "indirect",
+      "split": "development"
+    },
+    {
+      "id": "sem-001-p04",
+      "artifact": "sem-001-p04/AGENTS.md",
+      "semantic_id": "DRAGON-SEM-001",
+      "expected": true,
+      "class": "adversarial",
+      "split": "development"
+    },
+    {
+      "id": "sem-001-p05",
+      "artifact": "sem-001-p05/AGENTS.md",
+      "semantic_id": "DRAGON-SEM-001",
+      "expected": true,
+      "class": "clear",
+      "split": "development"
+    },
+    {
+      "id": "sem-001-n01",
+      "artifact": "sem-001-n01/AGENTS.md",
+      "semantic_id": "DRAGON-SEM-001",
+      "expected": false,
+      "class": "benign",
+      "split": "development"
+    },
+    {
+      "id": "sem-001-n02",
+      "artifact": "sem-001-n02/AGENTS.md",
+      "semantic_id": "DRAGON-SEM-001",
+      "expected": false,
+      "class": "hard-negative",
+      "split": "development"
+    },
+    {
+      "id": "sem-001-n03",
+      "artifact": "sem-001-n03/AGENTS.md",
+      "semantic_id": "DRAGON-SEM-001",
+      "expected": false,
+      "class": "docs",
+      "split": "development"
+    },
+    {
+      "id": "sem-001-n04",
+      "artifact": "sem-001-n04/AGENTS.md",
+      "semantic_id": "DRAGON-SEM-001",
+      "expected": false,
+      "class": "negation",
+      "split": "development"
+    },
+    {
+      "id": "sem-001-n05",
+      "artifact": "sem-001-n05/AGENTS.md",
+      "semantic_id": "DRAGON-SEM-001",
+      "expected": false,
+      "class": "ambiguous",
+      "split": "development"
+    },
+    {
+      "id": "sem-004-p01",
+      "artifact": "sem-004-p01/AGENTS.md",
+      "semantic_id": "DRAGON-SEM-004",
+      "expected": true,
+      "class": "clear",
+      "split": "development"
+    },
+    {
+      "id": "sem-004-p02",
+      "artifact": "sem-004-p02/AGENTS.md",
+      "semantic_id": "DRAGON-SEM-004",
+      "expected": true,
+      "class": "paraphrase",
+      "split": "development"
+    },
+    {
+      "id": "sem-004-p03",
+      "artifact": "sem-004-p03/AGENTS.md",
+      "semantic_id": "DRAGON-SEM-004",
+      "expected": true,
+      "class": "indirect",
+      "split": "development"
+    },
+    {
+      "id": "sem-004-p04",
+      "artifact": "sem-004-p04/AGENTS.md",
+      "semantic_id": "DRAGON-SEM-004",
+      "expected": true,
+      "class": "adversarial",
+      "split": "development"
+    },
+    {
+      "id": "sem-004-p05",
+      "artifact": "sem-004-p05/AGENTS.md",
+      "semantic_id": "DRAGON-SEM-004",
+      "expected": true,
+      "class": "clear",
+      "split": "development"
+    },
+    {
+      "id": "sem-004-n01",
+      "artifact": "sem-004-n01/AGENTS.md",
+      "semantic_id": "DRAGON-SEM-004",
+      "expected": false,
+      "class": "benign",
+      "split": "development"
+    },
+    {
+      "id": "sem-004-n02",
+      "artifact": "sem-004-n02/AGENTS.md",
+      "semantic_id": "DRAGON-SEM-004",
+      "expected": false,
+      "class": "hard-negative",
+      "split": "development"
+    },
+    {
+      "id": "sem-004-n03",
+      "artifact": "sem-004-n03/AGENTS.md",
+      "semantic_id": "DRAGON-SEM-004",
+      "expected": false,
+      "class": "docs",
+      "split": "development"
+    },
+    {
+      "id": "sem-004-n04",
+      "artifact": "sem-004-n04/AGENTS.md",
+      "semantic_id": "DRAGON-SEM-004",
+      "expected": false,
+      "class": "negation",
+      "split": "development"
+    },
+    {
+      "id": "sem-004-n05",
+      "artifact": "sem-004-n05/AGENTS.md",
+      "semantic_id": "DRAGON-SEM-004",
+      "expected": false,
+      "class": "ambiguous",
+      "split": "development"
+    },
+    {
+      "id": "sem-005-p01",
+      "artifact": "sem-005-p01/AGENTS.md",
+      "semantic_id": "DRAGON-SEM-005",
+      "expected": true,
+      "class": "clear",
+      "split": "development"
+    },
+    {
+      "id": "sem-005-p02",
+      "artifact": "sem-005-p02/AGENTS.md",
+      "semantic_id": "DRAGON-SEM-005",
+      "expected": true,
+      "class": "paraphrase",
+      "split": "development"
+    },
+    {
+      "id": "sem-005-p03",
+      "artifact": "sem-005-p03/AGENTS.md",
+      "semantic_id": "DRAGON-SEM-005",
+      "expected": true,
+      "class": "indirect",
+      "split": "development"
+    },
+    {
+      "id": "sem-005-p04",
+      "artifact": "sem-005-p04/AGENTS.md",
+      "semantic_id": "DRAGON-SEM-005",
+      "expected": true,
+      "class": "adversarial",
+      "split": "development"
+    },
+    {
+      "id": "sem-005-p05",
+      "artifact": "sem-005-p05/AGENTS.md",
+      "semantic_id": "DRAGON-SEM-005",
+      "expected": true,
+      "class": "clear",
+      "split": "development"
+    },
+    {
+      "id": "sem-005-n01",
+      "artifact": "sem-005-n01/AGENTS.md",
+      "semantic_id": "DRAGON-SEM-005",
+      "expected": false,
+      "class": "benign",
+      "split": "development"
+    },
+    {
+      "id": "sem-005-n02",
+      "artifact": "sem-005-n02/AGENTS.md",
+      "semantic_id": "DRAGON-SEM-005",
+      "expected": false,
+      "class": "hard-negative",
+      "split": "development"
+    },
+    {
+      "id": "sem-005-n03",
+      "artifact": "sem-005-n03/AGENTS.md",
+      "semantic_id": "DRAGON-SEM-005",
+      "expected": false,
+      "class": "docs",
+      "split": "development"
+    },
+    {
+      "id": "sem-005-n04",
+      "artifact": "sem-005-n04/AGENTS.md",
+      "semantic_id": "DRAGON-SEM-005",
+      "expected": false,
+      "class": "negation",
+      "split": "development"
+    },
+    {
+      "id": "sem-005-n05",
+      "artifact": "sem-005-n05/AGENTS.md",
+      "semantic_id": "DRAGON-SEM-005",
+      "expected": false,
+      "class": "ambiguous",
+      "split": "development"
+    },
+    {
+      "id": "sem-002-p01",
+      "artifact": "sem-002-p01/mcp.json",
+      "semantic_id": "DRAGON-SEM-002",
+      "expected": true,
+      "class": "clear",
+      "split": "development"
+    },
+    {
+      "id": "sem-002-p02",
+      "artifact": "sem-002-p02/mcp.json",
+      "semantic_id": "DRAGON-SEM-002",
+      "expected": true,
+      "class": "paraphrase",
+      "split": "development"
+    },
+    {
+      "id": "sem-002-p03",
+      "artifact": "sem-002-p03/mcp.json",
+      "semantic_id": "DRAGON-SEM-002",
+      "expected": true,
+      "class": "indirect",
+      "split": "development"
+    },
+    {
+      "id": "sem-002-p04",
+      "artifact": "sem-002-p04/mcp.json",
+      "semantic_id": "DRAGON-SEM-002",
+      "expected": true,
+      "class": "adversarial",
+      "split": "development"
+    },
+    {
+      "id": "sem-002-p05",
+      "artifact": "sem-002-p05/mcp.json",
+      "semantic_id": "DRAGON-SEM-002",
+      "expected": true,
+      "class": "clear",
+      "split": "development"
+    },
+    {
+      "id": "sem-002-n01",
+      "artifact": "sem-002-n01/mcp.json",
+      "semantic_id": "DRAGON-SEM-002",
+      "expected": false,
+      "class": "benign",
+      "split": "development"
+    },
+    {
+      "id": "sem-002-n02",
+      "artifact": "sem-002-n02/mcp.json",
+      "semantic_id": "DRAGON-SEM-002",
+      "expected": false,
+      "class": "hard-negative",
+      "split": "development"
+    },
+    {
+      "id": "sem-002-n03",
+      "artifact": "sem-002-n03/mcp.json",
+      "semantic_id": "DRAGON-SEM-002",
+      "expected": false,
+      "class": "docs",
+      "split": "development"
+    },
+    {
+      "id": "sem-002-n04",
+      "artifact": "sem-002-n04/mcp.json",
+      "semantic_id": "DRAGON-SEM-002",
+      "expected": false,
+      "class": "negation",
+      "split": "development"
+    },
+    {
+      "id": "sem-002-n05",
+      "artifact": "sem-002-n05/mcp.json",
+      "semantic_id": "DRAGON-SEM-002",
+      "expected": false,
+      "class": "ambiguous",
+      "split": "development"
+    },
+    {
+      "id": "sem-003-p01",
+      "artifact": "sem-003-p01/mcp.json",
+      "semantic_id": "DRAGON-SEM-003",
+      "expected": true,
+      "class": "clear",
+      "split": "development"
+    },
+    {
+      "id": "sem-003-p02",
+      "artifact": "sem-003-p02/mcp.json",
+      "semantic_id": "DRAGON-SEM-003",
+      "expected": true,
+      "class": "paraphrase",
+      "split": "development"
+    },
+    {
+      "id": "sem-003-p03",
+      "artifact": "sem-003-p03/mcp.json",
+      "semantic_id": "DRAGON-SEM-003",
+      "expected": true,
+      "class": "indirect",
+      "split": "development"
+    },
+    {
+      "id": "sem-003-p04",
+      "artifact": "sem-003-p04/mcp.json",
+      "semantic_id": "DRAGON-SEM-003",
+      "expected": true,
+      "class": "adversarial",
+      "split": "development"
+    },
+    {
+      "id": "sem-003-p05",
+      "artifact": "sem-003-p05/mcp.json",
+      "semantic_id": "DRAGON-SEM-003",
+      "expected": true,
+      "class": "clear",
+      "split": "development"
+    },
+    {
+      "id": "sem-003-n01",
+      "artifact": "sem-003-n01/mcp.json",
+      "semantic_id": "DRAGON-SEM-003",
+      "expected": false,
+      "class": "benign",
+      "split": "development"
+    },
+    {
+      "id": "sem-003-n02",
+      "artifact": "sem-003-n02/mcp.json",
+      "semantic_id": "DRAGON-SEM-003",
+      "expected": false,
+      "class": "hard-negative",
+      "split": "development"
+    },
+    {
+      "id": "sem-003-n03",
+      "artifact": "sem-003-n03/mcp.json",
+      "semantic_id": "DRAGON-SEM-003",
+      "expected": false,
+      "class": "docs",
+      "split": "development"
+    },
+    {
+      "id": "sem-003-n04",
+      "artifact": "sem-003-n04/mcp.json",
+      "semantic_id": "DRAGON-SEM-003",
+      "expected": false,
+      "class": "negation",
+      "split": "development"
+    },
+    {
+      "id": "sem-003-n05",
+      "artifact": "sem-003-n05/mcp.json",
+      "semantic_id": "DRAGON-SEM-003",
+      "expected": false,
+      "class": "ambiguous",
+      "split": "development"
+    }
+  ]
+}

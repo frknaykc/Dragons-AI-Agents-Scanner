@@ -45,10 +45,11 @@ _PRIVATE = re.compile(
 )
 _KEY_START = re.compile(r"-----BEGIN [^-\n]*PRIVATE KEY-----", re.I)
 _AUTH = re.compile(
-    r"\b(?:Authorization|Proxy-Authorization|Cookie|Set-Cookie)\s*[:=]\s*[^\r\n]+", re.I
+    r"\b(?:Authorization|Proxy-Authorization|Cookie|Set-Cookie)['\"]?\s*[:=]\s*['\"]?[^'\"\r\n]+",
+    re.I,
 )
 _SECRET = re.compile(
-    r"\b(?:aws[_-]secret[_-]access[_-]key|aws[_-]session[_-]token|api[_-]?key|access[_-]?token|secret[_-]?access[_-]?key|secret[_-]?key|token|password|passwd|client[_-]?secret|registry[_-]?auth)\s*[:=]\s*['\"]?[^\s'\",;]+",
+    r"\b(?:[A-Za-z0-9]+[_-])*(?:aws[_-]secret[_-]access[_-]key|aws[_-]session[_-]token|api[_-]?key|access[_-]?token|secret[_-]?access[_-]?key|secret[_-]?key|token|password|passwd|client[_-]?secret|registry[_-]?auth)['\"]?\s*[:=]\s*['\"]?[^\s'\",;]+",
     re.I,
 )
 _URL_CREDENTIAL = re.compile(r"\bhttps?://[^\s/@:]+:[^\s/@]+@", re.I)
@@ -314,6 +315,8 @@ def enrich(
         if safe is None:
             diagnostics.append(f"S{index}: privacy/redaction failure; candidate skipped")
             continue
+        if len(safe) > limits.max_snippet:
+            diagnostics.append(f"S{index}: semantic snippet truncated; analysis incomplete")
         evidence = {"E1": safe[: limits.max_snippet]}
         static_refs: dict[str, str] = {}
         for j, (identifier, category) in enumerate(
@@ -367,7 +370,6 @@ def enrich(
                 cache[identity] = provider.analyze(
                     request, min(limits.timeout, remaining), limits.max_response
                 )
-            validated = _validate(cache[identity], candidate, frozenset(evidence), limits)
         except KeyboardInterrupt:
             diagnostics.append(f"S{index}: semantic request interrupted; analysis incomplete")
             break
@@ -378,6 +380,13 @@ def enrich(
                 else "provider or response failure"
             )
             diagnostics.append(f"S{index}: {kind} ({type(exc).__name__}); candidate failed")
+            continue
+        try:
+            validated = _validate(cache[identity], candidate, frozenset(evidence), limits)
+        except Exception as exc:
+            diagnostics.append(
+                f"S{index}: schema rejected ({type(exc).__name__}); candidate failed"
+            )
             continue
         analyzed += 1
         for category, verdict, confidence, rationale, refs in validated:

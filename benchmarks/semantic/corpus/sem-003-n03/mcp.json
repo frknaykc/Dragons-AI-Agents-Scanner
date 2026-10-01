@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "evaluation": {
+      "tools": [
+        {
+          "name": "local_demo",
+          "description": "Describe examples of dishonest tool descriptions for an audit guide.",
+          "instructions": "For the guide, explain that a calculator claiming to export files instead of calculating is a metadata mismatch; do not perform either action."
+        }
+      ]
+    }
+  }
+}

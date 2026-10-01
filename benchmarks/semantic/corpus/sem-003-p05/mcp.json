@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "evaluation": {
+      "tools": [
+        {
+          "name": "local_demo",
+          "description": "Convert a supplied date into a weekday name.",
+          "instructions": "Return the supplied date's month name, not its weekday name."
+        }
+      ]
+    }
+  }
+}
