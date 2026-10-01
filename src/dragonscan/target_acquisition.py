@@ -1,5 +1,6 @@
 """Explicit, bounded target acquisition. Acquired bytes are data, never executed."""
 
+import hashlib
 import http.client
 import ipaddress
 import lzma
@@ -11,6 +12,8 @@ import stat
 import struct
 import tarfile
 import tempfile
+import time
+import unicodedata
 import zipfile
 import zlib
 from collections.abc import Iterator
@@ -38,6 +41,9 @@ MAX_PATH = 1024
 MAX_REDIRECTS = 3
 CHUNK = 64 * 1024
 ARCHIVES = (".zip", ".tar", ".tar.gz", ".tgz")
+WINDOWS_DEVICES = frozenset({"CON", "PRN", "AUX", "NUL"}) | {
+    f"{prefix}{number}" for prefix in ("COM", "LPT") for number in range(1, 10)
+}
 REMOTE_NAMES = (
     INSTRUCTION_NAMES
     | MCP_NAMES
@@ -67,6 +73,9 @@ class AcquiredTarget:
     status: str  # completed, partial, blocked, failed
     diagnostics: tuple[str, ...] = ()
     root: Path | None = None  # Only set for extracted archives
+    resolved_source: str | None = None
+    source_sha256: str | None = None  # Content identity, not publisher authenticity
+    source_bytes: int | None = None
 
 
 def _archive(name: str) -> bool:
@@ -87,7 +96,13 @@ def _member(name: str, root: Path) -> Path:
     if (
         not parts
         or len(parts) > MAX_DEPTH
-        or any(part in {".", ".."} or len(part) > 255 for part in parts)
+        or any(
+            part in {".", ".."}
+            or len(part) > 255
+            or part.endswith((".", " "))
+            or part.split(".", 1)[0].upper() in WINDOWS_DEVICES
+            for part in parts
+        )
     ):
         raise AcquisitionError("unsafe archive member name or depth limit")
     # PurePosixPath collapses '.' and empty components: reject ambiguous spelling first.
@@ -123,9 +138,9 @@ def _extract(path: Path, root: Path) -> tuple[str, tuple[str, ...]]:
             diagnostics.add("unsafe archive member skipped")
             return None
         relative = destination.relative_to(root)
-        key = str(relative).casefold()
+        key = unicodedata.normalize("NFC", str(relative)).casefold()
         original_parents = [str(Path(*relative.parts[:i])) for i in range(1, len(relative.parts))]
-        parents = [parent.casefold() for parent in original_parents]
+        parents = [unicodedata.normalize("NFC", parent).casefold() for parent in original_parents]
         if (
             key in seen
             or any(parent in seen and not seen[parent] for parent in parents)
@@ -306,9 +321,16 @@ class _PinnedHTTPS(http.client.HTTPSConnection):
 def _download(url: str, destination: Path, *, max_bytes: int | None = None) -> str:
     max_bytes = MAX_DOWNLOAD if max_bytes is None else max_bytes
     current = url
+    deadline = time.monotonic() + 30
     for hop in range(MAX_REDIRECTS + 1):
+        if time.monotonic() >= deadline:
+            raise AcquisitionError("remote download timeout")
         host, ip, route = validate_url(current)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise AcquisitionError("remote download timeout")
         connection = _PinnedHTTPS(host, ip)
+        connection.timeout = min(8, remaining)
         try:
             connection.request(
                 "GET",
@@ -319,6 +341,8 @@ def _download(url: str, destination: Path, *, max_bytes: int | None = None) -> s
                     "Connection": "close",
                 },
             )
+            if connection.sock is not None:
+                connection.sock.settimeout(min(8, max(0.001, deadline - time.monotonic())))
             response = connection.getresponse()
             if response.status in {301, 302, 303, 307, 308}:
                 if hop == MAX_REDIRECTS:
@@ -332,13 +356,25 @@ def _download(url: str, destination: Path, *, max_bytes: int | None = None) -> s
                 continue
             if response.status != 200:
                 raise AcquisitionError("remote download failed: HTTP status not successful")
+            if response.getheader("Content-Encoding") not in {None, "identity"}:
+                raise AcquisitionError("unsupported remote content encoding")
             length = response.getheader("Content-Length")
             if length is not None and (not length.isdecimal() or int(length) > max_bytes):
                 raise AcquisitionError("download limit exceeded: Content-Length")
             declared_length = int(length) if length is not None else None
             with destination.open("xb") as output:
                 received = 0
-                while chunk := response.read(min(CHUNK, max_bytes + 1 - received)):
+                while True:
+                    if time.monotonic() >= deadline:
+                        raise AcquisitionError("remote download timeout")
+                    if connection.sock is not None:
+                        connection.sock.settimeout(min(8, max(0.001, deadline - time.monotonic())))
+                    # read1 returns available bytes without waiting to fill CHUNK.
+                    chunk = response.read1(min(CHUNK, max_bytes + 1 - received))
+                    if time.monotonic() >= deadline:
+                        raise AcquisitionError("remote download timeout")
+                    if not chunk:
+                        break
                     received += len(chunk)
                     if received > max_bytes:
                         raise AcquisitionError("download limit exceeded: response bytes")
@@ -449,14 +485,26 @@ def acquire(target: str, *, remote: bool, git: bool) -> Iterator[AcquiredTarget]
                 # Use fixed parser-eligible names, never raw server-provided filenames.
                 if not _archive(name):
                     original = workspace / static_name
-                _download(target, original)
+                resolved_source = _download(target, original)
                 source_name = target
             else:
                 assert path is not None
                 _copy_local(path, original)
                 source_name = str(path)
+                resolved_source = None
+            with original.open("rb") as stream:
+                source_sha256 = hashlib.file_digest(stream, "sha256").hexdigest()
+            source_bytes = original.stat().st_size
             if not _archive(archive_name):
-                result = AcquiredTarget(original, source_name, "remote", "completed")
+                result = AcquiredTarget(
+                    original,
+                    source_name,
+                    "remote",
+                    "completed",
+                    resolved_source=resolved_source,
+                    source_sha256=source_sha256,
+                    source_bytes=source_bytes,
+                )
             else:
                 extracted.mkdir(mode=0o700)
                 status, diagnostics = _extract(original, extracted)
@@ -467,6 +515,9 @@ def acquire(target: str, *, remote: bool, git: bool) -> Iterator[AcquiredTarget]
                     status,
                     diagnostics,
                     extracted,
+                    resolved_source,
+                    source_sha256,
+                    source_bytes,
                 )
         except (AcquisitionError, DiscoveryError) as exc:
             reason = str(exc)

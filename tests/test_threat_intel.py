@@ -321,7 +321,7 @@ def test_streamed_update_is_bounded_and_cleans_partial_candidates(tmp_path: Path
     response.getheader.side_effect = lambda name: (
         size.get(mode) if name == "Content-Length" else None
     )
-    response.read.side_effect = [b"x" * 1_048_577, b""] if mode == "oversized" else [fresh, b""]
+    response.read1.side_effect = [b"x" * 1_048_577, b""] if mode == "oversized" else [fresh, b""]
     connection = Mock()
     connection.getresponse.side_effect = OSError("synthetic failure") if mode == "failure" else None
     connection.getresponse.return_value = response

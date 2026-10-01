@@ -75,6 +75,9 @@ def json_report(report: ScanReport) -> str:
         "acquisition_kind",
         "acquisition_source",
         "acquisition_diagnostics",
+        "acquisition_resolved_source",
+        "acquisition_source_sha256",
+        "acquisition_source_bytes",
     ):
         data.pop(key)
     if report.acquisition_status != "not_required":
@@ -84,6 +87,12 @@ def json_report(report: ScanReport) -> str:
             "source": report.acquisition_source,
             "diagnostics": report.acquisition_diagnostics,
         }
+        if report.acquisition_resolved_source is not None:
+            data["acquisition"]["resolved_source"] = report.acquisition_resolved_source
+        if report.acquisition_source_sha256 is not None:
+            data["acquisition"]["source_sha256"] = report.acquisition_source_sha256
+        if report.acquisition_source_bytes is not None:
+            data["acquisition"]["source_bytes"] = report.acquisition_source_bytes
     if report.installed_environments:
         data["installed_agents"] = {
             "environments": [

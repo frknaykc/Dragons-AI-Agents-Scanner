@@ -447,3 +447,6 @@ class ScanReport:
     acquisition_kind: str | None = None
     acquisition_source: str | None = None
     acquisition_diagnostics: tuple[str, ...] = ()
+    acquisition_resolved_source: str | None = None
+    acquisition_source_sha256: str | None = None
+    acquisition_source_bytes: int | None = None

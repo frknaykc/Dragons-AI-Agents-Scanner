@@ -540,6 +540,9 @@ class Scanner:
                 acquisition_kind=acquired.kind,
                 acquisition_source=acquired.source,
                 acquisition_diagnostics=acquired.diagnostics,
+                acquisition_resolved_source=acquired.resolved_source,
+                acquisition_source_sha256=acquired.source_sha256,
+                acquisition_source_bytes=acquired.source_bytes,
             )
         report = self.scan(Target(acquired.path))
         physical = acquired.root or acquired.path
@@ -592,6 +595,9 @@ class Scanner:
             acquisition_kind=acquired.kind,
             acquisition_source=acquired.source,
             acquisition_diagnostics=acquired.diagnostics,
+            acquisition_resolved_source=acquired.resolved_source,
+            acquisition_source_sha256=acquired.source_sha256,
+            acquisition_source_bytes=acquired.source_bytes,
         )
 
 
