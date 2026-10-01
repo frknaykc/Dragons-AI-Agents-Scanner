@@ -17,7 +17,7 @@ from dragonscan.dynamic_mcp import inspect as inspect_mcp
 from dragonscan.evasion import views
 from dragonscan.evasion_graph import annotate_views
 from dragonscan.flow import correlate_flows, describe_existing_flow
-from dragonscan.installed_agents import discover_installed
+from dragonscan.installed_agents import discover_installed, discover_project
 from dragonscan.loading import LoadError, load_text, load_text_with_bytes
 from dragonscan.mcp_correlation import correlate_mcp
 from dragonscan.models import (
@@ -27,7 +27,9 @@ from dragonscan.models import (
     Confidence,
     Document,
     Finding,
+    InstalledEnvironment,
     Instruction,
+    McpServerOrigin,
     ScanReport,
     Severity,
     Target,
@@ -327,6 +329,14 @@ class Scanner:
         results = tuple(findings)
         risk, counts = summarize(results)
         report = ScanReport(target.path, tuple(normalized), results, tuple(errors), risk, counts)
+        report = replace(
+            report,
+            mcp_inventory=tuple(
+                (document.artifact.path, server.name, server.transport or "unspecified")
+                for document in documents
+                for server in document.servers
+            ),
+        )
         if self.vulnerability_provider is not None:
             report, graph = enrich_vulnerabilities(
                 report, tuple(documents), graph, self.vulnerability_provider
@@ -384,11 +394,41 @@ class Scanner:
     ) -> ScanReport:
         if self.dynamic_policy.requested:
             raise DiscoveryError("dynamic MCP is unavailable during installed-agent discovery")
+        if self.vulnerability_provider is not None or self.semantic_provider is not None:
+            raise DiscoveryError(
+                "network enrichment is unavailable during installed-agent discovery"
+            )
         discovered = discover_installed(home=home, platform=platform)
-        explicit = discover(target) if target is not None else ()
-        all_artifacts = (*explicit, *discovered.artifacts)
+        project_diagnostics: tuple[InstalledEnvironment, ...] = ()
+        try:
+            explicit = discover(target, installed_project=True) if target is not None else ()
+        except DiscoveryError as exc:
+            explicit = ()
+            assert target is not None
+            project_diagnostics = (
+                InstalledEnvironment(
+                    "Unattributed project",
+                    target.path.absolute(),
+                    "explicit_target",
+                    (),
+                    "diagnostic",
+                    str(exc),
+                    scope="project",
+                    resolution="partial",
+                ),
+            )
+        project = discover_project(target, explicit) if target is not None else None
+        all_artifacts = (
+            *explicit,
+            *(project.artifacts if project is not None else ()),
+            *discovered.artifacts,
+        )
         origins = (
-            *(ArtifactOrigin(artifact.path, "explicit_target") for artifact in explicit),
+            *(
+                ArtifactOrigin(artifact.path, "explicit_target", scope="project")
+                for artifact in explicit
+            ),
+            *(project.origins if project is not None else ()),
             *discovered.origins,
         )
         unique: list[Artifact] = []
@@ -399,9 +439,14 @@ class Scanner:
         for artifact, origin in zip(all_artifacts, origins, strict=True):
             try:
                 info = artifact.path.lstat()
-                identity: tuple[object, ...] = (info.st_dev, info.st_ino)
+                identity: tuple[object, ...] = (
+                    info.st_dev,
+                    info.st_ino,
+                    artifact.kind,
+                    artifact.source_format,
+                )
             except OSError:
-                identity = ("missing", str(artifact.path))
+                identity = ("missing", str(artifact.path), artifact.kind, artifact.source_format)
             if identity in seen:
                 resolved_origins.append(replace(origin, scanned_artifact=seen[identity]))
                 continue
@@ -414,18 +459,70 @@ class Scanner:
                 else origin.environment or artifact.path.parent
             )
         for origin in resolved_origins:
-            if origin.provenance == "installed_agent" and origin.scanned_artifact is not None:
+            if origin.scope == "user" and origin.scanned_artifact is not None:
                 reference_boundaries[origin.scanned_artifact] = (home or Path.home()).absolute()
+            elif (
+                origin.scope == "project"
+                and origin.scanned_artifact is not None
+                and target is not None
+            ):
+                reference_boundaries.setdefault(origin.scanned_artifact, target.path.absolute())
         report = self.scan(
             target or Target((home or Path.home()).absolute()),
             artifacts=tuple(unique),
             boundaries=boundaries,
             reference_boundaries=reference_boundaries,
         )
+        environments = (
+            *(project.environments if project is not None else ()),
+            *project_diagnostics,
+            *discovered.environments,
+        )
+        environments = tuple(
+            replace(
+                environment,
+                resolution="partial",
+                diagnostic=environment.diagnostic or "artifact scan incomplete",
+            )
+            if environment.status == "discovered"
+            and any(
+                origin.agent == environment.agent
+                and origin.environment == environment.root
+                and origin.scope == environment.scope
+                and origin.scanned_artifact is not None
+                and any(error.startswith(f"{origin.scanned_artifact}:") for error in report.errors)
+                for origin in resolved_origins
+            )
+            else environment
+            for environment in environments
+        )
+        server_origins: list[McpServerOrigin] = []
+        for config, server, transport in report.mcp_inventory:
+            matching = [
+                origin
+                for origin in resolved_origins
+                if origin.scanned_artifact == config and origin.agent is not None
+            ]
+            if not matching:
+                matching = [
+                    origin for origin in resolved_origins if origin.scanned_artifact == config
+                ][:1]
+            for origin in matching:
+                server_origins.append(
+                    McpServerOrigin(
+                        origin.artifact,
+                        server,
+                        transport,
+                        origin.agent,
+                        origin.scope,
+                        origin.source,
+                    )
+                )
         return replace(
             report,
-            installed_environments=discovered.environments,
+            installed_environments=environments,
             artifact_origins=tuple(resolved_origins),
+            installed_mcp_servers=tuple(dict.fromkeys(server_origins)),
         )
 
     def scan_acquired(self, acquired: AcquiredTarget) -> ScanReport:

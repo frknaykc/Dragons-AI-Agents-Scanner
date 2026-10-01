@@ -148,6 +148,8 @@ def scan(
         raise click.UsageError("PATH is required unless --installed-agents is set")
     if installed_agents and dynamic_mcp:
         raise click.UsageError("--dynamic-mcp cannot be combined with --installed-agents")
+    if installed_agents and (vuln_check or semantic):
+        raise click.UsageError("network enrichment cannot be combined with --installed-agents")
     if remote and (installed_agents or dynamic_mcp):
         raise click.UsageError(
             "--remote cannot be combined with --installed-agents or --dynamic-mcp"

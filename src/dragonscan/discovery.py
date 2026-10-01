@@ -10,6 +10,7 @@ INSTRUCTION_NAMES = frozenset({"skill.md", "agents.md", "soul.md", "memory.md", 
 MCP_NAMES = frozenset({"mcp.json", ".mcp.json", "mcp-config.json", "claude_desktop_config.json"})
 SKIP_DIRS = frozenset({".git", ".venv", "node_modules", "__pycache__"})
 MAX_FILES = 10_000
+MAX_INSTALLED_PROJECT_ARTIFACTS = 256
 ECOSYSTEM_DIRS = {
     ".claude": "claude-code",
     ".claude-plugin": "claude-code",
@@ -43,7 +44,9 @@ class DiscoveryError(ValueError):
     """The target cannot be safely discovered."""
 
 
-def classify(path: Path, *, explicit: bool = False) -> Artifact | None:
+def classify(
+    path: Path, *, explicit: bool = False, installed_project: bool = False
+) -> Artifact | None:
     name = path.name.lower()
     dependency = DEPENDENCY_FILES.get(name)
     if dependency is None and (
@@ -69,7 +72,9 @@ def classify(path: Path, *, explicit: bool = False) -> Artifact | None:
         ),
         None,
     )
-    if name in INSTRUCTION_NAMES:
+    if name in INSTRUCTION_NAMES or (
+        installed_project and name == "gemini.md" and ecosystem == "gemini-cli"
+    ):
         kind = {
             "skill.md": ArtifactKind.SKILL,
             "memory.md": ArtifactKind.MEMORY,
@@ -81,6 +86,8 @@ def classify(path: Path, *, explicit: bool = False) -> Artifact | None:
         kind = ArtifactKind.PLUGIN_METADATA
     elif name == "hooks.json" and ecosystem is not None:
         kind = ArtifactKind.HOOK_CONFIG
+    elif installed_project and name == "openclaw.json" and ecosystem == "openclaw":
+        kind = ArtifactKind.AGENT_CONFIG
     elif path.stem.lower() in CONFIG_STEMS or name in {"settings.local.json", "claude.json"}:
         if ecosystem is None and not explicit:
             return None
@@ -92,12 +99,12 @@ def classify(path: Path, *, explicit: bool = False) -> Artifact | None:
     return Artifact(path, kind, source_format, ecosystem)
 
 
-def discover(target: Target) -> tuple[Artifact, ...]:
+def discover(target: Target, *, installed_project: bool = False) -> tuple[Artifact, ...]:
     path = target.path.absolute()
     if path.is_symlink():
         raise DiscoveryError("symlink target is not supported")
     if path.is_file():
-        artifact = classify(path, explicit=True)
+        artifact = classify(path, explicit=True, installed_project=installed_project)
         if artifact is None:
             raise DiscoveryError("unsupported file type")
         return (artifact,)
@@ -105,21 +112,44 @@ def discover(target: Target) -> tuple[Artifact, ...]:
         raise DiscoveryError("target does not exist or is not a regular file/directory")
 
     artifacts: list[Artifact] = []
+    entries = 0
 
     def on_error(error: OSError) -> None:
         raise DiscoveryError(f"directory traversal failed: {error.strerror}")
 
     for root, dirs, files in os.walk(path, followlinks=False, onerror=on_error):
+        if installed_project:
+            entries += len(dirs) + len(files)
+            if entries > 8192:
+                raise DiscoveryError("project agent discovery entry limit exceeded")
         dirs[:] = sorted(
             d for d in dirs if d not in SKIP_DIRS and not (Path(root) / d).is_symlink()
         )
+        if installed_project and dirs and len(Path(root).relative_to(path).parts) >= 8:
+            raise DiscoveryError("project agent discovery depth limit exceeded")
         for name in sorted(files):
             candidate = Path(root) / name
-            artifact = classify(candidate)
-            if artifact is not None and not candidate.is_symlink():
-                artifacts.append(artifact)
-                if len(artifacts) > MAX_FILES:
-                    raise DiscoveryError("artifact count exceeds limit")
+            artifact = classify(candidate, installed_project=installed_project)
+            if artifact is None:
+                continue
+            if installed_project:
+                try:
+                    mode = candidate.lstat().st_mode
+                except OSError as exc:
+                    raise DiscoveryError(
+                        f"project agent artifact inaccessible: {type(exc).__name__}"
+                    ) from None
+                if stat.S_ISLNK(mode):
+                    continue
+                if not stat.S_ISREG(mode):
+                    raise DiscoveryError("project agent artifact is not a regular file")
+            elif candidate.is_symlink():
+                continue
+            artifacts.append(artifact)
+            if installed_project and len(artifacts) > MAX_INSTALLED_PROJECT_ARTIFACTS:
+                raise DiscoveryError("project agent artifact limit exceeded")
+            if len(artifacts) > MAX_FILES:
+                raise DiscoveryError("artifact count exceeds limit")
     return tuple(artifacts)
 
 
@@ -157,7 +187,9 @@ def discover_bounded(
             except OSError as exc:
                 raise DiscoveryError(f"agent entry inaccessible: {type(exc).__name__}") from None
             if stat.S_ISDIR(mode):
-                if depth < max_depth and name not in SKIP_DIRS:
+                if name not in SKIP_DIRS:
+                    if depth >= max_depth:
+                        raise DiscoveryError("agent discovery depth limit exceeded")
                     pending.append((candidate, depth + 1))
             elif stat.S_ISREG(mode):
                 artifact = classify(candidate)

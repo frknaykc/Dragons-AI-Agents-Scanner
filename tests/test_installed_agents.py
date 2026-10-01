@@ -20,6 +20,7 @@ from dragonscan.installed_agents import (
     discover_installed,
 )
 from dragonscan.models import Target
+from dragonscan.osv import OSVProvider
 from dragonscan.reporting import json_report
 from dragonscan.scanner import Scanner
 
@@ -251,7 +252,11 @@ def test_duplicate_explicit_and_multi_agent_provenance(
     assert [item.path for item in report.artifacts] == [artifact]
     assert {item.agent for item in report.artifact_origins} == {None, "Claude Code", "Another"}
     data = json.loads(json_report(report))
-    assert len(data["installed_agents"]["artifacts"]) == 3
+    assert len(data["installed_agents"]["artifacts"]) == 5
+    assert {item["scope"] for item in data["installed_agents"]["artifacts"]} == {
+        "user",
+        "project",
+    }
     assert len(data["findings"]) == len(report.findings)
 
 
@@ -296,7 +301,10 @@ def test_limits_depth_and_skipped_symlinks(tmp_path: Path) -> None:
     (path / "AGENTS.md").write_text("not inside configured depth")
     (root / "linked").symlink_to(tmp_path.parent, target_is_directory=True)
     report = Scanner().scan_installed(home=tmp_path)
-    assert [item.path for item in report.artifacts] == [root / "settings.json"]
+    assert not report.artifacts
+    claude = next(item for item in report.installed_environments if item.agent == "Claude Code")
+    assert claude.status == "diagnostic"
+    assert claude.resolution == "partial"
 
 
 def test_entry_budget_failure_is_diagnostic_not_partial_scan(tmp_path: Path) -> None:
@@ -392,3 +400,264 @@ def test_cross_root_reference_resolves_with_unrelated_explicit_target(tmp_path: 
         and edge.resolution == "outside"
         for edge in scanner.graph.edges
     )
+
+
+def test_project_identity_uses_specific_roots_not_shared_names(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "AGENTS.md").write_text("generic instructions")
+    (project / "CLAUDE.md").write_text("Claude instructions")
+    (project / ".cursor").mkdir()
+    (project / ".cursor" / "mcp.json").write_text('{"mcpServers": {}}')
+    (project / ".codex").mkdir()
+    (project / ".codex" / "config.toml").write_text('[mcpServers.local]\ncommand = "example"\n')
+    report = Scanner().scan_installed(Target(project), home=home)
+    assert {item.agent for item in report.installed_environments if item.scope == "project"} == {
+        "Claude Code",
+        "Cursor",
+        "Codex",
+    }
+    shared = [item for item in report.artifact_origins if item.artifact == project / "AGENTS.md"]
+    assert shared and all(item.agent is None for item in shared)
+    assert all(item.scope == "project" for item in shared)
+    cursor = next(item for item in report.installed_environments if item.agent == "Cursor")
+    assert cursor.installation_evidence == "not_checked"
+    assert cursor.evidence == ("configuration",)
+    claude = next(item for item in report.installed_environments if item.agent == "Claude Code")
+    assert claude.evidence == ("artifact",)
+
+
+def test_project_mcp_provenance_is_static_and_agent_specific(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    project = tmp_path / "project"
+    project.mkdir()
+    for agent in (".claude", ".cursor"):
+        (project / agent).mkdir()
+        (project / agent / "mcp.json").write_text(
+            '{"mcpServers": {"same-name": {"command": "never-run"}}}'
+        )
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("installed discovery started a process or network request")
+
+    monkeypatch.setattr(subprocess, "Popen", forbidden)
+    monkeypatch.setattr(socket.socket, "connect", forbidden)
+    report = Scanner().scan_installed(Target(project), home=home)
+    data = json.loads(json_report(report))["installed_agents"]
+    assert {item["agent"] for item in data["mcp_servers"]} == {"Claude Code", "Cursor"}
+    assert len(data["mcp_servers"]) == 2
+    assert {item["transport"] for item in data["mcp_servers"]} == {"stdio"}
+    assert report.dynamic_status == "not_requested"
+
+
+def test_malformed_config_retains_identity_with_partial_resolution(tmp_path: Path) -> None:
+    root = tmp_path / ".claude"
+    root.mkdir()
+    (root / "settings.json").write_text("{not JSON")
+    report = Scanner().scan_installed(home=tmp_path)
+    claude = next(item for item in report.installed_environments if item.agent == "Claude Code")
+    assert claude.status == "discovered"
+    assert claude.resolution == "partial"
+    assert claude.evidence == ("configuration",)
+    assert report.errors
+
+
+def test_deep_nonempty_root_is_diagnostic_not_silent_success(tmp_path: Path) -> None:
+    root = tmp_path / ".claude"
+    root.mkdir()
+    (root / "settings.json").write_text("{}")
+    nested = root
+    for _ in range(5):
+        nested = nested / "nested"
+        nested.mkdir()
+    (nested / "CLAUDE.md").write_text("hidden beyond budget")
+    report = Scanner().scan_installed(home=tmp_path)
+    claude = next(item for item in report.installed_environments if item.agent == "Claude Code")
+    assert claude.status == "diagnostic"
+    assert claude.resolution == "partial"
+    assert not report.artifacts
+
+
+def test_user_and_project_same_artifact_keep_both_scopes(tmp_path: Path) -> None:
+    root = tmp_path / ".claude"
+    root.mkdir()
+    (root / "settings.json").write_text("{}")
+    report = Scanner().scan_installed(Target(tmp_path), home=tmp_path)
+    assert [item.path for item in report.artifacts].count(root / "settings.json") == 1
+    assert {
+        origin.scope for origin in report.artifact_origins if origin.agent == "Claude Code"
+    } == {"user", "project"}
+
+
+def test_fifo_marker_is_not_opened_or_claimed_as_configuration(tmp_path: Path) -> None:
+    if not hasattr(os, "mkfifo"):
+        pytest.skip("FIFO unavailable")
+    root = tmp_path / ".claude"
+    root.mkdir()
+    os.mkfifo(root / "settings.json")
+    report = Scanner().scan_installed(home=tmp_path)
+    assert not report.artifacts
+    assert not any(
+        item.agent == "Claude Code" and item.evidence for item in report.installed_environments
+    )
+
+
+@pytest.mark.parametrize(
+    ("agent", "root_name", "filename", "content"),
+    [
+        ("Claude Code", ".claude", "CLAUDE.md", "instructions"),
+        ("Codex", ".codex", "config.toml", '[settings]\nkey = "value"\n'),
+        ("Cursor", ".cursor", "mcp.json", '{"mcpServers": {}}'),
+        ("Gemini CLI", ".gemini", "GEMINI.md", "instructions"),
+        ("Windsurf", ".windsurf", "settings.json", "{}"),
+        ("OpenClaw", ".openclaw", "openclaw.json", "{}"),
+    ],
+)
+def test_supported_project_artifact_identity(
+    tmp_path: Path, agent: str, root_name: str, filename: str, content: str
+) -> None:
+    home, project = tmp_path / "home", tmp_path / "project"
+    home.mkdir()
+    root = project / root_name
+    root.mkdir(parents=True)
+    artifact = root / filename
+    artifact.write_text(content)
+    report = Scanner().scan_installed(Target(project), home=home)
+    assert any(item.path == artifact for item in report.artifacts)
+    assert any(
+        item.agent == agent and item.scope == "project" and item.resolution == "complete"
+        for item in report.installed_environments
+    )
+    assert not report.errors
+
+
+def test_hardlink_with_different_artifact_kinds_keeps_both_parsers(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    project = tmp_path / "project"
+    claude = project / ".claude"
+    cursor = project / ".cursor"
+    claude.mkdir(parents=True)
+    cursor.mkdir()
+    instruction = claude / "CLAUDE.md"
+    instruction.write_text('{"mcpServers": {"static": {"command": "inert"}}}')
+    config = cursor / "mcp.json"
+    os.link(instruction, config)
+    report = Scanner().scan_installed(Target(project), home=home)
+    assert len(report.artifacts) == 2
+    assert {(item.agent, item.config) for item in report.installed_mcp_servers} == {
+        ("Cursor", config)
+    }
+
+
+def test_same_mcp_inode_retains_distinct_agent_config_paths(tmp_path: Path) -> None:
+    claude = tmp_path / ".claude"
+    cursor = tmp_path / ".cursor"
+    claude.mkdir()
+    cursor.mkdir()
+    (claude / "settings.json").write_text("{}")
+    original = claude / "mcp.json"
+    original.write_text('{"mcpServers": {"shared-name": {"command": "inert"}}}')
+    alias = cursor / "mcp.json"
+    os.link(original, alias)
+    report = Scanner().scan_installed(home=tmp_path)
+    assert {(item.agent, item.config) for item in report.installed_mcp_servers} == {
+        ("Claude Code", original),
+        ("Cursor", alias),
+    }
+    assert len(report.artifacts) == 2
+
+
+def test_explicit_agent_directory_is_project_location(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    project_root = tmp_path / "project" / ".gemini"
+    project_root.mkdir(parents=True)
+    (project_root / "GEMINI.md").write_text("inert")
+    report = Scanner().scan_installed(Target(project_root), home=home)
+    assert any(
+        item.agent == "Gemini CLI" and item.root == project_root and item.scope == "project"
+        for item in report.installed_environments
+    )
+
+
+def test_installed_mode_rejects_network_enrichment_even_when_requested(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("installed discovery attempted network access")
+
+    monkeypatch.setattr(socket.socket, "connect", forbidden)
+    for flag in ("--vuln-check", "--semantic"):
+        result = CliRunner().invoke(
+            main,
+            [
+                "scan",
+                "--installed-agents",
+                flag,
+                "--semantic-url",
+                "https://example.invalid",
+                "--semantic-model",
+                "test",
+            ],
+        )
+        assert result.exit_code == 2
+        assert "cannot be combined" in result.output
+    with pytest.raises(DiscoveryError, match="network enrichment"):
+        Scanner(vulnerability_provider=OSVProvider()).scan_installed(home=tmp_path)
+
+
+def test_project_fifo_config_is_diagnostic_without_opening(tmp_path: Path) -> None:
+    if not hasattr(os, "mkfifo"):
+        pytest.skip("FIFO unavailable")
+    home, project = tmp_path / "home", tmp_path / "project"
+    home.mkdir()
+    marker = project / ".cursor" / "mcp.json"
+    marker.parent.mkdir(parents=True)
+    os.mkfifo(marker)
+    report = Scanner().scan_installed(Target(project), home=home)
+    assert not report.artifacts
+    assert any(
+        item.scope == "project" and item.status == "diagnostic" and item.resolution == "partial"
+        for item in report.installed_environments
+    )
+
+
+def test_explicit_project_artifact_budget_is_partial(tmp_path: Path) -> None:
+    home, project = tmp_path / "home", tmp_path / "project"
+    home.mkdir()
+    project.mkdir()
+    for number in range(257):
+        directory = project / f"part-{number}"
+        directory.mkdir()
+        (directory / "AGENTS.md").write_text("inert")
+    report = Scanner().scan_installed(Target(project), home=home)
+    assert not report.artifacts
+    assert any(
+        item.scope == "project" and item.status == "diagnostic" and item.resolution == "partial"
+        for item in report.installed_environments
+    )
+
+
+def test_explicit_project_depth_budget_is_partial_not_silent(tmp_path: Path) -> None:
+    home, project = tmp_path / "home", tmp_path / "project"
+    home.mkdir()
+    project.mkdir()
+    nested = project
+    for _ in range(10):
+        nested = nested / "nested"
+        nested.mkdir()
+    (nested / "AGENTS.md").write_text("not reached")
+    report = Scanner().scan_installed(Target(project), home=home)
+    assert any(
+        item.scope == "project" and item.status == "diagnostic" and item.resolution == "partial"
+        for item in report.installed_environments
+    )
+    assert not report.artifacts

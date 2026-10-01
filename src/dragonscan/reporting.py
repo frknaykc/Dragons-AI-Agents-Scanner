@@ -56,6 +56,8 @@ def json_report(report: ScanReport) -> str:
             data.pop(key)
     data.pop("installed_environments")
     data.pop("artifact_origins")
+    data.pop("mcp_inventory")
+    data.pop("installed_mcp_servers")
     for key in ("intelligence_status", "intelligence_feeds", "intelligence_diagnostics"):
         data.pop(key)
     if report.intelligence_status != "disabled":
@@ -92,6 +94,10 @@ def json_report(report: ScanReport) -> str:
                     "artifact_roots": [str(root) for root in item.artifact_roots],
                     "status": item.status,
                     "diagnostic": item.diagnostic,
+                    "scope": item.scope,
+                    "evidence": item.evidence,
+                    "installation_evidence": item.installation_evidence,
+                    "resolution": item.resolution,
                 }
                 for item in report.installed_environments
             ],
@@ -105,8 +111,20 @@ def json_report(report: ScanReport) -> str:
                     "agent": item.agent,
                     "environment": str(item.environment) if item.environment else None,
                     "source": item.source,
+                    "scope": item.scope,
                 }
                 for item in report.artifact_origins
+            ],
+            "mcp_servers": [
+                {
+                    "config": str(item.config),
+                    "server": item.server,
+                    "transport": item.transport,
+                    "agent": item.agent,
+                    "scope": item.scope,
+                    "source": item.source,
+                }
+                for item in report.installed_mcp_servers
             ],
         }
     if report.semantic_status != "disabled":
@@ -237,9 +255,14 @@ def terminal_report(report: ScanReport) -> str:
         for diagnostic in report.acquisition_diagnostics:
             lines.append(f"ACQUISITION DIAGNOSTIC: {ascii(diagnostic)}")
     if report.installed_environments:
-        lines.append("Installed agent environments (configuration evidence, not binary proof):")
+        lines.append("Installed agent environments (local evidence, not binary proof):")
         for item in report.installed_environments:
-            lines.append(f"  {ascii(item.agent)}: {item.status} [{ascii(item.source)}]")
+            lines.append(
+                f"  {ascii(item.agent)}: {item.status}/{item.resolution} "
+                f"scope={item.scope} evidence={','.join(item.evidence) or 'none'} "
+                f"installation={item.installation_evidence} [{ascii(item.source)}] "
+                f"root={ascii(str(item.root))}"
+            )
             if item.diagnostic:
                 lines.append(f"    DIAGNOSTIC: {ascii(item.diagnostic)}")
         lines.append(
@@ -248,6 +271,7 @@ def terminal_report(report: ScanReport) -> str:
             f"discovered artifact origins: "
             f"{sum(item.provenance == 'installed_agent' for item in report.artifact_origins)}"
         )
+        lines.append(f"Static MCP server associations: {len(report.installed_mcp_servers)}")
     if report.vulnerability_status != "disabled":
         lines.append(f"Vulnerability intelligence: {report.vulnerability_status}")
     for diagnostic in report.vulnerability_diagnostics:

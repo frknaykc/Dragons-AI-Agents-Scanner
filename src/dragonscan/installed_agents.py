@@ -130,6 +130,89 @@ class InstalledDiscovery:
     origins: tuple[ArtifactOrigin, ...]
 
 
+def _evidence(artifacts: tuple[Artifact, ...]) -> tuple[str, ...]:
+    kinds = {item.kind for item in artifacts}
+    return tuple(
+        label
+        for label, present in (
+            ("configuration", bool(kinds & {ArtifactKind.AGENT_CONFIG, ArtifactKind.MCP_CONFIG})),
+            ("artifact", bool(kinds - {ArtifactKind.AGENT_CONFIG, ArtifactKind.MCP_CONFIG})),
+        )
+        if present
+    )
+
+
+def discover_project(target: Target, artifacts: tuple[Artifact, ...]) -> InstalledDiscovery:
+    """Annotate already discovered project artifacts, without another traversal.
+
+    Only exact, repository-supported root names provide agent-specific identity.
+    Generic AGENTS.md and MCP configurations retain their explicit, shared origin.
+    """
+    base = target.path.absolute()
+    project = base if base.is_dir() else base.parent
+    known_roots = {
+        location.relative
+        for spec in SPECS
+        for location in spec.locations
+        if "/" not in location.relative
+    }
+    if project.name in known_roots:
+        project = project.parent
+    environments: list[InstalledEnvironment] = []
+    selected: list[Artifact] = []
+    origins: list[ArtifactOrigin] = []
+    for spec in SPECS:
+        for location in spec.locations:
+            # These user-home paths are not evidenced as project conventions.
+            if "/" in location.relative:
+                continue
+            groups: dict[Path, list[Artifact]] = {}
+            for artifact in artifacts:
+                if not artifact.path.is_relative_to(project):
+                    continue
+                relative = artifact.path.relative_to(project)
+                parts = relative.parts
+                if location.relative not in parts[:-1]:
+                    continue
+                index = parts.index(location.relative)
+                root = project.joinpath(*parts[: index + 1])
+                groups.setdefault(root, []).append(artifact)
+            if spec.kind == "Claude Code":
+                direct = project / "CLAUDE.md"
+                if direct in (artifact.path for artifact in artifacts):
+                    groups.setdefault(project, []).extend(
+                        item for item in artifacts if item.path == direct
+                    )
+            for root, group in sorted(groups.items()):
+                items = tuple(group)
+                source = f"known-project-location:{location.relative}"
+                environments.append(
+                    InstalledEnvironment(
+                        spec.kind,
+                        root,
+                        source,
+                        (root,),
+                        "discovered",
+                        scope="project",
+                        evidence=_evidence(items),
+                        resolution="complete",
+                    )
+                )
+                for artifact in items:
+                    selected.append(artifact)
+                    origins.append(
+                        ArtifactOrigin(
+                            artifact.path,
+                            "installed_agent",
+                            spec.kind,
+                            root,
+                            source,
+                            scope="project",
+                        )
+                    )
+    return InstalledDiscovery(tuple(environments), tuple(selected), tuple(origins))
+
+
 def _safe_mode(path: Path, home: Path) -> int | None:
     """Stat only lexical descendants, rejecting symlink components before traversal."""
     if not path.is_relative_to(home) or ".." in path.parts:
@@ -174,7 +257,10 @@ def discover_installed(
                     if not stat.S_ISDIR(mode):
                         raise DiscoveryError("agent root is not a directory")
                     markers = tuple(_safe_mode(root / marker, base) for marker in location.markers)
-                    if any(marker is not None for marker in markers):
+                    if any(
+                        marker is not None and (stat.S_ISREG(marker) or stat.S_ISDIR(marker))
+                        for marker in markers
+                    ):
                         found = discover_bounded(
                             Target(root),
                             max_depth=MAX_DEPTH,
@@ -203,11 +289,17 @@ def discover_installed(
                     (root,) if status == "discovered" else (),
                     status,
                     diagnostic,
+                    evidence=_evidence(found) or (("location",) if status == "discovered" else ()),
+                    resolution="complete"
+                    if status == "discovered"
+                    else ("partial" if status == "diagnostic" else "not_found"),
                 )
             )
             for artifact in found if status == "discovered" else ():
                 artifacts.append(artifact)
                 origins.append(
-                    ArtifactOrigin(artifact.path, "installed_agent", spec.kind, root, source)
+                    ArtifactOrigin(
+                        artifact.path, "installed_agent", spec.kind, root, source, scope="user"
+                    )
                 )
     return InstalledDiscovery(tuple(environments), tuple(artifacts), tuple(origins))

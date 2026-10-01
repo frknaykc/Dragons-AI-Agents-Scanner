@@ -356,6 +356,10 @@ class InstalledEnvironment:
     artifact_roots: tuple[Path, ...]
     status: str  # discovered, not_found, or diagnostic; not binary installation proof
     diagnostic: str | None = None
+    scope: str = "user"  # user or project; never installation proof
+    evidence: tuple[str, ...] = ()  # configuration, artifact, or location
+    installation_evidence: str = "not_checked"
+    resolution: str = "not_found"  # complete, partial, or not_found
 
 
 @dataclass(frozen=True)
@@ -366,6 +370,17 @@ class ArtifactOrigin:
     environment: Path | None = None
     source: str | None = None
     scanned_artifact: Path | None = None
+    scope: str = "project"
+
+
+@dataclass(frozen=True)
+class McpServerOrigin:
+    config: Path
+    server: str
+    transport: str
+    agent: str | None
+    scope: str
+    source: str | None
 
 
 @dataclass(frozen=True)
@@ -425,6 +440,9 @@ class ScanReport:
     dynamic_timings_ms: dict[str, float] = field(default_factory=dict)
     installed_environments: tuple[InstalledEnvironment, ...] = ()
     artifact_origins: tuple[ArtifactOrigin, ...] = ()
+    # Parsed once in the scanner; exported only for explicit installed discovery.
+    mcp_inventory: tuple[tuple[Path, str, str], ...] = ()
+    installed_mcp_servers: tuple[McpServerOrigin, ...] = ()
     acquisition_status: str = "not_required"
     acquisition_kind: str | None = None
     acquisition_source: str | None = None
