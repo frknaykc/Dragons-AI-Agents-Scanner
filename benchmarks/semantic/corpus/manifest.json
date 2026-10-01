@@ -30,6 +30,7 @@
       "artifact": "sem-001-p02/AGENTS.md",
       "semantic_id": "DRAGON-SEM-001",
       "expected": true,
+      "expected_candidate": true,
       "class": "paraphrase",
       "split": "development"
     },
@@ -38,6 +39,7 @@
       "artifact": "sem-001-p03/AGENTS.md",
       "semantic_id": "DRAGON-SEM-001",
       "expected": true,
+      "expected_candidate": true,
       "class": "indirect",
       "split": "development"
     },
@@ -78,6 +80,7 @@
       "artifact": "sem-001-n03/AGENTS.md",
       "semantic_id": "DRAGON-SEM-001",
       "expected": false,
+      "expected_candidate": false,
       "class": "docs",
       "split": "development"
     },
@@ -110,6 +113,7 @@
       "artifact": "sem-004-p02/AGENTS.md",
       "semantic_id": "DRAGON-SEM-004",
       "expected": true,
+      "expected_candidate": true,
       "class": "paraphrase",
       "split": "development"
     },
@@ -118,6 +122,7 @@
       "artifact": "sem-004-p03/AGENTS.md",
       "semantic_id": "DRAGON-SEM-004",
       "expected": true,
+      "expected_candidate": true,
       "class": "indirect",
       "split": "development"
     },
@@ -126,6 +131,7 @@
       "artifact": "sem-004-p04/AGENTS.md",
       "semantic_id": "DRAGON-SEM-004",
       "expected": true,
+      "expected_candidate": true,
       "class": "adversarial",
       "split": "development"
     },
@@ -158,6 +164,7 @@
       "artifact": "sem-004-n03/AGENTS.md",
       "semantic_id": "DRAGON-SEM-004",
       "expected": false,
+      "expected_candidate": false,
       "class": "docs",
       "split": "development"
     },
@@ -182,6 +189,7 @@
       "artifact": "sem-005-p01/AGENTS.md",
       "semantic_id": "DRAGON-SEM-005",
       "expected": true,
+      "expected_candidate": true,
       "class": "clear",
       "split": "development"
     },
@@ -190,6 +198,7 @@
       "artifact": "sem-005-p02/AGENTS.md",
       "semantic_id": "DRAGON-SEM-005",
       "expected": true,
+      "expected_candidate": true,
       "class": "paraphrase",
       "split": "development"
     },
@@ -198,6 +207,7 @@
       "artifact": "sem-005-p03/AGENTS.md",
       "semantic_id": "DRAGON-SEM-005",
       "expected": true,
+      "expected_candidate": true,
       "class": "indirect",
       "split": "development"
     },
@@ -206,6 +216,7 @@
       "artifact": "sem-005-p04/AGENTS.md",
       "semantic_id": "DRAGON-SEM-005",
       "expected": true,
+      "expected_candidate": true,
       "class": "adversarial",
       "split": "development"
     },
@@ -238,6 +249,7 @@
       "artifact": "sem-005-n03/AGENTS.md",
       "semantic_id": "DRAGON-SEM-005",
       "expected": false,
+      "expected_candidate": false,
       "class": "docs",
       "split": "development"
     },

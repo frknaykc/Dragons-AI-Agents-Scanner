@@ -40,6 +40,30 @@ _SUSPECT = re.compile(
     r"token|password|instructions?|memory)\b",
     re.I,
 )
+# Compound, instruction-scoped routing signals, not verdicts. Avoid broad individual
+# synonyms that would forward ordinary security documentation to the provider.
+_DIRECTIVE = re.compile(
+    r"\b(?:treat|let|make|reuse|retain|carry|apply|read|gather|include|collect|pass|relay|forward|send)\b",
+    re.I,
+)
+_DISCUSSION = re.compile(r"\b(?:might|may|could|never|do not|don't|should not)\b", re.I)
+_UNTRUSTED_SOURCE = re.compile(r"\b(?:retrieved|attached|project note|document|page)\b", re.I)
+_HIJACKED_AUTHORITY = re.compile(
+    r"\b(?:governing|constraints?|user's request|requested format)\b", re.I
+)
+_LATER = re.compile(r"\b(?:later chats?|next conversation|long-lived|survives? a restart)\b", re.I)
+_BEHAVIOR = re.compile(
+    r"\b(?:response style|answer style|approval condition|directive|agent profile|agent default)\b",
+    re.I,
+)
+_SENSITIVE_MATERIAL = re.compile(
+    r"\b(?:private|confidential|internal|personal|team's)\s+"
+    r"(?:account|login|access|authentication|session|recovery)\s+"
+    r"(?:recovery\s+)?(?:material|details|credentials|records|data|information)\b",
+    re.I,
+)
+_TRANSFER = re.compile(r"\b(?:pass|relay|include|forward|send|share|expose)\b", re.I)
+_OUTSIDE = re.compile(r"\b(?:unrelated|third party|outside reader|reviewer|external)\b", re.I)
 _PRIVATE = re.compile(
     r"-----BEGIN [^-\n]*PRIVATE KEY-----.*?-----END [^-\n]*PRIVATE KEY-----", re.S
 )
@@ -133,6 +157,24 @@ def _safe_label(value: str) -> str:
     return value if re.fullmatch(r"[a-z][a-z0-9_-]{0,40}", value) else "other"
 
 
+def _instruction_context(text: str) -> str | None:
+    """Route compound, imperative context for review without asserting a risk."""
+    for sentence in re.split(r"(?<=[.!?])\s+", text):
+        if not _DIRECTIVE.search(sentence) or _DISCUSSION.search(sentence):
+            continue
+        if _UNTRUSTED_SOURCE.search(sentence) and _HIJACKED_AUTHORITY.search(sentence):
+            return "instruction hierarchy context"
+        if _LATER.search(sentence) and _BEHAVIOR.search(sentence):
+            return "future agent behavior context"
+        if (
+            _SENSITIVE_MATERIAL.search(sentence)
+            and _TRANSFER.search(sentence)
+            and _OUTSIDE.search(sentence)
+        ):
+            return "sensitive material transfer context"
+    return None
+
+
 def select(
     documents: tuple[Document, ...], findings: tuple[Finding, ...], limits: SemanticLimits
 ) -> tuple[list[Candidate], bool, int]:
@@ -174,14 +216,21 @@ def select(
             )
 
         for instruction in document.instructions:
-            if _SUSPECT.search(instruction.text) or any(
-                f.artifact == artifact and f.line == instruction.line for f in findings
-            ):
+            static = any(f.artifact == artifact and f.line == instruction.line for f in findings)
+            lexical = bool(_SUSPECT.search(instruction.text))
+            reason = (
+                "suspicious instruction signal"
+                if lexical
+                else "static finding at instruction"
+                if static
+                else _instruction_context(instruction.text)
+            )
+            if reason is not None:
                 add(
                     instruction.text,
                     instruction.line,
                     "instruction",
-                    "suspicious instruction or static finding",
+                    reason,
                     _INSTRUCTION_CATEGORIES,
                 )
         for server in document.servers:

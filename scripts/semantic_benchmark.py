@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import re
+import unicodedata
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -17,7 +18,7 @@ from dragonscan.models import Target
 from dragonscan.parse_errors import ParseError
 from dragonscan.parsing import parse
 from dragonscan.scanner import Scanner
-from dragonscan.semantic import VERSION, SemanticLimits, SemanticProvider, select
+from dragonscan.semantic import VERSION, SemanticLimits, SemanticProvider, redact, select
 from dragonscan.semantic_provider import OpenAICompatibleProvider
 from scripts.benchmark import BenchmarkError, _differences, _inside, _string, _unique_pairs
 
@@ -51,7 +52,7 @@ def load_manifest(path: Path) -> list[dict[str, Any]]:
         raise BenchmarkError("invalid semantic case count")
     seen: set[str] = set()
     for case in cases:
-        if not isinstance(case, dict) or set(case) - {"expected_finding"} != {
+        if not isinstance(case, dict) or set(case) - {"expected_finding", "expected_candidate"} != {
             "id",
             "artifact",
             "semantic_id",
@@ -68,6 +69,7 @@ def load_manifest(path: Path) -> list[dict[str, Any]]:
             not isinstance(case["semantic_id"], str)
             or case["semantic_id"] not in _IDS
             or type(case["expected"]) is not bool
+            or ("expected_candidate" in case and type(case["expected_candidate"]) is not bool)
             or case["split"] != "development"
             or not _CLASS.fullmatch(_string(case["class"], "semantic class", 80))
         ):
@@ -298,20 +300,40 @@ def _selection(
     documents = tuple(parse(artifact, load_text(artifact.path)) for artifact in report.artifacts)
     candidates, overflow, count = select(documents, report.findings, limits)
     category = _IDS[semantic_id][0]
+    eligible_candidates = sum(
+        category in c.categories
+        and c.artifact.resolve().is_relative_to(root)
+        and (
+            c.artifact.resolve() == target
+            or target.is_dir()
+            and c.artifact.resolve().is_relative_to(target)
+        )
+        for c in candidates
+    )
+    sanitized = [redact(c.text) for c in candidates]
+    normalized = [
+        "".join(" " if unicodedata.category(ch) in {"Cc", "Cf", "Cs"} else ch for ch in c.text)
+        for c in candidates
+    ]
     return {
-        "eligible": any(
-            category in c.categories
-            and c.artifact.resolve().is_relative_to(root)
-            and (
-                c.artifact.resolve() == target
-                or target.is_dir()
-                and c.artifact.resolve().is_relative_to(target)
-            )
-            for c in candidates
-        ),
+        "eligible": eligible_candidates > 0,
+        "eligible_candidates": eligible_candidates,
         "selected": len(candidates),
         "available": count,
         "overflow": overflow,
+        "omitted_by_budget": count - len(candidates),
+        "text_bytes": sum(len(c.text.encode("utf-8")) for c in candidates),
+        "snippet_bytes": sum(
+            len(safe[: limits.max_snippet].encode("utf-8"))
+            for safe in sanitized
+            if safe is not None
+        ),
+        "redacted": sum(
+            safe is None or safe != text for safe, text in zip(sanitized, normalized, strict=True)
+        ),
+        "privacy_skipped": sum(safe is None for safe in sanitized),
+        "truncated": sum(len(safe) > limits.max_snippet for safe in sanitized if safe is not None),
+        "reasons": sorted({c.reason for c in candidates}),
         "_candidates": [{"artifact": c.artifact.resolve(), "line": c.line} for c in candidates],
     }
 
@@ -412,6 +434,40 @@ def run(
                 "stability": _stability(case, runs, provider is not None),
             }
         )
+    selections = [
+        (row, run["candidate"]) for row in rows for run in row["runs"] if "candidate" in run
+    ]
+    selected_positive = sum(s["eligible"] for row, s in selections if row["expected"])
+    selected_negative = sum(s["eligible"] for row, s in selections if not row["expected"])
+    total_candidates = sum(s["selected"] for _, s in selections)
+    positive_candidates = sum(s["eligible_candidates"] for row, s in selections if row["expected"])
+    candidate_selection = {
+        "positive_selected": selected_positive,
+        "negative_selected": selected_negative,
+        "positive_candidates": positive_candidates,
+        "negative_candidates": sum(s["selected"] for row, s in selections if not row["expected"]),
+        "total_candidates": total_candidates,
+        "candidate_recall": round(
+            selected_positive / sum(row["expected"] for row, _ in selections), 6
+        )
+        if any(row["expected"] for row, _ in selections)
+        else None,
+        "candidate_precision_proxy": round(positive_candidates / total_candidates, 6)
+        if total_candidates
+        else None,
+        "text_bytes": sum(s["text_bytes"] for _, s in selections),
+        "snippet_bytes": sum(s["snippet_bytes"] for _, s in selections),
+        "redacted": sum(s["redacted"] for _, s in selections),
+        "privacy_skipped": sum(s["privacy_skipped"] for _, s in selections),
+        "truncated": sum(s["truncated"] for _, s in selections),
+        "omitted_by_budget": sum(s["omitted_by_budget"] for _, s in selections),
+        "expectation_checks": sum("expected_candidate" in row for row, _ in selections),
+        "expectation_failures": sum(
+            s["eligible"] != row["expected_candidate"]
+            for row, s in selections
+            if "expected_candidate" in row
+        ),
+    }
     per_id: dict[str, Any] = {}
     for identifier in _IDS:
         group = [r for r in rows if r["semantic_id"] == identifier]
@@ -543,7 +599,7 @@ def run(
         }
     statuses = Counter(run["status"] for row in rows for run in row["runs"])
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "corpus_version": "1.0",
         "semantic_version": VERSION,
         "provider": {"identity": provider.identity, "model": provider.model}
@@ -553,6 +609,7 @@ def run(
         "status": "partial" if any(s != "complete" for s in statuses) else "completed",
         "run_statuses": dict(sorted(statuses.items())),
         "per_id": per_id,
+        "candidate_selection": candidate_selection,
         "cases": rows,
         "measurements_4_to_10": _NOT_MEASURED
         if provider is None
@@ -588,6 +645,7 @@ def main() -> int:
     else:
         print(f"Status: {result['status']} | repeats: {result['repeats']}")
         print(f"Provider: {result['provider']}")
+        print(f"Candidate selection: {result['candidate_selection']}")
         for identifier, item in result["per_id"].items():
             print(
                 f"{identifier}: +{item['positive']} -{item['negative']} "
