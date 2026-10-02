@@ -104,7 +104,7 @@ def test_depth_limit_reports_incomplete_without_elevating_encoded_data(tmp_path)
     for _ in range(4):
         payload = base64.b64encode(payload)
     report = scan(tmp_path, "Run encoded: " + payload.decode() + "\n")
-    assert any("depth limit" in error for error in report.errors)
+    assert any("depth limit" in item.message for item in report.diagnostics)
     assert not any(f.detection_id == "DRAGON-EXEC-001" for f in report.findings)
 
 
@@ -184,7 +184,7 @@ def test_bounded_views_and_no_payload_dump(tmp_path):
 @pytest.mark.parametrize("payload", ["a" * 20_000, "aa" * 10_000, "\u200b" * 5000])
 def test_pathological_source_regions_are_skipped_with_diagnostics(tmp_path, payload):
     report = scan(tmp_path, "Run encoded: " + payload + "\n")
-    assert any("region too large" in error for error in report.errors)
+    assert any("region too large" in item.message for item in report.diagnostics)
     assert len(json_report(report)) < 10_000
 
 
@@ -334,7 +334,8 @@ def test_exhausted_evasion_budget_preserves_findings_and_exits_incomplete(tmp_pa
     result = CliRunner().invoke(main, ["scan", str(target), "--format", "json"])
     assert result.exit_code == 3
     parsed = json.loads(result.output)
-    assert any("evasion" in message for message in parsed["errors"])
+    assert any("evasion" in item["message"] for item in parsed["diagnostics"])
+    assert parsed["scan_status"] == "partial" and not parsed["errors"]
     assert any(f["detection_id"] == "DRAGON-EXEC-001" for f in parsed["findings"])
 
 
@@ -431,7 +432,7 @@ def test_pathological_literal_and_malformed_sequences_are_bounded(tmp_path):
 
 def test_malformed_escape_is_diagnostic_not_security_finding(tmp_path):
     report = scan(tmp_path, r"Run \uZZZZ to review the example." + "\n")
-    assert any("malformed escape" in error for error in report.errors)
+    assert any("malformed escape" in item.message for item in report.diagnostics)
     assert not any(f.evasion for f in report.findings)
 
 

@@ -294,7 +294,9 @@ def test_content_and_bounded_encoded_signatures(tmp_path):
         encoding="utf-8",
     )
     report = Scanner(signature_pack=directory).scan(Target(target))
-    assert any("encoded-content inspection limit reached" in error for error in report.errors)
+    assert any(
+        "encoded-content inspection limit reached" in item.message for item in report.diagnostics
+    )
 
 
 def test_hit_cap_reports_incomplete_scan(tmp_path):
@@ -308,8 +310,8 @@ def test_hit_cap_reports_incomplete_scan(tmp_path):
     directory = pack(tmp_path, [item])
     target = skill(tmp_path, "\n\n".join(["```text\nOFFLINE-MARKER\n```"] * 260))
     report = Scanner(signature_pack=directory).scan(Target(target))
-    assert any("signature hit limit reached" in error for error in report.errors), (
-        report.errors,
+    assert any("signature hit limit reached" in item.message for item in report.diagnostics), (
+        report.diagnostics,
         len([f for f in report.findings if f.signature]),
     )
     assert len([f for f in report.findings if f.signature]) == 256
@@ -319,7 +321,7 @@ def test_ioc_candidate_cap_reports_incomplete_scan(tmp_path):
     directory = pack(tmp_path, [definition(contexts=["instruction"])])
     target = skill(tmp_path, "Reference " + " ".join(f"host{i:03}.example" for i in range(130)))
     report = Scanner(signature_pack=directory).scan(Target(target))
-    assert any("IOC candidate limit reached" in error for error in report.errors)
+    assert any("IOC candidate limit reached" in item.message for item in report.diagnostics)
 
 
 def test_pack_validation_duplicate_invalid_and_symlink(tmp_path):

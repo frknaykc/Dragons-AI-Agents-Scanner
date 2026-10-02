@@ -31,6 +31,7 @@ def evaluate(
     incomplete = tuple(
         name
         for name, partial in (
+            ("static_analysis", bool(report.diagnostics)),
             ("acquisition", report.acquisition_status == "partial"),
             ("vulnerability", report.vulnerability_status == "partial"),
             ("intelligence", report.intelligence_status == "partial"),
@@ -38,11 +39,7 @@ def evaluate(
             ("dynamic_mcp", report.dynamic_status in {"blocked", "partial", "failed"}),
             (
                 "installed_agents",
-                any(item.status == "diagnostic" for item in report.installed_environments)
-                or (
-                    fail_on_incomplete
-                    and any(item.resolution == "partial" for item in report.installed_environments)
-                ),
+                any(item.resolution == "partial" for item in report.installed_environments),
             ),
             (
                 "semantic_budget",

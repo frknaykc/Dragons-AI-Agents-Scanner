@@ -35,7 +35,7 @@ def test_python_requirements_pinning_and_malformed_diagnostic(tmp_path):
         "fixed @ git+https://example.test/repo.git@abcdef1234567890abcdef1234567890abcdef12\n"
         "-e ../outside\nnot a valid requirement !\n",
     )
-    assert any("invalid requirement" in error for error in report.errors)
+    assert any("invalid requirement" in item.message for item in report.diagnostics)
     assert any(f.detection_id == "DRAGON-SC-001" for f in supply(report))
     assert any(f.detection_id == "DRAGON-SC-002" for f in supply(report))
     assert "SECRET" not in json_report(report)

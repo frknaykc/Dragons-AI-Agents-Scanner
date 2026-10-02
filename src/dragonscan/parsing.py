@@ -23,7 +23,7 @@ PARSERS: dict[SourceFormat, Parser] = {
 }
 
 
-def parse(artifact: Artifact, text: str) -> Document:
+def parse(artifact: Artifact, text: str, *, allow_bare_mcp: bool = True) -> Document:
     if artifact.source_format == SourceFormat.TEXT:
         name = artifact.path.name.lower()
         if name == ".npmrc":
@@ -34,7 +34,11 @@ def parse(artifact: Artifact, text: str) -> Document:
     parser = PARSERS.get(artifact.source_format)
     if parser is None:
         raise ParseError("unsupported source format")
-    document = parser(artifact, text)
+    document = (
+        parse_structured(artifact, text, allow_bare_mcp=allow_bare_mcp)
+        if artifact.source_format in {SourceFormat.JSON, SourceFormat.YAML, SourceFormat.TOML}
+        else parser(artifact, text)
+    )
     if document.servers or document.blocks:
         document = replace(
             document, dependencies=(*document.dependencies, *runtime_dependencies(document))

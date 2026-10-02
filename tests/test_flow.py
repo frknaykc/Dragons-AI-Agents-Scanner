@@ -370,7 +370,7 @@ def test_total_flow_finding_budget_reports_truncation(
     monkeypatch.setattr(flow, "MAX_FLOW_PATHS", 1)
     report = Scanner().scan(Target(target))
     assert sum(f.detection_id == "DRAGON-FLOW-001" for f in report.findings) == 1
-    assert "total flow finding limit reached" in report.errors
+    assert any("total flow finding limit reached" in item.message for item in report.diagnostics)
 
 
 def test_flow_evidence_does_not_copy_secret_text(tmp_path: Path) -> None:

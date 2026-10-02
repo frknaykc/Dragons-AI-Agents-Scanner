@@ -104,7 +104,7 @@ def test_explicit_strict_coverage_and_default_compatibility(
     report = ScanReport(tmp_path, (), (), installed_environments=(env,))
     monkeypatch.setattr("dragonscan.cli.scan_target", lambda target: report)
     runner = CliRunner()
-    assert runner.invoke(main, ["scan", str(tmp_path)]).exit_code == 0
+    assert runner.invoke(main, ["scan", str(tmp_path)]).exit_code == 3
     result = runner.invoke(
         main, ["scan", str(tmp_path), "--fail-on-incomplete", "--format", "json"]
     )

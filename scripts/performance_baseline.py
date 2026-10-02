@@ -97,7 +97,7 @@ def _files(case: Workload, root: Path, counters: dict[str, int]) -> dict[str, fl
                 stream.truncate(MAX_BYTES + 1)
         else:
             path.write_bytes(content)
-    counters.update(artifacts=0, bytes=0, findings=0, errors=0, partial=0)
+    counters.update(artifacts=0, bytes=0, findings=0, errors=0, diagnostics=0, partial=0)
     start = time.perf_counter()
     discovered = discover(Target(root))
     counters["artifacts"] = len(discovered)
@@ -110,6 +110,7 @@ def _files(case: Workload, root: Path, counters: dict[str, int]) -> dict[str, fl
         bytes=0 if oversized else count * len(content),
         findings=len(report.findings),
         errors=len(report.errors),
+        diagnostics=len(report.diagnostics),
     )
     if len(discovered) != count or len(report.artifacts) != count:
         raise RuntimeError("incomplete artifact discovery/scan")
@@ -118,11 +119,18 @@ def _files(case: Workload, root: Path, counters: dict[str, int]) -> dict[str, fl
             raise RuntimeError("oversize artifact was not rejected")
         counters["partial"] = 1
     elif nearmax:
-        if len(report.errors) != 1 or "evasion source region too large" not in report.errors[0]:
+        if (
+            report.errors
+            or len(report.diagnostics) != 1
+            or not (
+                report.diagnostics[0].level == "coverage"
+                and "evasion source region too large" in report.diagnostics[0].message
+            )
+        ):
             raise RuntimeError("unexpected nearmax analysis diagnostic")
         counters["partial"] = 1
-    elif report.errors:
-        raise RuntimeError("ordinary synthetic files produced scanner errors")
+    elif report.errors or report.diagnostics:
+        raise RuntimeError("ordinary synthetic files produced scanner diagnostics")
     return {"discovery": discovered_at - start, "scan": end - discovered_at}
 
 

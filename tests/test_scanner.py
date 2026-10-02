@@ -165,6 +165,7 @@ def test_invalid_and_oversize_inputs_fail_closed(tmp_path: Path) -> None:
     (tmp_path / "SKILL.md").write_bytes(b"x" * (1_048_576 + 1))
     report = Scanner().scan(Target(tmp_path))
     assert len(report.errors) == 2
+    assert len(report.diagnostics) == 1
     assert not report.findings
 
 
@@ -176,7 +177,8 @@ def test_partial_scan_is_error_even_with_findings(tmp_path: Path) -> None:
     result = CliRunner().invoke(main, ["scan", str(tmp_path), "--format", "json"])
     assert result.exit_code == 3
     data = json.loads(result.output)
-    assert len(data["findings"]) == 1 and len(data["errors"]) == 1
+    assert len(data["findings"]) == 1 and not data["errors"]
+    assert len(data["diagnostics"]) == 1 and data["scan_status"] == "partial"
 
 
 def test_terminal_does_not_include_untrusted_server_names(tmp_path: Path) -> None:

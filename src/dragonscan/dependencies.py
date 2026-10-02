@@ -19,7 +19,7 @@ _INSTALL = re.compile(
     r"\b(?:python(?:3)?\s+-m\s+pip|pip(?:3)?|uv\s+pip)\s+install\s+([^\s;&|]+)", re.I
 )
 _RUNTIME = re.compile(
-    r"\b(npx|uvx|pipx(?:\s+run)?|npm\s+exec|pnpm\s+dlx|yarn\s+dlx)\s+(?:--yes\s+|-y\s+)?([^\s;&|]+)",
+    r"\b(npx|bunx|uvx|pipx(?:\s+run)?|npm\s+exec|pnpm\s+dlx|yarn\s+dlx)\s+(?:--yes\s+|-y\s+)?([^\s;&|]+)",
     re.I,
 )
 _EXEC = re.compile(r"(?:&&|;)\s*(?:python(?:3)?|node|npx|uvx|sh|bash|\./[\w.-]+)\b", re.I)
@@ -522,6 +522,18 @@ def _add_python(spec: object, group: str, key: tuple[str | int, ...], add: Any) 
         add("", "", group, key)
 
 
+def _command_context(text: str, start: int, end: int) -> bool:
+    """Only treat a runtime mention as an invocation in a command-shaped clause."""
+    before = text[:start].rsplit("\n", 1)[-1].rstrip()
+    after = text[end:].split("\n", 1)[0]
+    if re.search(r"(?:^|[;&|])\s*(?:[$>]\s*)?$", before):
+        # A command line, not a phrase introducing a possible use of the tool.
+        return True
+    if before.endswith("`") and "`" in after:
+        return True
+    return bool(re.search(r"\b(?:run|execute|invoke)\s*$", before, re.I))
+
+
 def runtime_dependencies(document: Document) -> tuple[Dependency, ...]:
     artifact = document.artifact
     output: list[Dependency] = []
@@ -554,6 +566,8 @@ def runtime_dependencies(document: Document) -> tuple[Dependency, ...]:
         if block.kind in {"quote", "code", "heading"}:
             continue
         for match in _RUNTIME.finditer(block.text):
+            if not _command_context(block.text, match.start(), match.end()):
+                continue
             dep = _runtime_package(
                 artifact,
                 match.group(2).rstrip(".,"),

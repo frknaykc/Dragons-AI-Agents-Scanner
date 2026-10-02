@@ -228,8 +228,8 @@ def test_conflict_and_duplicate_are_diagnostics_not_vulnerabilities(tmp_path):
             ),
         },
     )
-    assert any("duplicate" in error for error in report.errors)
-    assert any("conflicting" in error for error in report.errors)
+    assert any("duplicate" in item.message for item in report.diagnostics)
+    assert any("conflicting" in item.message for item in report.diagnostics)
     assert not any("same" in f.evidence or "other" in f.evidence for f in report.findings)
 
 
@@ -269,7 +269,7 @@ def test_multiple_python_indexes_do_not_assign_a_false_single_origin(tmp_path):
     findings = [f for f in report.findings if f.detection_id == "DRAGON-SC-001"]
     assert len(findings) == 3
     assert all(f.dependency and f.dependency.registry is None for f in findings)
-    assert any("multiple registries" in error for error in report.errors)
+    assert any("multiple registries" in item.message for item in report.diagnostics)
 
 
 def test_scoped_registry_and_python_uv_index_are_metadata_not_confusion_findings(tmp_path):
@@ -343,11 +343,12 @@ def test_malformed_and_oversized_inputs_fail_as_diagnostics(tmp_path):
             "package-lock.json": '{"lockfileVersion":999,"packages":{}}',
         },
     )
-    assert len(report.errors) >= 3
+    assert len(report.diagnostics) >= 3
+    assert not report.errors
     assert not any(f.detection_id.startswith("DRAGON-SC-") for f in report.findings)
 
 
 def test_bounded_dependency_count(tmp_path):
     report = _scan(tmp_path, {"requirements.txt": "\n".join(f"item-{i}==1.0" for i in range(4100))})
-    assert any("limit" in error for error in report.errors)
+    assert any("limit" in item.message for item in report.diagnostics)
     assert not any(f.detection_id.startswith("DRAGON-SC-") for f in report.findings)

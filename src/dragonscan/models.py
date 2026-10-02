@@ -3,6 +3,7 @@
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
+from typing import Literal
 
 
 class ArtifactKind(StrEnum):
@@ -413,6 +414,12 @@ class Finding:
 
 
 @dataclass(frozen=True)
+class Diagnostic:
+    level: Literal["warning", "coverage"]  # Fatal errors remain in ScanReport.errors
+    message: str
+
+
+@dataclass(frozen=True)
 class ScanReport:
     target: Path
     artifacts: tuple[Artifact, ...]
@@ -450,3 +457,4 @@ class ScanReport:
     acquisition_resolved_source: str | None = None
     acquisition_source_sha256: str | None = None
     acquisition_source_bytes: int | None = None
+    diagnostics: tuple[Diagnostic, ...] = ()

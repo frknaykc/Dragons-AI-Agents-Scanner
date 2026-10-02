@@ -219,16 +219,17 @@ def _entries(
 
 def _servers(
     artifact: Artifact, data: dict[str, Any], locations: dict[tuple[str | int, ...], SourceRef]
-) -> tuple[tuple[McpServer, ...], tuple[Relationship, ...]]:
+) -> tuple[tuple[McpServer, ...], tuple[Relationship, ...], tuple[str, ...]]:
     if "mcpServers" not in data:
         if artifact.kind == ArtifactKind.MCP_CONFIG:
-            raise ParseError("MCP config requires an mcpServers object")
-        return (), ()
+            return (), (), ("unsupported MCP metadata schema; server analysis skipped",)
+        return (), (), ()
     definitions = data["mcpServers"]
     if not isinstance(definitions, dict):
         raise ParseError("MCP config requires an mcpServers object")
     servers: list[McpServer] = []
     relations: list[Relationship] = []
+    diagnostics: list[str] = []
     for name, config in definitions.items():
         if not isinstance(name, str) or not isinstance(config, dict):
             raise ParseError("invalid MCP server entry")
@@ -257,16 +258,26 @@ def _servers(
         if cwd is not None and not isinstance(cwd, str):
             raise ParseError("invalid MCP working directory")
         prefix: tuple[str | int, ...] = ("mcpServers", name)
+        optional: dict[str, Any] = {}
+        for kind in ("tools", "resources", "prompts"):
+            value = config.get(kind)
+            if isinstance(value, dict):
+                diagnostics.append(
+                    f"unsupported MCP metadata schema ({kind} object); metadata skipped"
+                )
+                optional[kind] = None
+            else:
+                optional[kind] = value
         tools = cast(
-            tuple[McpTool, ...], metadata(config.get("tools"), location, locations, prefix, "tools")
+            tuple[McpTool, ...], metadata(optional["tools"], location, locations, prefix, "tools")
         )
         resources = cast(
             tuple[McpContent, ...],
-            metadata(config.get("resources"), location, locations, prefix, "resources"),
+            metadata(optional["resources"], location, locations, prefix, "resources"),
         )
         prompts = cast(
             tuple[McpContent, ...],
-            metadata(config.get("prompts"), location, locations, prefix, "prompts"),
+            metadata(optional["prompts"], location, locations, prefix, "prompts"),
         )
         server = McpServer(
             name,
@@ -302,13 +313,25 @@ def _servers(
         if safe is not None:
             url_location = locations.get(("mcpServers", name, "url"), location)
             relations.append(Relationship("references_url", safe, url_location, name))
-    return tuple(servers), tuple(relations)
+    return tuple(servers), tuple(relations), tuple(diagnostics)
 
 
-def parse_structured(artifact: Artifact, text: str) -> Document:
+def parse_structured(artifact: Artifact, text: str, *, allow_bare_mcp: bool = True) -> Document:
     data, node = _load(artifact, text)
     if not isinstance(data, dict) or not all(isinstance(key, str) for key in data):
         raise ParseError("structured config requires an object with string keys")
+    if (
+        allow_bare_mcp
+        and artifact.kind == ArtifactKind.MCP_CONFIG
+        and "mcpServers" not in data
+        and data
+        and all(
+            isinstance(server, dict) and ("command" in server or "url" in server)
+            for server in data.values()
+        )
+    ):
+        # Some agent/plugin configs use a bare server-name map rather than mcpServers.
+        data = {"mcpServers": data}
     if artifact.kind == ArtifactKind.STRUCTURED_CONFIG and isinstance(data.get("mcpServers"), dict):
         artifact = replace(artifact, kind=ArtifactKind.MCP_CONFIG)
     entries = _entries(artifact, data, node)
@@ -324,7 +347,7 @@ def parse_structured(artifact: Artifact, text: str) -> Document:
             for entry in entries
         )
     locations = {entry.key_path: entry.location for entry in entries}
-    servers, relationships = _servers(artifact, data, locations)
+    servers, relationships, mcp_diagnostics = _servers(artifact, data, locations)
     relations = list(relationships)
     for entry in entries:
         key = entry.key_path[-1]
@@ -368,5 +391,5 @@ def parse_structured(artifact: Artifact, text: str) -> Document:
         entries=entries,
         relationships=tuple(dict.fromkeys(relations)),
         dependencies=dependencies,
-        diagnostics=diagnostics,
+        diagnostics=(*diagnostics, *mcp_diagnostics),
     )

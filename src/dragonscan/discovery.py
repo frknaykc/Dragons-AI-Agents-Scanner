@@ -1,5 +1,6 @@
 """Static artifact discovery. Never follow symlinks or inspect arbitrary files."""
 
+import heapq
 import os
 import stat
 from pathlib import Path
@@ -198,3 +199,70 @@ def discover_bounded(
                     if len(artifacts) > max_artifacts:
                         raise DiscoveryError("agent discovery artifact limit exceeded")
     return tuple(sorted(artifacts, key=lambda item: str(item.path)))
+
+
+# Installed discovery only: do not change explicit project scanning or its limits.
+_SECONDARY_DIRS = frozenset(
+    {"cache", "vendor_imports", "extensions", "projects", "sessions", "file-history"}
+)
+_EPHEMERAL_DIRS = frozenset({".tmp", ".staging", "tmp", "session-env", "paste-cache"})
+
+
+def discover_installed_bounded(
+    target: Target, *, max_depth: int, max_entries: int, max_artifacts: int
+) -> tuple[tuple[Artifact, ...], str | None]:
+    """Scan known roots by active-first breadth, retaining evidence on budget exhaustion.
+
+    Cache/staging are lower priority, not silently ignored. Each visited entry
+    still counts against the same per-root budget, including unclassified files.
+    """
+    path = target.path.absolute()
+    if path.is_symlink() or not path.is_dir():
+        raise DiscoveryError("agent root is not a regular directory")
+    pending: list[tuple[int, int, str, Path]] = [(0, 0, str(path), path)]
+    entries = 0
+    artifacts: list[Artifact] = []
+    diagnostic: str | None = None
+    while pending:
+        priority, depth, _, root = heapq.heappop(pending)
+        exhausted = False
+        try:
+            if not stat.S_ISDIR(root.lstat().st_mode):
+                raise DiscoveryError("agent directory changed during traversal")
+            with os.scandir(root) as stream:
+                names = []
+                for entry in stream:
+                    entries += 1
+                    if entries > max_entries:
+                        exhausted = True
+                        break
+                    names.append(entry.name)
+        except OSError as exc:
+            raise DiscoveryError(f"agent directory inaccessible: {type(exc).__name__}") from None
+        for name in sorted(names):
+            candidate = root / name
+            try:
+                mode = candidate.lstat().st_mode
+            except OSError as exc:
+                raise DiscoveryError(f"agent entry inaccessible: {type(exc).__name__}") from None
+            if stat.S_ISDIR(mode) and name not in SKIP_DIRS:
+                if depth >= max_depth:
+                    diagnostic = "agent discovery depth limit exceeded"
+                    continue
+                lower = name.lower()
+                rank = (
+                    2
+                    if lower in _EPHEMERAL_DIRS or lower.startswith("marketplace-upgrade-")
+                    else (1 if lower in _SECONDARY_DIRS else 0)
+                )
+                next_priority = max(priority, rank)
+                heapq.heappush(pending, (next_priority, depth + 1, str(candidate), candidate))
+            elif stat.S_ISREG(mode):
+                artifact = classify(candidate)
+                if artifact is not None:
+                    if len(artifacts) >= max_artifacts:
+                        return tuple(artifacts), "agent discovery artifact limit exceeded"
+                    artifacts.append(artifact)
+        if exhausted:
+            return tuple(artifacts), "agent discovery entry limit exceeded"
+    return tuple(artifacts), diagnostic

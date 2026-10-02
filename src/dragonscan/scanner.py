@@ -25,6 +25,7 @@ from dragonscan.models import (
     ArtifactOrigin,
     Classification,
     Confidence,
+    Diagnostic,
     Document,
     Finding,
     InstalledEnvironment,
@@ -128,6 +129,8 @@ class Scanner:
         findings: list[Finding] = []
         graph = None
         errors: list[str] = list(self.pack_diagnostics)
+        diagnostics: list[Diagnostic] = []
+        skipped_parse = 0
         for artifact in artifacts:
             try:
                 if intel_matcher is not None:
@@ -135,14 +138,27 @@ class Scanner:
                     intel_digests[artifact.path] = hashlib.sha256(raw).hexdigest()
                 else:
                     text = load_text(artifact.path)
-                document = parse(artifact, text)
-            except (LoadError, ParseError) as exc:
+                document = parse(artifact, text, allow_bare_mcp=not self.dynamic_policy.requested)
+            except LoadError as exc:
                 errors.append(f"{artifact.path}: {exc}")
+                normalized.append(artifact)
+                continue
+            except ParseError as exc:
+                diagnostics.append(Diagnostic("warning", f"{artifact.path}: {exc}"))
+                skipped_parse += 1
                 normalized.append(artifact)
                 continue
             normalized.append(document.artifact)
             documents.append(document)
-            errors.extend(f"{artifact.path}: {diagnostic}" for diagnostic in document.diagnostics)
+            diagnostics.extend(
+                Diagnostic(
+                    "coverage"
+                    if diagnostic.startswith("unsupported MCP metadata schema")
+                    else "warning",
+                    f"{artifact.path}: {diagnostic}",
+                )
+                for diagnostic in document.diagnostics
+            )
             document_findings: list[Finding] = []
             for rule in self.rules:
                 document_findings.extend(rule.detect(document))
@@ -157,11 +173,21 @@ class Scanner:
             if self.signature_engine is not None:
                 document_findings.extend(self.signature_engine.detect(document, text))
                 if self.signature_engine.limit_reason:
-                    errors.append(f"{artifact.path}: {self.signature_engine.limit_reason}")
+                    diagnostics.append(
+                        Diagnostic(
+                            "coverage", f"{artifact.path}: {self.signature_engine.limit_reason}"
+                        )
+                    )
             # Derived views are evidence only; never add their observations or
             # dependencies to the graph or vulnerability query plan.
-            derived, diagnostics = views(document)
-            errors.extend(f"{artifact.path}: {item}" for item in diagnostics)
+            derived, evasion_diagnostics = views(document)
+            diagnostics.extend(
+                Diagnostic(
+                    "warning" if "malformed escape" in item else "coverage",
+                    f"{artifact.path}: {item}",
+                )
+                for item in evasion_diagnostics
+            )
             seen = {
                 (
                     f.detection_id,
@@ -225,7 +251,11 @@ class Scanner:
                         )
                     )
                     if self.signature_engine.limit_reason:
-                        errors.append(f"{artifact.path}: {self.signature_engine.limit_reason}")
+                        diagnostics.append(
+                            Diagnostic(
+                                "coverage", f"{artifact.path}: {self.signature_engine.limit_reason}"
+                            )
+                        )
                 for candidate in candidates:
                     if candidate.line not in {None, view.location.line}:
                         continue
@@ -282,7 +312,7 @@ class Scanner:
                 findings.extend(
                     describe_existing_flow(f, tuple(documents)) for f in supply_findings
                 )
-                errors.extend(supply_errors)
+                diagnostics.extend(Diagnostic("warning", item) for item in supply_errors)
             else:
                 groups: dict[Path, list[Document]] = {}
                 for document in documents:
@@ -296,7 +326,7 @@ class Scanner:
                     findings.extend(
                         describe_existing_flow(f, tuple(analyzed)) for f in supply_findings
                     )
-                    errors.extend(supply_errors)
+                    diagnostics.extend(Diagnostic("warning", item) for item in supply_errors)
         if self.enable_correlation:
             try:
                 graph = build_graph(
@@ -323,12 +353,22 @@ class Scanner:
                 )
                 flow_findings, flow_diagnostics = correlate_flows(graph, tuple(documents))
                 findings.extend(enrich_correlations(graph, flow_findings))
-                errors.extend(flow_diagnostics)
+                diagnostics.extend(Diagnostic("coverage", item) for item in flow_diagnostics)
             except GraphLimitError as exc:
-                errors.append(str(exc))
+                diagnostics.append(Diagnostic("coverage", str(exc)))
+        if skipped_parse and not documents:
+            errors.append("no supported artifact could be parsed")
         results = tuple(findings)
         risk, counts = summarize(results)
-        report = ScanReport(target.path, tuple(normalized), results, tuple(errors), risk, counts)
+        report = ScanReport(
+            target.path,
+            tuple(normalized),
+            results,
+            tuple(errors),
+            risk,
+            counts,
+            diagnostics=tuple(diagnostics),
+        )
         report = replace(
             report,
             mcp_inventory=tuple(
@@ -355,7 +395,7 @@ class Scanner:
                     else "required_isolation",
                     capabilities=available_capabilities(),
                 )
-                if report.errors
+                if report.errors or report.diagnostics
                 else inspect_mcp(tuple(documents), self.dynamic_policy)
             )
             report = replace(
@@ -490,7 +530,13 @@ class Scanner:
                 and origin.environment == environment.root
                 and origin.scope == environment.scope
                 and origin.scanned_artifact is not None
-                and any(error.startswith(f"{origin.scanned_artifact}:") for error in report.errors)
+                and any(
+                    message.startswith(f"{origin.scanned_artifact}:")
+                    for message in (
+                        *report.errors,
+                        *(item.message for item in report.diagnostics if item.level == "warning"),
+                    )
+                )
                 for origin in resolved_origins
             )
             else environment

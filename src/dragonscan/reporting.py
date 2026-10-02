@@ -268,6 +268,8 @@ def terminal_report(report: ScanReport, policy: PolicyResult | None = None) -> s
                 )
     for error in report.errors:
         lines.append(f"ERROR: {ascii(error)}")
+    for static_diagnostic in report.diagnostics:
+        lines.append(f"{static_diagnostic.level.upper()}: {ascii(static_diagnostic.message)}")
     if report.acquisition_status != "not_required":
         lines.append(f"Acquisition: {report.acquisition_status} ({report.acquisition_kind})")
         for diagnostic in report.acquisition_diagnostics:

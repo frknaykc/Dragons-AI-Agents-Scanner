@@ -58,7 +58,8 @@ def test_nearmax_reports_evasion_partial_instead_of_claiming_full_coverage(tmp_p
     result = module.measure(module.Workload("nearmax", 1), tmp_path)
     assert result["status"] == "partial", result
     assert module.MAX_BYTES - 128 < result["counters"]["bytes"] < module.MAX_BYTES
-    assert result["counters"]["errors"] == 1
+    assert result["counters"]["errors"] == 0
+    assert result["counters"]["diagnostics"] == 1
     assert result["counters"]["partial"] == 1
     assert result["counters"]["processed"] == 1
 

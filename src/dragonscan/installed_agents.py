@@ -5,7 +5,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from dragonscan.discovery import DiscoveryError, discover_bounded
+from dragonscan.discovery import DiscoveryError, discover_installed_bounded
 from dragonscan.models import (
     Artifact,
     ArtifactKind,
@@ -261,11 +261,11 @@ def discover_installed(
                         marker is not None and (stat.S_ISREG(marker) or stat.S_ISDIR(marker))
                         for marker in markers
                     ):
-                        found = discover_bounded(
+                        found, diagnostic = discover_installed_bounded(
                             Target(root),
                             max_depth=MAX_DEPTH,
                             max_entries=MAX_ENTRIES_PER_ROOT,
-                            max_artifacts=MAX_ARTIFACTS,
+                            max_artifacts=min(MAX_ARTIFACTS, MAX_ARTIFACTS - len(counted_paths)),
                         )
                         extras = []
                         for name, kind, source_format in location.extra:
@@ -274,11 +274,14 @@ def discover_installed(
                                 extras.append(Artifact(root / name, kind, source_format, spec.kind))
                         paths = {artifact.path for artifact in found}
                         found = (*found, *(item for item in extras if item.path not in paths))
-                        new_paths = {artifact.path for artifact in found}
-                        if len(counted_paths | new_paths) > MAX_ARTIFACTS:
-                            raise DiscoveryError("agent discovery artifact limit exceeded")
-                        counted_paths.update(new_paths)
-                        status = "discovered"
+                        available = MAX_ARTIFACTS - len(counted_paths)
+                        if len(found) > available:
+                            found = found[:available]
+                            diagnostic = "agent discovery artifact limit exceeded"
+                        counted_paths.update(artifact.path for artifact in found)
+                        status = (
+                            "discovered" if found else "diagnostic" if diagnostic else "discovered"
+                        )
             except DiscoveryError as exc:
                 status, diagnostic = "diagnostic", str(exc)
             environments.append(
@@ -290,9 +293,13 @@ def discover_installed(
                     status,
                     diagnostic,
                     evidence=_evidence(found) or (("location",) if status == "discovered" else ()),
-                    resolution="complete"
-                    if status == "discovered"
-                    else ("partial" if status == "diagnostic" else "not_found"),
+                    resolution=(
+                        "partial"
+                        if diagnostic
+                        else "complete"
+                        if status == "discovered"
+                        else "not_found"
+                    ),
                 )
             )
             for artifact in found if status == "discovered" else ():

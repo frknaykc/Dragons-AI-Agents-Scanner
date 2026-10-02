@@ -301,9 +301,11 @@ def test_limits_depth_and_skipped_symlinks(tmp_path: Path) -> None:
     (path / "AGENTS.md").write_text("not inside configured depth")
     (root / "linked").symlink_to(tmp_path.parent, target_is_directory=True)
     report = Scanner().scan_installed(home=tmp_path)
-    assert not report.artifacts
+    assert (root / "settings.json") in {item.path for item in report.artifacts}
+    assert (path / "AGENTS.md") not in {item.path for item in report.artifacts}
+    assert all("linked" not in item.path.parts for item in report.artifacts)
     claude = next(item for item in report.installed_environments if item.agent == "Claude Code")
-    assert claude.status == "diagnostic"
+    assert claude.status == "discovered"
     assert claude.resolution == "partial"
 
 
@@ -314,8 +316,9 @@ def test_entry_budget_failure_is_diagnostic_not_partial_scan(tmp_path: Path) -> 
     for number in range(MAX_ENTRIES_PER_ROOT):
         (root / f"ignored-{number}").touch()
     report = Scanner().scan_installed(home=tmp_path)
-    assert not report.artifacts
-    assert report.installed_environments[0].status == "diagnostic"
+    assert {item.path for item in report.artifacts} == {root / "settings.json"}
+    assert report.installed_environments[0].status == "discovered"
+    assert report.installed_environments[0].resolution == "partial"
     assert report.findings == ()
 
 
@@ -333,12 +336,14 @@ def test_artifact_budget_failure_isolated_to_one_root(
     codex.mkdir()
     (codex / "config.toml").write_text("title = 'test'")
     report = Scanner().scan_installed(home=tmp_path)
-    assert report.installed_environments[0].status == "diagnostic"
+    assert report.installed_environments[0].status == "discovered"
+    assert report.installed_environments[0].resolution == "partial"
     assert any(
-        item.agent == "Codex" and item.status == "discovered"
+        item.agent == "Codex" and item.resolution == "partial"
         for item in report.installed_environments
     )
-    assert [item.path for item in report.artifacts] == [codex / "config.toml"]
+    assert len(report.artifacts) == 1
+    assert report.artifacts[0].path.is_relative_to(claude)
 
 
 @pytest.mark.parametrize("platform", ["darwin", "linux", "win32"])
@@ -478,9 +483,9 @@ def test_deep_nonempty_root_is_diagnostic_not_silent_success(tmp_path: Path) -> 
     (nested / "CLAUDE.md").write_text("hidden beyond budget")
     report = Scanner().scan_installed(home=tmp_path)
     claude = next(item for item in report.installed_environments if item.agent == "Claude Code")
-    assert claude.status == "diagnostic"
+    assert claude.status == "discovered"
     assert claude.resolution == "partial"
-    assert not report.artifacts
+    assert {item.path for item in report.artifacts} == {root / "settings.json"}
 
 
 def test_user_and_project_same_artifact_keep_both_scopes(tmp_path: Path) -> None:
