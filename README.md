@@ -18,12 +18,16 @@ Built-in detections retain `DAAS-001` (credential file read linked to an externa
 uv sync
 uv run dragonscan scan ./AGENTS.md
 uv run dragonscan scan ./AGENTS.md --format json
+uv run dragonscan scan ~/.codex --format json --output codex-scan.json
+uv run dragonscan scan . --format sarif --output dragons.sarif
 uv run dragonscan scan . --fail-on high --fail-on-incomplete
 uv run dragonscan scan . --format sarif --fail-on high --fail-on-incomplete --output dragons.sarif
 uv run dragonscan scan ./agent --signature-pack ./local-signatures
 ```
 
 Exit code 0 means the scan completed (findings may be present) without failing an explicitly requested gate. `--fail-on critical|high|medium|low|info` opts into exit 1 if a security finding meets or exceeds that severity; without it, findings alone do not change the exit code. Values are lowercase. Exit 2 means invalid CLI usage (Click); exit 3 means an operational scan failure or incomplete analysis. Exit 3 takes precedence over the security gate: partial analysis is not a clean pass even if SARIF contains findings. `complete` means supported analysis finished; `partial` means recoverable warnings or bounded/unsupported coverage remain; `failed` means fatal loading/execution failure or no supported artifact could be parsed. JSON retains `errors` for fatal failures and adds `diagnostics: [{"level": "warning"|"coverage", "message": "..."}]` for nonfatal issues; terminal prints `ERROR`, `WARNING` or `COVERAGE`. These are not SARIF security results. An installed root with a discovery budget diagnostic is partial even when useful artifacts were found; `--fail-on-incomplete` additionally gates unanalyzed selected semantic candidates. Unrequested optional analysis is not incomplete. One policy decision drives all three formats: terminal shows scan/policy/reason, JSON adds `scan_status` and `policy`, SARIF carries policy in run properties (not as a fake security result). Use the exit status separately from the report. `--output PATH` atomically replaces a report file, leaving stdout empty; serialization or write failures do not leave a partial file. Shell redirection is also supported but not atomic.
+
+For interactive terminals, the terminal format groups a status/risk/severity summary, severity-ordered finding blocks and bounded `ERROR`/`WARNING`/`COVERAGE` summaries; JSON retains every individual diagnostic. ANSI severity/status colors are enabled only on a TTY, disabled for redirected output and by any `NO_COLOR` setting. JSON, SARIF and `--output` files never use terminal colors. Use `--format json --output scan.json` for complete per-artifact diagnostics on large scans. Terminal presentation changes do not affect findings or exit codes.
 
 ## Distribution (not published)
 

@@ -1,6 +1,7 @@
 """CLI adapter; scan and reporting remain usable without Click."""
 
 import os
+import sys
 import tempfile
 from dataclasses import replace
 from pathlib import Path
@@ -46,7 +47,55 @@ def intel_update(url: str, sha256: str, store: Path) -> None:
     click.echo(f"Installed feed {feed.id} version {feed.version} ({len(feed.records)} records)")
 
 
-@main.command()
+class GroupedScanCommand(click.Command):
+    """Group existing scan flags without changing their parsing or safety checks."""
+
+    def format_options(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
+        sections = {
+            "Target": {"remote", "git_target", "installed_agents"},
+            "Policy": {"fail_on", "fail_on_incomplete"},
+            "Output": {"output_format", "output"},
+            "Optional analysis": {
+                "signature_pack",
+                "intel_feeds",
+                "intel_store",
+                "vuln_check",
+                "semantic",
+                "semantic_url",
+                "semantic_model",
+                "dynamic_mcp",
+                "allow_uncontained_mcp",
+                "dynamic_mcp_server",
+                "dynamic_mcp_executable",
+            },
+        }
+        records = [(param.name, param.get_help_record(ctx)) for param in self.get_params(ctx)]
+        for title, names in sections.items():
+            options = [record for name, record in records if name in names and record is not None]
+            if title == "Target":
+                with formatter.section(title):
+                    formatter.write_text(
+                        "PATH  Local file, directory or archive (unless --installed-agents)."
+                    )
+                    formatter.write_dl(options)
+            elif options:
+                with formatter.section(title):
+                    formatter.write_dl(options)
+        remaining = [
+            record
+            for name, record in records
+            if name not in set().union(*sections.values()) and record is not None
+        ]
+        if remaining:
+            with formatter.section("Options"):
+                formatter.write_dl(remaining)
+
+
+def _terminal_color_enabled() -> bool:
+    return "NO_COLOR" not in os.environ and sys.stdout.isatty()
+
+
+@main.command(cls=GroupedScanCommand)
 @click.argument("path", required=False)
 @click.option(
     "--remote", is_flag=True, help="Explicitly download one public HTTPS artifact; network access."
@@ -79,7 +128,9 @@ def intel_update(url: str, sha256: str, store: Path) -> None:
     help="Also fail on partial installed-agent resolution and semantic candidate coverage.",
 )
 @click.option(
-    "--output", type=click.Path(path_type=Path), help="Atomically write the report to a file."
+    "--output",
+    type=click.Path(path_type=Path),
+    help="Atomically write the report; use with --format json/sarif for large scans.",
 )
 @click.option(
     "--signature-pack",
@@ -271,15 +322,16 @@ def scan(
         Severity(fail_on) if fail_on is not None else None,
         fail_on_incomplete=fail_on_incomplete,
     )
+    use_color = output_format == "terminal" and output is None and _terminal_color_enabled()
     text = (
         json_report(report, policy)
         if output_format == "json"
         else sarif_report(report, policy)
         if output_format == "sarif"
-        else terminal_report(report, policy)
+        else terminal_report(report, policy, color=use_color)
     )
     if output is None:
-        click.echo(text)
+        click.echo(text, color=use_color if output_format == "terminal" else False)
     else:
         temporary: Path | None = None
         try:

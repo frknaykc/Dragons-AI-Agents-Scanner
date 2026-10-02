@@ -1,6 +1,7 @@
 """Pure terminal and JSON formatting of scan reports."""
 
 import json
+from collections import Counter
 from dataclasses import asdict
 
 from dragonscan.models import ScanReport
@@ -172,32 +173,96 @@ def json_report(report: ScanReport, policy: PolicyResult | None = None) -> str:
     return json.dumps(data, indent=2, ensure_ascii=True)
 
 
-def terminal_report(report: ScanReport, policy: PolicyResult | None = None) -> str:
+_COLORS = {
+    "critical": "1;91",
+    "high": "31",
+    "medium": "33",
+    "low": "34",
+    "info": "36",
+    "pass": "32",
+    "policy_violation": "31",
+    "incomplete": "33",
+    "scan_error": "31",
+    "complete": "32",
+    "partial": "33",
+    "failed": "31",
+    "error": "31",
+    "warning": "33",
+    "coverage": "36",
+}
+
+
+def _style(label: str, kind: str, color: bool) -> str:
+    """Only style trusted labels; never interpret content as terminal markup."""
+    code = _COLORS.get(kind)
+    return f"\x1b[{code}m{label}\x1b[0m" if color and code else label
+
+
+def _safe(value: str) -> str:
+    """ASCII-escape untrusted text without repr's surrounding quotes."""
+    return ascii(value)[1:-1]
+
+
+def _diagnostic_summary(lines: list[str], report: ScanReport, color: bool) -> None:
+    if not report.errors and not report.diagnostics:
+        return
+    lines.append("")
+    lines.append("Diagnostics")
+    for level, messages in (
+        ("ERROR", report.errors),
+        ("WARNING", tuple(d.message for d in report.diagnostics if d.level == "warning")),
+        ("COVERAGE", tuple(d.message for d in report.diagnostics if d.level == "coverage")),
+    ):
+        if not messages:
+            continue
+        label = _style(level, level.lower(), color)
+        lines.append(f"{label}: {len(messages)} (scan details; not security findings)")
+        reasons = Counter(message.rsplit(": ", 1)[-1] for message in messages)
+        for reason, count in reasons.most_common(3):
+            lines.append(f"  {count:,} x {_safe(reason)}")
+        if len(reasons) > 3:
+            lines.append(f"  ... {len(reasons) - 3:,} more diagnostic types")
+        lines.append("  Example: " + _safe(messages[0]))
+    lines.append("Full per-artifact diagnostics: --format json --output scan.json")
+
+
+def terminal_report(
+    report: ScanReport, policy: PolicyResult | None = None, *, color: bool = False
+) -> str:
     policy = policy or evaluate(report)
+    status = policy.scan_status.upper()
+    risk = report.risk.value if report.risk else "none"
     lines = [
-        f"Target: {ascii(str(report.target))}",
-        f"Artifacts: {len(report.artifacts)}",
-        f"Risk: {report.risk.value if report.risk else 'none'}",
-        f"Scan: {policy.scan_status}",
-        f"Findings: {len(report.findings)}",
-        f"Policy: {policy.status}",
-        f"Reason: {policy.reason}",
+        "Dragons Scan",
+        f"Target      {ascii(str(report.target))}",
+        f"Artifacts   {len(report.artifacts):,}",
+        f"Status      {_style(status, policy.scan_status, color)}",
+        f"Risk        {_style(risk.upper(), risk, color)}",
+        f"Findings    {len(report.findings):,}",
+        "Severities  "
+        + ", ".join(
+            f"{_style(level.upper(), level, color)} {report.counts.get(level, 0):,}"
+            for level in ("critical", "high", "medium", "low", "info")
+        ),
+        f"Policy      {_style(policy.status.upper(), policy.status, color)}",
+        f"Reason      {_safe(policy.reason)}",
     ]
-    if report.findings:
-        lines.append(
-            "Findings by severity: "
-            + ", ".join(
-                f"{severity}: {count}" for severity, count in report.counts.items() if count
-            )
-        )
-    for finding in report.findings:
+    _diagnostic_summary(lines, report, color)
+    lines.extend(("", "Findings" if report.findings else "Findings    None"))
+    for finding in sorted(
+        report.findings,
+        key=lambda item: ("critical", "high", "medium", "low", "info").index(item.severity.value),
+    ):
         location = f":{finding.line}" if finding.line else ""
         lines.extend(
             (
-                f"[{finding.severity.value}/{finding.confidence.value}] "
-                f"{finding.detection_id} {finding.title}",
-                f"  {ascii(str(finding.artifact))}{location} | {ascii(finding.evidence)}",
-                f"  {finding.explanation}",
+                "",
+                f"{_style(finding.severity.value.upper(), finding.severity.value, color)}  "
+                f"{_safe(finding.detection_id)}  ({finding.confidence.value} confidence)",
+                f"  {_safe(finding.title)}",
+                f"  File      {ascii(str(finding.artifact))}{location}",
+                f"  Evidence  {ascii(finding.evidence)}",
+                f"  Reason    {_safe(finding.explanation)}",
             )
         )
         if finding.signature is not None:
@@ -264,12 +329,8 @@ def terminal_report(report: ScanReport, policy: PolicyResult | None = None) -> s
                 location = f":{step.line}" if step.line is not None else ""
                 lines.append(
                     f"    {ascii(str(step.artifact))}{location} "
-                    f"--{step.edge}--> {ascii(step.target)}"
+                    f"--{_safe(step.edge)}--> {ascii(step.target)}"
                 )
-    for error in report.errors:
-        lines.append(f"ERROR: {ascii(error)}")
-    for static_diagnostic in report.diagnostics:
-        lines.append(f"{static_diagnostic.level.upper()}: {ascii(static_diagnostic.message)}")
     if report.acquisition_status != "not_required":
         lines.append(f"Acquisition: {report.acquisition_status} ({report.acquisition_kind})")
         for diagnostic in report.acquisition_diagnostics:

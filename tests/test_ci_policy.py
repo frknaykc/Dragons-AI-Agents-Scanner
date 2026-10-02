@@ -77,8 +77,8 @@ def test_policy_and_three_formats(
         )
         assert response.exit_code == code, response.output
         outputs[fmt] = response.stdout
-    assert f"Policy: {expected}" in outputs["terminal"]
-    assert f"Findings: {len(severities)}" in outputs["terminal"]
+    assert f"Policy      {expected.upper()}" in outputs["terminal"]
+    assert f"Findings    {len(severities)}" in outputs["terminal"]
     assert json.loads(outputs["json"])["policy"]["status"] == expected
     assert (
         json.loads(outputs["json"])["scan_status"]
