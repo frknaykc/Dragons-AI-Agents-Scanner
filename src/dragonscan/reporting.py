@@ -4,11 +4,15 @@ import json
 from dataclasses import asdict
 
 from dragonscan.models import ScanReport
+from dragonscan.policy import PolicyResult, evaluate
 from dragonscan.sarif import sarif_report as sarif_report
 
 
-def json_report(report: ScanReport) -> str:
+def json_report(report: ScanReport, policy: PolicyResult | None = None) -> str:
+    policy = policy or evaluate(report)
     data = asdict(report)
+    data["scan_status"] = policy.scan_status
+    data["policy"] = policy.as_dict()
     data["target"] = str(report.target)
     data["artifacts"] = [
         {
@@ -168,11 +172,16 @@ def json_report(report: ScanReport) -> str:
     return json.dumps(data, indent=2, ensure_ascii=True)
 
 
-def terminal_report(report: ScanReport) -> str:
+def terminal_report(report: ScanReport, policy: PolicyResult | None = None) -> str:
+    policy = policy or evaluate(report)
     lines = [
         f"Target: {ascii(str(report.target))}",
         f"Artifacts: {len(report.artifacts)}",
         f"Risk: {report.risk.value if report.risk else 'none'}",
+        f"Scan: {policy.scan_status}",
+        f"Findings: {len(report.findings)}",
+        f"Policy: {policy.status}",
+        f"Reason: {policy.reason}",
     ]
     if report.findings:
         lines.append(

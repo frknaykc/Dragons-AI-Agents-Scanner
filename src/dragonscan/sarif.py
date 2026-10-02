@@ -7,6 +7,7 @@ from typing import Any
 from urllib.parse import quote
 
 from dragonscan.models import Finding, ScanReport, Severity
+from dragonscan.policy import PolicyResult, evaluate
 from dragonscan.risk import ORDER
 from dragonscan.semantic import redact
 
@@ -97,6 +98,22 @@ def _result(report: ScanReport, finding: Finding) -> dict[str, Any]:
         if finding.line is not None and finding.line > 0:
             physical["region"] = {"startLine": finding.line}
         result["locations"] = [{"physicalLocation": physical}]
+    if finding.path:
+        if finding.source is not None:
+            result["properties"]["source"] = _safe(finding.source, 128)
+        if finding.sink is not None:
+            result["properties"]["sink"] = _safe(finding.sink, 128)
+        related: list[dict[str, Any]] = []
+        for step in finding.path[:16]:
+            step_uri = _uri(report, step.artifact)
+            if step_uri is None:
+                continue
+            location: dict[str, Any] = {"artifactLocation": {"uri": step_uri}}
+            if step.line is not None and step.line > 0:
+                location["region"] = {"startLine": step.line}
+            related.append({"id": len(related) + 1, "physicalLocation": location})
+        if related:
+            result["relatedLocations"] = related
     return result
 
 
@@ -134,8 +151,9 @@ def _rule(findings: list[Finding]) -> dict[str, Any]:
     return rule
 
 
-def sarif_report(report: ScanReport) -> str:
+def sarif_report(report: ScanReport, policy: PolicyResult | None = None) -> str:
     """Emit only security findings; diagnostics stay in the existing report formats."""
+    policy = policy or evaluate(report)
     by_id: dict[str, list[Finding]] = {}
     for finding in report.findings:
         by_id.setdefault(finding.detection_id, []).append(finding)
@@ -165,6 +183,7 @@ def sarif_report(report: ScanReport) -> str:
                 {
                     "tool": {"driver": {"name": "Dragons AI Agent Scanner", "rules": rules}},
                     "results": results,
+                    "properties": {"policy": policy.as_dict()},
                 }
             ],
         },

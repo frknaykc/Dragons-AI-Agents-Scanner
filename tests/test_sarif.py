@@ -15,6 +15,7 @@ from dragonscan.models import (
     Classification,
     Confidence,
     Finding,
+    PathStep,
     ScanReport,
     Severity,
     SignatureEvidence,
@@ -430,3 +431,26 @@ def test_remote_archive_projection_uses_source_uri_not_workspace(tmp_path: Path)
     output = sarif_report(result)
     assert "https://public.example/archive.zip!/skills/demo/SKILL.md" in output
     assert "dragonscan-acquire-" not in output
+
+
+def test_existing_flow_path_is_bounded_and_uses_logical_locations() -> None:
+    path = Path("/tmp/sample.zip!/SKILL.md")
+    steps = tuple(
+        PathStep("static", "instruction", "sink", path, index + 1, "static", Confidence.HIGH)
+        for index in range(20)
+    )
+    source = report(
+        replace(sample(path, source="instruction", sink="network"), path=steps),
+        target=Path("/tmp/sample.zip"),
+        acquisition_kind="archive",
+        acquisition_source="/tmp/sample.zip",
+    )
+    result = parsed(source)["runs"][0]["results"][0]
+    assert result["properties"]["source"] == "instruction"
+    assert result["properties"]["sink"] == "network"
+    assert len(result["relatedLocations"]) == 16
+    assert result["relatedLocations"][0]["physicalLocation"] == {
+        "artifactLocation": {"uri": "file:///tmp/sample.zip!/SKILL.md"},
+        "region": {"startLine": 1},
+    }
+    assert "dragonscan-acquire-" not in sarif_report(source)

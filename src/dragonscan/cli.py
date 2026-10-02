@@ -1,6 +1,7 @@
 """CLI adapter; scan and reporting remain usable without Click."""
 
 import os
+import tempfile
 from dataclasses import replace
 from pathlib import Path
 
@@ -9,8 +10,8 @@ import click
 from dragonscan.discovery import DiscoveryError
 from dragonscan.dynamic_mcp import DynamicPolicy
 from dragonscan.models import ScanReport, Severity, Target
+from dragonscan.policy import evaluate
 from dragonscan.reporting import json_report, sarif_report, terminal_report
-from dragonscan.risk import meets_threshold
 from dragonscan.scanner import Scanner
 from dragonscan.scanner import scan as scan_target
 from dragonscan.semantic_provider import OpenAICompatibleProvider
@@ -73,6 +74,14 @@ def intel_update(url: str, sha256: str, store: Path) -> None:
     help="Opt in to exit 1 on findings at or above this severity.",
 )
 @click.option(
+    "--fail-on-incomplete",
+    is_flag=True,
+    help="Also fail on partial installed-agent resolution and semantic candidate coverage.",
+)
+@click.option(
+    "--output", type=click.Path(path_type=Path), help="Atomically write the report to a file."
+)
+@click.option(
     "--signature-pack",
     type=click.Path(path_type=Path),
     default=None,
@@ -131,6 +140,8 @@ def scan(
     installed_agents: bool,
     output_format: str,
     fail_on: str | None,
+    fail_on_incomplete: bool,
+    output: Path | None,
     signature_pack: Path | None,
     intel_feeds: tuple[Path, ...],
     intel_store: Path | None,
@@ -251,24 +262,38 @@ def scan(
             )
     except DiscoveryError as exc:
         report = ScanReport(local_path or Path.home(), (), (), (str(exc),))
-    click.echo(
-        json_report(report)
-        if output_format == "json"
-        else sarif_report(report)
-        if output_format == "sarif"
-        else terminal_report(report)
+    except Exception:
+        # A scanner/provider bug must not look like a finding-policy failure or clean scan.
+        # Do not serialize exception text: provider errors may contain secrets.
+        report = ScanReport(local_path or Path.home(), (), (), ("Scanner execution failed",))
+    policy = evaluate(
+        report,
+        Severity(fail_on) if fail_on is not None else None,
+        fail_on_incomplete=fail_on_incomplete,
     )
-    if (
-        report.errors
-        or report.acquisition_status in {"partial", "blocked", "failed"}
-        or any(item.status == "diagnostic" for item in report.installed_environments)
-        or report.vulnerability_status == "partial"
-        or report.intelligence_status == "partial"
-        or report.semantic_status == "partial"
-        or report.dynamic_status in {"blocked", "partial", "failed"}
-    ):
-        raise SystemExit(3)
-    if fail_on is not None and any(
-        meets_threshold(finding.severity, Severity(fail_on)) for finding in report.findings
-    ):
-        raise SystemExit(1)
+    text = (
+        json_report(report, policy)
+        if output_format == "json"
+        else sarif_report(report, policy)
+        if output_format == "sarif"
+        else terminal_report(report, policy)
+    )
+    if output is None:
+        click.echo(text)
+    else:
+        temporary: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", dir=output.parent, prefix=".dragonscan-", delete=False
+            ) as handle:
+                temporary = Path(handle.name)
+                handle.write(text + "\n")
+            os.replace(temporary, output)
+        except OSError:
+            click.echo("Report output failed", err=True)
+            raise SystemExit(3) from None
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+    if policy.exit_code:
+        raise SystemExit(policy.exit_code)
