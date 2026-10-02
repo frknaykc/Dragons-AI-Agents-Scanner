@@ -3,7 +3,6 @@
 import os
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -14,6 +13,7 @@ def scan_action(
     cli: Path,
     target: str,
     fail_on: str,
+    fail_on_incomplete: str,
     github_output: Path,
     *,
     env: dict[str, str] | None = None,
@@ -22,6 +22,8 @@ def scan_action(
     source_env = os.environ if env is None else env
     sarif: Path | None = None
     try:
+        if fail_on_incomplete not in {"true", "false"}:
+            raise ValueError("fail-on-incomplete must be true or false")
         root = workspace.resolve(strict=True)
         # Reject remote acquisition and shell-like expansion, even when the name exists locally.
         if urlsplit(target).scheme or "$" in target or "`" in target:
@@ -34,34 +36,37 @@ def scan_action(
             path = path.resolve(strict=True)
             if not path.is_relative_to(root):
                 raise ValueError("target escapes GITHUB_WORKSPACE")
-    except (ValueError, OSError, RuntimeError) as exc:
-        print(f"Dragons Action target rejected: {exc}", file=sys.stderr)
+    except (ValueError, OSError, RuntimeError):
+        print("Dragons Action input rejected: invalid or outside workspace", file=sys.stderr)
         code = 2
     else:
         try:
             runner_temp.mkdir(parents=True, exist_ok=True)
-            directory = Path(tempfile.mkdtemp(prefix="dragonscan-", dir=runner_temp))
-            candidate = directory / "dragons.sarif"
+            candidate = runner_temp / "dragons.sarif"
+            candidate.unlink(missing_ok=True)
             command = [str(cli), "scan", str(path), "--format", "sarif"]
             if fail_on:
                 command.extend(("--fail-on", fail_on))
+            if fail_on_incomplete == "true":
+                command.append("--fail-on-incomplete")
+            command.extend(("--output", str(candidate)))
             # No target-controlled string is ever evaluated by a shell.
             scanner_env = {
                 "PATH": os.defpath,
                 "HOME": source_env.get("HOME", str(Path.home())),
                 "LANG": "C.UTF-8",
             }
-            with candidate.open("x", encoding="utf-8") as output:
-                completed = subprocess.run(
-                    command, cwd=root, stdout=output, check=False, env=scanner_env
-                )
+            completed = subprocess.run(command, cwd=root, check=False, env=scanner_env)
             code = completed.returncode
-            if candidate.stat().st_size:
+            if code not in {0, 1, 2, 3}:
+                print("Dragons Action scanner process failed unexpectedly", file=sys.stderr)
+                code = 3
+            if candidate.is_file() and candidate.stat().st_size:
                 sarif = candidate
-            else:
-                candidate.unlink()
-        except OSError as exc:
-            print(f"Dragons Action operational failure: {exc}", file=sys.stderr)
+            elif code == 0:
+                code = 3  # Success without a report cannot be presented as a passing gate.
+        except OSError:
+            print("Dragons Action operational failure during scan", file=sys.stderr)
             code = 3
     with github_output.open("a", encoding="utf-8") as output:
         output.write(f"exit-code={code}\nsarif-path={sarif or ''}\n")
@@ -77,6 +82,7 @@ def main() -> None:
         temp / "dragons-venv" / "bin" / "dragonscan",
         os.environ["INPUT_TARGET"],
         os.environ["INPUT_FAIL_ON"],
+        os.environ["INPUT_FAIL_ON_INCOMPLETE"],
         Path(os.environ["GITHUB_OUTPUT"]),
     )
 
