@@ -28,7 +28,12 @@ from dragonscan.scanner import Scanner
 @pytest.mark.parametrize("spec", SPECS, ids=lambda spec: spec.kind)
 def test_known_layout_and_existing_scanner(tmp_path: Path, spec: AgentSpec) -> None:
     location = spec.locations[0]
-    marker = next(name for name in location.markers if name != "skills")
+    supported = {name for name, _, _ in location.extra}
+    marker = next((name for name in location.markers if name in supported), None)
+    if marker is None:
+        marker = next((name for name in location.markers if name not in {"skills", "rules"}), None)
+    if marker is None:
+        marker = "rules/test.md" if "rules" in location.markers else "skills/test/SKILL.md"
     root = tmp_path / location.relative
     root.mkdir(parents=True)
     (root / marker).parent.mkdir(parents=True, exist_ok=True)

@@ -225,6 +225,8 @@ def discover_installed_bounded(
     max_entries: int,
     max_artifacts: int,
     known_artifact: Callable[[Path], Artifact | None] | None = None,
+    descend: Callable[[Path], bool] | None = None,
+    strict_artifact: bool = False,
 ) -> tuple[tuple[Artifact, ...], str | None]:
     """Scan known roots by active-first breadth, retaining evidence on budget exhaustion.
 
@@ -261,6 +263,8 @@ def discover_installed_bounded(
             except OSError as exc:
                 raise DiscoveryError(f"agent entry inaccessible: {type(exc).__name__}") from None
             if stat.S_ISDIR(mode) and name not in SKIP_DIRS:
+                if descend is not None and not descend(candidate):
+                    continue
                 if depth >= max_depth:
                     diagnostic = "agent discovery depth limit exceeded"
                     continue
@@ -273,9 +277,9 @@ def discover_installed_bounded(
                 next_priority = max(priority, rank)
                 heapq.heappush(pending, (next_priority, depth + 1, str(candidate), candidate))
             elif stat.S_ISREG(mode):
-                artifact = (
-                    known_artifact(candidate) if known_artifact is not None else None
-                ) or classify(candidate)
+                artifact = known_artifact(candidate) if known_artifact is not None else None
+                if artifact is None and not strict_artifact:
+                    artifact = classify(candidate)
                 if artifact is not None:
                     if len(artifacts) >= max_artifacts:
                         return tuple(artifacts), "agent discovery artifact limit exceeded"
