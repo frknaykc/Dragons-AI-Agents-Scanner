@@ -292,6 +292,15 @@ def _servers(
             url_has_credentials=(
                 bool(urlsplit(url).username or urlsplit(url).password) if url is not None else False
             ),
+            url_identity_exact=(
+                url is not None
+                and safe is not None
+                and urlsplit(url).query == ""
+                and urlsplit(url).fragment == ""
+                and urlsplit(url).username is None
+                and urlsplit(url).password is None
+                and safe_url(url) == safe
+            ),
             cwd=cwd,
             package_version=version,
             pinning=pinning,

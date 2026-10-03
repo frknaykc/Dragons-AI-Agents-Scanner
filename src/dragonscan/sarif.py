@@ -88,6 +88,13 @@ def _result(report: ScanReport, finding: Finding) -> dict[str, Any]:
                     "record": source.record_id,
                     "source": _safe(source.source, 128),
                     "classification": source.classification,
+                    "sourceVersion": source.source_version,
+                    "published": source.published,
+                    "updated": source.updated,
+                    "feedConfidence": source.confidence,
+                    "trust": source.trust,
+                    "provenance": _safe(source.provenance or "", 128),
+                    "feedSha256": source.feed_sha256,
                 }
                 for source in info.sources
             ],

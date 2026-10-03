@@ -513,3 +513,193 @@ def test_feed_match_does_not_change_base_graph_semantic_or_sarif_rule(
         if rule["id"] == "DRAGON-TI-001"
     )
     assert "first" not in json.dumps(ti_rule) and "second" not in json.dumps(ti_rule)
+
+
+def test_provenance_metadata_is_preserved_without_granting_authority(tmp_path: Path):
+    skill = tmp_path / "SKILL.md"
+    skill.write_text("Contact malicious.example.test")
+    local = tmp_path / "feed.json"
+    item = record(
+        "domain",
+        "malicious.example.test",
+        source_version="2026-01",
+        published="2026-01-01",
+        updated="2026-01-02T12:00:00Z",
+        confidence="high",
+        trust="unverified",
+        provenance="Manual review",
+    )
+    local.write_bytes(feed(item))
+    base = Scanner().scan(Target(skill))
+    report = Scanner(intel_feeds=(local,)).scan(Target(skill))
+    assert report.findings[: len(base.findings)] == base.findings
+    hit = next(f for f in report.findings if f.intelligence)
+    source = hit.intelligence.sources[0]
+    assert source.source_version == "2026-01"
+    assert source.published == "2026-01-01"
+    assert source.updated == "2026-01-02T12:00:00Z"
+    assert source.confidence == "high" and source.trust == "unverified"
+    assert source.provenance == "Manual review"
+    assert source.feed_sha256 == hashlib.sha256(local.read_bytes()).hexdigest()
+    assert hit.severity.value == "low" and hit.confidence.value == "medium"
+    assert not hit.flow and not hit.taint
+    assert (
+        json.loads(json_report(report))["findings"][-1]["intelligence"]["sources"][0]["provenance"]
+        == "Manual review"
+    )
+    result = next(
+        r
+        for r in json.loads(sarif_report(report))["runs"][0]["results"]
+        if r["ruleId"] == "DRAGON-TI-001"
+    )
+    assert (
+        result["properties"]["threatIntelligence"]["sources"][0]["feedSha256"] == source.feed_sha256
+    )
+    assert "Manual review" in terminal_report(report)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("source_version", "https://user:secret@example.test"),
+        ("published", "2026-02-30"),
+        ("updated", "yesterday"),
+        ("confidence", "critical"),
+        ("trust", "trusted"),
+        ("provenance", "Bearer secret-token"),
+    ],
+)
+def test_invalid_provenance_fails_closed(field: str, value: str):
+    with pytest.raises(FeedError):
+        parse_feed(feed(record("domain", "example.test", **{field: value})))
+
+
+def test_exact_named_artifact_identity_requires_hash_not_filename(tmp_path: Path):
+    skills = tmp_path / "skills"
+    skill = skills / "danger-skill" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("# Test skill\n")
+    plugin = tmp_path / ".claude-plugin" / "plugin.json"
+    plugin.parent.mkdir()
+    plugin.write_text('{"name":"danger-plugin","publisher":"example-org"}')
+    local = tmp_path / "feed.json"
+    local.write_bytes(
+        feed(
+            record("skill", "danger-skill", sha256=hashlib.sha256(skill.read_bytes()).hexdigest()),
+            {
+                **record(
+                    "plugin",
+                    "example-org/danger-plugin",
+                    sha256=hashlib.sha256(plugin.read_bytes()).hexdigest(),
+                ),
+                "id": "test-2",
+            },
+        )
+    )
+    for path in (skill, plugin):
+        findings = [
+            f for f in Scanner(intel_feeds=(local,)).scan(Target(path)).findings if f.intelligence
+        ]
+        assert len(findings) == 1
+        assert findings[0].intelligence.indicator_type == ("skill" if path == skill else "plugin")
+        assert findings[0].intelligence.sources[0].record_id == (
+            "test-1" if path == skill else "test-2"
+        )
+        path.write_text(path.read_text() + "\n")
+        assert not any(
+            f.intelligence for f in Scanner(intel_feeds=(local,)).scan(Target(path)).findings
+        )
+    unrelated = tmp_path / "not-a-skill" / "SKILL.md"
+    unrelated.parent.mkdir()
+    unrelated.write_text("# Test skill\n")
+    assert not any(
+        f.intelligence for f in Scanner(intel_feeds=(local,)).scan(Target(unrelated)).findings
+    )
+    same_bytes = skills / "other-name" / "SKILL.md"
+    same_bytes.parent.mkdir()
+    same_bytes.write_bytes(skill.read_bytes()[:-1])
+    assert not any(
+        f.intelligence for f in Scanner(intel_feeds=(local,)).scan(Target(same_bytes)).findings
+    )
+
+
+def test_mcp_name_requires_exact_public_endpoint(tmp_path: Path):
+    config = tmp_path / "mcp.json"
+    config.write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "danger": {"url": "https://mcp.example.test/mcp"},
+                    "danger-copy": {"url": "https://mcp.example.test/mcp"},
+                    "different": {"url": "https://mcp.example.test/sse"},
+                }
+            }
+        )
+    )
+    local = tmp_path / "feed.json"
+    local.write_bytes(feed(record("mcp_server", "danger", locator="https://mcp.example.test/mcp")))
+    hits = [
+        f for f in Scanner(intel_feeds=(local,)).scan(Target(config)).findings if f.intelligence
+    ]
+    assert len(hits) == 1 and hits[0].intelligence.indicator_type == "mcp_server"
+    config.write_text(
+        json.dumps({"mcpServers": {"danger": {"command": "npx", "args": ["safe@1.0.0"]}}})
+    )
+    assert not any(
+        f.intelligence for f in Scanner(intel_feeds=(local,)).scan(Target(config)).findings
+    )
+    for endpoint in (
+        "https://mcp.example.test/mcp?tenant=other",
+        "https://mcp.example.test/mcp/opaque",
+        "https://user:password@mcp.example.test/mcp",
+    ):
+        config.write_text(json.dumps({"mcpServers": {"danger": {"url": endpoint}}}))
+        assert not any(
+            f.intelligence for f in Scanner(intel_feeds=(local,)).scan(Target(config)).findings
+        )
+
+
+@pytest.mark.parametrize(
+    "item",
+    [
+        record("skill", "danger-skill"),
+        record("plugin", "danger-plugin", sha256="a" * 64),
+        record("mcp_server", "danger"),
+        record("mcp_server", "danger", locator="https://mcp.example.test/api?token=secret"),
+        record("package", "@scope/name", ecosystem="PyPI", version="1.0"),
+        record("package", "@scope/name", ecosystem="npm", version="1.0", sha256="a" * 64),
+    ],
+)
+def test_named_identity_rejects_ambiguous_or_unsound_scopes(item: dict[str, object]):
+    with pytest.raises(FeedError):
+        parse_feed(feed(item))
+
+
+def test_scoped_npm_and_pypi_canonical_identity_no_collision(tmp_path: Path):
+    manifest = tmp_path / "package.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "dependencies": {
+                    "@scope/name": "1.2.3",
+                    "name": "1.2.3",
+                    "foo_bar": "1.2.3",
+                }
+            }
+        )
+    )
+    local = tmp_path / "feed.json"
+    local.write_bytes(
+        feed(
+            record("package", "@scope/name", ecosystem="npm", version="1.2.3"),
+            {**record("package", "foo-bar", ecosystem="PyPI", version="1.2.3"), "id": "test-2"},
+        )
+    )
+    hits = [
+        f for f in Scanner(intel_feeds=(local,)).scan(Target(manifest)).findings if f.intelligence
+    ]
+    assert len(hits) == 1 and hits[0].intelligence.indicator == "@scope/name"
+    py = tmp_path / "pyproject.toml"
+    py.write_text('[project]\nname="test"\nversion="1.0"\ndependencies=["foo_bar==1.2.3"]\n')
+    hits = [f for f in Scanner(intel_feeds=(local,)).scan(Target(py)).findings if f.intelligence]
+    assert len(hits) == 1 and hits[0].intelligence.indicator == "foo-bar"

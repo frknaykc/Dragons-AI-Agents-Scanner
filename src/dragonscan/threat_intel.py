@@ -8,6 +8,7 @@ import stat
 import tempfile
 import unicodedata
 from dataclasses import dataclass
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +39,7 @@ _SOURCE_NAME = re.compile(r"[A-Za-z][A-Za-z0-9 ._-]{0,127}\Z", re.ASCII)
 _AWS_KEY = re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b", re.ASCII)
 _VERSION = re.compile(r"[0-9]+(?:\.[0-9]+){0,2}\Z", re.ASCII)
 _PACKAGE = re.compile(r"(?:@?[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]{0,127}\Z", re.ASCII)
+_NAME = re.compile(r"[a-z0-9][a-z0-9._-]{0,127}\Z", re.ASCII)
 _ECOSYSTEMS = frozenset({"npm", "PyPI"})
 _ALLOWED = frozenset(
     {
@@ -51,6 +53,14 @@ _ALLOWED = frozenset(
         "ecosystem",
         "version",
         "artifact_kind",
+        "sha256",
+        "locator",
+        "source_version",
+        "published",
+        "updated",
+        "confidence",
+        "trust",
+        "provenance",
     }
 )
 _ACTIVE = frozenset({"mcp_endpoint", "remote_endpoint", "executable_command"})
@@ -91,6 +101,32 @@ def _public_id(value: str) -> bool:
     return bool(_ID.fullmatch(value) and not _AWS_KEY.search(value) and redact(value) == value)
 
 
+def _metadata(item: dict[str, Any], key: str, limit: int = 128) -> str | None:
+    if key not in item:
+        return None
+    value = _label(item[key], key, limit)
+    valid = _ID.fullmatch(value) if key == "source_version" else _SOURCE_NAME.fullmatch(value)
+    if not valid or value.lower().startswith("bearer ") or redact(value) != value:
+        raise FeedError(f"invalid {key}")
+    return value
+
+
+def _timestamp(item: dict[str, Any], key: str) -> str | None:
+    if key not in item:
+        return None
+    value = _label(item[key], key, 20)
+    try:
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+            date.fromisoformat(value)
+        elif re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", value):
+            datetime.fromisoformat(value.replace("Z", "+00:00"))
+        else:
+            raise ValueError("unsupported timestamp")
+    except ValueError:
+        raise FeedError(f"invalid {key}") from None
+    return value
+
+
 @dataclass(frozen=True)
 class Record:
     id: str
@@ -101,6 +137,13 @@ class Record:
     ecosystem: str | None = None
     version: str | None = None
     artifact_kind: ArtifactKind | None = None
+    qualifier: str | None = None
+    source_version: str | None = None
+    published: str | None = None
+    updated: str | None = None
+    confidence: str | None = None
+    trust: str | None = None
+    provenance: str | None = None
 
 
 @dataclass(frozen=True)
@@ -108,6 +151,7 @@ class Feed:
     id: str
     version: str
     records: tuple[Record, ...]
+    sha256: str = ""
 
 
 def parse_feed(raw: bytes) -> Feed:
@@ -136,7 +180,9 @@ def parse_feed(raw: bytes) -> Feed:
         raise FeedError("invalid feed record count")
     records: list[Record] = []
     ids: set[str] = set()
-    indicators: set[tuple[str, str, str | None, str | None, ArtifactKind | None]] = set()
+    indicators: set[tuple[str, str, str | None, str | None, ArtifactKind | None, str | None]] = (
+        set()
+    )
     for item in items:
         if not isinstance(item, dict) or item.keys() - _ALLOWED:
             raise FeedError("invalid record fields")
@@ -148,6 +194,16 @@ def parse_feed(raw: bytes) -> Feed:
         if classification not in {"malicious", "suspicious"}:
             raise FeedError("unsupported classification")
         source = _public_source(_label(item.get("source"), "source", 128))
+        source_version = _metadata(item, "source_version", 64)
+        published = _timestamp(item, "published")
+        updated = _timestamp(item, "updated")
+        confidence = _metadata(item, "confidence", 16)
+        trust = _metadata(item, "trust", 16)
+        provenance = _metadata(item, "provenance")
+        if confidence is not None and confidence not in {"low", "medium", "high"}:
+            raise FeedError("invalid confidence")
+        if trust is not None and trust not in {"unverified", "operator_reviewed"}:
+            raise FeedError("invalid trust")
         if "description" in item:
             _label(item["description"], "description")
         if "reference" in item:
@@ -158,21 +214,55 @@ def parse_feed(raw: bytes) -> Feed:
         ecosystem: str | None = None
         version_value: str | None = None
         artifact_kind: ArtifactKind | None = None
+        qualifier: str | None = None
         if kind == "package":
             ecosystem = _label(item.get("ecosystem"), "ecosystem", 16)
             version_value = _label(item.get("version"), "package version", 64)
             if (
                 ecosystem not in _ECOSYSTEMS
                 or not _PACKAGE.fullmatch(value)
+                or (ecosystem == "PyPI" and "/" in value)
                 or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._+!-]{0,63}", version_value)
             ):
                 raise FeedError("invalid package identity")
             if ecosystem == "PyPI":
                 value = re.sub(r"[-_.]+", "-", value.lower())
-            if "artifact_kind" in item:
+            if {"artifact_kind", "sha256", "locator"} & item.keys():
                 raise FeedError("invalid package scope")
+        elif kind in {"skill", "plugin", "mcp_server"}:
+            if {"ecosystem", "version", "artifact_kind"} & item.keys():
+                raise FeedError("invalid named identity scope")
+            if kind == "skill":
+                if not _NAME.fullmatch(value) or "locator" in item:
+                    raise FeedError("invalid skill identity")
+            elif kind == "plugin":
+                if (
+                    len(value) > 256
+                    or len(value.split("/")) != 2
+                    or not all(_NAME.fullmatch(part) for part in value.split("/"))
+                    or "locator" in item
+                ):
+                    raise FeedError("invalid plugin identity")
+            elif not _NAME.fullmatch(value) or "sha256" in item:
+                raise FeedError("invalid MCP identity")
+            if kind == "mcp_server":
+                try:
+                    qualifier = normalize(
+                        IndicatorType.URL, _label(item.get("locator"), "locator", 256)
+                    )
+                except ValueError as exc:
+                    raise FeedError("invalid MCP locator") from exc
+                if not qualifier.startswith("https://"):
+                    raise FeedError("MCP locator requires HTTPS")
+            else:
+                try:
+                    qualifier = normalize(
+                        IndicatorType.SHA256, _label(item.get("sha256"), "sha256", 64)
+                    )
+                except ValueError as exc:
+                    raise FeedError("invalid named artifact hash") from exc
         else:
-            if "ecosystem" in item or "version" in item:
+            if {"ecosystem", "version", "sha256", "locator"} & item.keys():
                 raise FeedError("invalid IOC scope")
             try:
                 indicator = IndicatorType(kind)
@@ -185,7 +275,7 @@ def parse_feed(raw: bytes) -> Feed:
                     artifact_kind = ArtifactKind(_label(item["artifact_kind"], "artifact kind", 32))
             except ValueError as exc:
                 raise FeedError("invalid indicator type or value") from exc
-        key = (kind, value, ecosystem, version_value, artifact_kind)
+        key = (kind, value, ecosystem, version_value, artifact_kind, qualifier)
         if key in indicators:
             raise FeedError("duplicate indicator")
         ids.add(record_id)
@@ -200,9 +290,21 @@ def parse_feed(raw: bytes) -> Feed:
                 ecosystem,
                 version_value,
                 artifact_kind,
+                qualifier,
+                source_version,
+                published,
+                updated,
+                confidence,
+                trust,
+                provenance,
             )
         )
-    return Feed(feed_id, version, tuple(sorted(records, key=lambda item: item.id)))
+    return Feed(
+        feed_id,
+        version,
+        tuple(sorted(records, key=lambda item: item.id)),
+        hashlib.sha256(raw).hexdigest(),
+    )
 
 
 def _read(path: Path) -> bytes:
@@ -296,7 +398,8 @@ class Matcher:
         self.feeds = feeds
         self.diagnostics: list[str] = []
         self.index: dict[
-            tuple[str, str, str | None, str | None, ArtifactKind | None], list[IntelligenceSource]
+            tuple[str, str, str | None, str | None, ArtifactKind | None, str | None],
+            list[IntelligenceSource],
         ] = {}
         for feed in feeds:
             for record in feed.records:
@@ -306,10 +409,22 @@ class Matcher:
                     record.ecosystem,
                     record.version,
                     record.artifact_kind,
+                    record.qualifier,
                 )
                 self.index.setdefault(key, []).append(
                     IntelligenceSource(
-                        feed.id, feed.version, record.id, record.source, record.classification
+                        feed.id,
+                        feed.version,
+                        record.id,
+                        record.source,
+                        record.classification,
+                        record.source_version or feed.version,
+                        record.published,
+                        record.updated,
+                        record.confidence,
+                        record.trust,
+                        record.provenance,
+                        feed.sha256,
                     )
                 )
         for sources in self.index.values():
@@ -331,7 +446,12 @@ class Matcher:
             value: str,
             location: SourceRef,
             context: str,
-            scope: tuple[str | None, str | None, ArtifactKind | None] = (None, None, None),
+            scope: tuple[str | None, str | None, ArtifactKind | None, str | None] = (
+                None,
+                None,
+                None,
+                None,
+            ),
         ) -> None:
             sources = self.index.get((kind, value, *scope), ())
             if not sources:
@@ -347,7 +467,11 @@ class Matcher:
             previous_sources.extend(sources)
 
         selected = regions(document)
-        kinds = {IndicatorType(kind) for kind, _, _, _, _ in self.index if kind != "package"}
+        kinds = {
+            IndicatorType(kind)
+            for kind, _, _, _, _, _ in self.index
+            if kind not in {"package", "skill", "plugin", "mcp_server"}
+        }
         for region in selected:
             for indicator_kind in sorted(kinds):
                 if indicator_kind in {IndicatorType.SHA256, IndicatorType.SHA1, IndicatorType.MD5}:
@@ -365,8 +489,42 @@ class Matcher:
                 artifact_sha256,
                 location,
                 "artifact_hash",
-                (None, None, document.artifact.kind),
+                (None, None, document.artifact.kind, None),
             )
+        if (
+            document.artifact.kind == ArtifactKind.SKILL
+            and document.artifact.path.name.lower() == "skill.md"
+        ):
+            skill_name = document.artifact.path.parent.name
+            if (
+                _NAME.fullmatch(skill_name)
+                and document.artifact.path.parent.parent.name.lower() == "skills"
+            ):
+                add(
+                    "skill",
+                    skill_name,
+                    location,
+                    "artifact_hash",
+                    (None, None, None, artifact_sha256),
+                )
+        if document.artifact.kind == ArtifactKind.PLUGIN_METADATA:
+            fields = {
+                entry.key_path: entry.value for entry in document.entries if entry.kind == "string"
+            }
+            name, publisher = fields.get(("name",)), fields.get(("publisher",))
+            if (
+                isinstance(name, str)
+                and isinstance(publisher, str)
+                and _NAME.fullmatch(name)
+                and _NAME.fullmatch(publisher)
+            ):
+                add(
+                    "plugin",
+                    f"{publisher}/{name}",
+                    location,
+                    "artifact_hash",
+                    (None, None, None, artifact_sha256),
+                )
         mcp_packages = {
             (
                 "PyPI" if server.runtime == "uvx" else "npm",
@@ -394,7 +552,7 @@ class Matcher:
                     dependency.name,
                     dependency.location,
                     "dependency",
-                    (ecosystem, dependency.exact_version, None),
+                    (ecosystem, dependency.exact_version, None, None),
                 )
         for server in document.servers:
             if (
@@ -410,7 +568,28 @@ class Matcher:
                     if ecosystem == "PyPI"
                     else server.package.lower()
                 )
-                add("package", name, server.location, "mcp_package", (ecosystem, version, None))
+                add(
+                    "package",
+                    name,
+                    server.location,
+                    "mcp_package",
+                    (ecosystem, version, None, None),
+                )
+            if server.url and server.url_identity_exact and _NAME.fullmatch(server.name):
+                # Parsed identity is exact only when the raw endpoint carried no
+                # opaque route, credentials, query, or fragment.
+                if server.url.startswith("https://"):
+                    try:
+                        endpoint = normalize(IndicatorType.URL, server.url)
+                    except ValueError:
+                        continue
+                    add(
+                        "mcp_server",
+                        server.name,
+                        server.location,
+                        "mcp_endpoint",
+                        (None, None, None, endpoint),
+                    )
         findings: list[Finding] = []
         for kind, value, line in sorted(matches, key=lambda key: (key[0], key[1], key[2] or 0)):
             location, context, sources = matches[(kind, value, line)]
@@ -427,7 +606,11 @@ class Matcher:
                 if context in _ACTIVE | {"dependency", "mcp_package"}
                 else Severity.LOW
             )
-            indicator = public_label(IndicatorType(kind), value) if kind != "package" else value
+            indicator = (
+                public_label(IndicatorType(kind), value)
+                if kind not in {"package", "skill", "plugin", "mcp_server"}
+                else value
+            )
             findings.append(
                 Finding(
                     detection_id="DRAGON-TI-001",

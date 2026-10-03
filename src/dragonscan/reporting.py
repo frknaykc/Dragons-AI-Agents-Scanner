@@ -278,7 +278,14 @@ def terminal_report(
                     f"  Intelligence: {ascii(source.feed_id)} v{ascii(source.feed_version)} "
                     f"record={ascii(source.record_id)}; "
                     f"classification={ascii(source.classification)}; "
-                    f"source={ascii(source.source)}"
+                    f"source={ascii(source.source)}; "
+                    f"source_version={ascii(source.source_version or 'unknown')}; "
+                    f"published={ascii(source.published or 'unknown')}; "
+                    f"updated={ascii(source.updated or 'unknown')}; "
+                    f"feed_confidence={ascii(source.confidence or 'unknown')}; "
+                    f"trust={ascii(source.trust or 'unknown')}; "
+                    f"provenance={ascii(source.provenance or 'unknown')}; "
+                    f"feed_sha256={ascii(source.feed_sha256 or 'unknown')}"
                 )
         if finding.semantic is not None:
             semantic_info = finding.semantic

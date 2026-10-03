@@ -149,6 +149,7 @@ class McpServer:
     runtime: str | None = None
     package: str | None = None
     url_has_credentials: bool = False
+    url_identity_exact: bool = False
     cwd: str | None = None
     package_version: str | None = None
     pinning: str | None = None
@@ -281,6 +282,13 @@ class IntelligenceSource:
     record_id: str
     source: str
     classification: str
+    source_version: str | None = None
+    published: str | None = None
+    updated: str | None = None
+    confidence: str | None = None
+    trust: str | None = None
+    provenance: str | None = None
+    feed_sha256: str | None = None
 
 
 @dataclass(frozen=True)
