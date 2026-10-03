@@ -3,6 +3,7 @@
 import heapq
 import os
 import stat
+from collections.abc import Callable
 from pathlib import Path
 
 from dragonscan.models import Artifact, ArtifactKind, SourceFormat, Target
@@ -100,12 +101,19 @@ def classify(
     return Artifact(path, kind, source_format, ecosystem)
 
 
-def discover(target: Target, *, installed_project: bool = False) -> tuple[Artifact, ...]:
+def discover(
+    target: Target,
+    *,
+    installed_project: bool = False,
+    known_artifact: Callable[[Path], Artifact | None] | None = None,
+) -> tuple[Artifact, ...]:
     path = target.path.absolute()
     if path.is_symlink():
         raise DiscoveryError("symlink target is not supported")
     if path.is_file():
-        artifact = classify(path, explicit=True, installed_project=installed_project)
+        artifact = (known_artifact(path) if known_artifact is not None else None) or classify(
+            path, explicit=True, installed_project=installed_project
+        )
         if artifact is None:
             raise DiscoveryError("unsupported file type")
         return (artifact,)
@@ -130,7 +138,9 @@ def discover(target: Target, *, installed_project: bool = False) -> tuple[Artifa
             raise DiscoveryError("project agent discovery depth limit exceeded")
         for name in sorted(files):
             candidate = Path(root) / name
-            artifact = classify(candidate, installed_project=installed_project)
+            artifact = (
+                known_artifact(candidate) if known_artifact is not None else None
+            ) or classify(candidate, installed_project=installed_project)
             if artifact is None:
                 continue
             if installed_project:
@@ -209,7 +219,12 @@ _EPHEMERAL_DIRS = frozenset({".tmp", ".staging", "tmp", "session-env", "paste-ca
 
 
 def discover_installed_bounded(
-    target: Target, *, max_depth: int, max_entries: int, max_artifacts: int
+    target: Target,
+    *,
+    max_depth: int,
+    max_entries: int,
+    max_artifacts: int,
+    known_artifact: Callable[[Path], Artifact | None] | None = None,
 ) -> tuple[tuple[Artifact, ...], str | None]:
     """Scan known roots by active-first breadth, retaining evidence on budget exhaustion.
 
@@ -258,7 +273,9 @@ def discover_installed_bounded(
                 next_priority = max(priority, rank)
                 heapq.heappush(pending, (next_priority, depth + 1, str(candidate), candidate))
             elif stat.S_ISREG(mode):
-                artifact = classify(candidate)
+                artifact = (
+                    known_artifact(candidate) if known_artifact is not None else None
+                ) or classify(candidate)
                 if artifact is not None:
                     if len(artifacts) >= max_artifacts:
                         return tuple(artifacts), "agent discovery artifact limit exceeded"

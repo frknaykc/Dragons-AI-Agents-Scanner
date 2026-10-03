@@ -17,7 +17,11 @@ from dragonscan.dynamic_mcp import inspect as inspect_mcp
 from dragonscan.evasion import views
 from dragonscan.evasion_graph import annotate_views
 from dragonscan.flow import correlate_flows, describe_existing_flow
-from dragonscan.installed_agents import discover_installed, discover_project
+from dragonscan.installed_agents import (
+    classify_project_artifact,
+    discover_installed,
+    discover_project,
+)
 from dragonscan.loading import LoadError, load_text, load_text_with_bytes
 from dragonscan.mcp_correlation import correlate_mcp
 from dragonscan.models import (
@@ -441,7 +445,15 @@ class Scanner:
         discovered = discover_installed(home=home, platform=platform)
         project_diagnostics: tuple[InstalledEnvironment, ...] = ()
         try:
-            explicit = discover(target, installed_project=True) if target is not None else ()
+            explicit = (
+                discover(
+                    target,
+                    installed_project=True,
+                    known_artifact=lambda path: classify_project_artifact(target, path),
+                )
+                if target is not None
+                else ()
+            )
         except DiscoveryError as exc:
             explicit = ()
             assert target is not None

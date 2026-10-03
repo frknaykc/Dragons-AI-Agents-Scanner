@@ -31,6 +31,7 @@ def test_known_layout_and_existing_scanner(tmp_path: Path, spec: AgentSpec) -> N
     marker = next(name for name in location.markers if name != "skills")
     root = tmp_path / location.relative
     root.mkdir(parents=True)
+    (root / marker).parent.mkdir(parents=True, exist_ok=True)
     (root / marker).write_text("{}" if marker.endswith(".json") else "", encoding="utf-8")
     result = discover_installed(home=tmp_path, platform="linux")
     assert any(

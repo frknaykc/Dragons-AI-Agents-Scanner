@@ -3,6 +3,7 @@
 import stat
 import sys
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 
 from dragonscan.discovery import DiscoveryError, discover_installed_bounded
@@ -15,7 +16,8 @@ from dragonscan.models import (
     Target,
 )
 
-MAX_ENVIRONMENTS = 12
+# Fixed known roots only; per-root and global artifact budgets stay unchanged.
+MAX_ENVIRONMENTS = 20
 MAX_ARTIFACTS = 256
 MAX_ENTRIES_PER_ROOT = 2048
 MAX_DEPTH = 4
@@ -26,12 +28,17 @@ class Location:
     relative: str
     markers: tuple[str, ...]
     extra: tuple[tuple[str, ArtifactKind, SourceFormat], ...] = ()
+    project: bool = True
+    user: bool = True
+    instruction_dirs: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
 class AgentSpec:
     kind: str
     locations: tuple[Location, ...]
+    project_files: tuple[tuple[str, ArtifactKind, SourceFormat], ...] = ()
+    project_at_root_only: bool = False
 
 
 SPECS = (
@@ -68,6 +75,82 @@ SPECS = (
                 (("openclaw.json", ArtifactKind.AGENT_CONFIG, SourceFormat.JSON),),
             ),
         ),
+    ),
+    AgentSpec(
+        "OpenCode",
+        (
+            Location(
+                ".config/opencode",
+                ("opencode.json", "skills", "agents", "commands"),
+                (("opencode.json", ArtifactKind.AGENT_CONFIG, SourceFormat.JSON),),
+                project=False,
+                instruction_dirs=("agents", "commands"),
+            ),
+            Location(
+                ".opencode",
+                (),
+                user=False,
+                instruction_dirs=("agents", "commands"),
+            ),
+        ),
+        (("opencode.json", ArtifactKind.AGENT_CONFIG, SourceFormat.JSON),),
+        project_at_root_only=True,
+    ),
+    AgentSpec(
+        "Qwen Code",
+        (
+            Location(
+                ".qwen",
+                ("settings.json", "QWEN.md", "skills"),
+                (
+                    ("settings.json", ArtifactKind.AGENT_CONFIG, SourceFormat.JSON),
+                    ("QWEN.md", ArtifactKind.INSTRUCTIONS, SourceFormat.MARKDOWN),
+                ),
+            ),
+        ),
+        project_at_root_only=True,
+    ),
+    AgentSpec(
+        "Kiro",
+        (
+            Location(
+                ".kiro",
+                ("settings/cli.json", "settings/mcp.json", "steering", "agents"),
+                (("settings/cli.json", ArtifactKind.AGENT_CONFIG, SourceFormat.JSON),),
+                project=False,
+                instruction_dirs=("steering", "prompts"),
+            ),
+            Location(".kiro", (), user=False, instruction_dirs=("steering", "prompts")),
+        ),
+        project_at_root_only=True,
+    ),
+    AgentSpec(
+        "Continue",
+        (
+            Location(
+                ".continue",
+                ("config.yaml", "config.json", "rules"),
+                (
+                    ("config.yaml", ArtifactKind.AGENT_CONFIG, SourceFormat.YAML),
+                    ("config.json", ArtifactKind.AGENT_CONFIG, SourceFormat.JSON),
+                ),
+                instruction_dirs=("rules",),
+            ),
+        ),
+        ((".continuerc.json", ArtifactKind.AGENT_CONFIG, SourceFormat.JSON),),
+        project_at_root_only=True,
+    ),
+    AgentSpec(
+        "Cline",
+        (
+            Location(
+                ".cline",
+                ("mcp.json", "rules", "skills"),
+                instruction_dirs=("rules",),
+            ),
+            Location(".clinerules", (), user=False, instruction_dirs=(".",)),
+        ),
+        project_at_root_only=True,
     ),
 )
 
@@ -130,6 +213,44 @@ class InstalledDiscovery:
     origins: tuple[ArtifactOrigin, ...]
 
 
+def _spec_artifact(path: Path, root: Path, spec: AgentSpec, location: Location) -> Artifact | None:
+    """Classify only documented aliases inside a selected, product-specific root."""
+    relative = path.relative_to(root)
+    for name, kind, source_format in location.extra:
+        if relative == Path(name):
+            return Artifact(path, kind, source_format, spec.kind)
+    if path.suffix.lower() == ".md" and any(
+        relative.is_relative_to(directory) and relative != Path(directory)
+        for directory in location.instruction_dirs
+    ):
+        return Artifact(path, ArtifactKind.INSTRUCTIONS, SourceFormat.MARKDOWN, spec.kind)
+    return None
+
+
+def classify_project_artifact(target: Target, path: Path) -> Artifact | None:
+    """Opt-in aliases; generic AGENTS.md/MCP files confer no agent identity."""
+    base = target.path.absolute()
+    project = base if base.is_dir() else base.parent
+    roots = {location.relative for spec in SPECS for location in spec.locations if location.project}
+    if project.name in roots:
+        project = project.parent
+    if path.parent == project:
+        for spec in SPECS:
+            for name, kind, source_format in spec.project_files:
+                if path.name == name:
+                    return Artifact(path, kind, source_format, spec.kind)
+    for spec in SPECS:
+        for location in spec.locations:
+            if not location.project:
+                continue
+            root = project / location.relative
+            if path.is_relative_to(root):
+                artifact = _spec_artifact(path, root, spec, location)
+                if artifact is not None:
+                    return artifact
+    return None
+
+
 def _evidence(artifacts: tuple[Artifact, ...]) -> tuple[str, ...]:
     kinds = {item.kind for item in artifacts}
     return tuple(
@@ -154,7 +275,7 @@ def discover_project(target: Target, artifacts: tuple[Artifact, ...]) -> Install
         location.relative
         for spec in SPECS
         for location in spec.locations
-        if "/" not in location.relative
+        if location.project and "/" not in location.relative
     }
     if project.name in known_roots:
         project = project.parent
@@ -163,8 +284,8 @@ def discover_project(target: Target, artifacts: tuple[Artifact, ...]) -> Install
     origins: list[ArtifactOrigin] = []
     for spec in SPECS:
         for location in spec.locations:
-            # These user-home paths are not evidenced as project conventions.
-            if "/" in location.relative:
+            # User-only paths do not establish project identity.
+            if not location.project or "/" in location.relative:
                 continue
             groups: dict[Path, list[Artifact]] = {}
             for artifact in artifacts:
@@ -173,6 +294,8 @@ def discover_project(target: Target, artifacts: tuple[Artifact, ...]) -> Install
                 relative = artifact.path.relative_to(project)
                 parts = relative.parts
                 if location.relative not in parts[:-1]:
+                    continue
+                if spec.project_at_root_only and parts[0] != location.relative:
                     continue
                 index = parts.index(location.relative)
                 root = project.joinpath(*parts[: index + 1])
@@ -210,6 +333,30 @@ def discover_project(target: Target, artifacts: tuple[Artifact, ...]) -> Install
                             scope="project",
                         )
                     )
+        for name, _, _ in spec.project_files:
+            direct = project / name
+            for artifact in artifacts:
+                if artifact.path != direct:
+                    continue
+                source = f"known-project-file:{name}"
+                environments.append(
+                    InstalledEnvironment(
+                        spec.kind,
+                        project,
+                        source,
+                        (project,),
+                        "discovered",
+                        scope="project",
+                        evidence=_evidence((artifact,)),
+                        resolution="complete",
+                    )
+                )
+                selected.append(artifact)
+                origins.append(
+                    ArtifactOrigin(
+                        direct, "installed_agent", spec.kind, project, source, scope="project"
+                    )
+                )
     return InstalledDiscovery(tuple(environments), tuple(selected), tuple(origins))
 
 
@@ -245,6 +392,8 @@ def discover_installed(
     counted_paths: set[Path] = set()
     for spec in SPECS:
         for location in (*spec.locations, *PLATFORM_LOCATIONS.get(system, {}).get(spec.kind, ())):
+            if not location.user:
+                continue
             if len(environments) >= MAX_ENVIRONMENTS:
                 raise DiscoveryError("agent environment limit exceeded")
             root = base / location.relative
@@ -266,6 +415,9 @@ def discover_installed(
                             max_depth=MAX_DEPTH,
                             max_entries=MAX_ENTRIES_PER_ROOT,
                             max_artifacts=min(MAX_ARTIFACTS, MAX_ARTIFACTS - len(counted_paths)),
+                            known_artifact=partial(
+                                _spec_artifact, root=root, spec=spec, location=location
+                            ),
                         )
                         extras = []
                         for name, kind, source_format in location.extra:
