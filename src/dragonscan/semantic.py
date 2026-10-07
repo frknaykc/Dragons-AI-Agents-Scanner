@@ -291,6 +291,62 @@ def _pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
     return output
 
 
+def _response_format(
+    candidate: Candidate, evidence_ids: dict[str, str], limits: SemanticLimits
+) -> dict[str, object]:
+    """Constrain generation to this candidate; _validate remains authoritative."""
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "dragons_semantic_response",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "results": {
+                        "type": "array",
+                        "maxItems": limits.max_findings,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "category": {
+                                    "type": "string",
+                                    "enum": sorted(candidate.categories),
+                                },
+                                "verdict": {
+                                    "type": "string",
+                                    "enum": ["detected", "likely", "uncertain", "not_detected"],
+                                },
+                                "confidence": {
+                                    "type": "string",
+                                    "enum": [member.value for member in Confidence],
+                                },
+                                "rationale": {"type": "string"},
+                                "evidence_ids": {
+                                    "type": "array",
+                                    "items": {"type": "string", "enum": list(evidence_ids)},
+                                    "minItems": 1,
+                                    "maxItems": limits.max_evidence_refs,
+                                },
+                            },
+                            "required": [
+                                "category",
+                                "verdict",
+                                "confidence",
+                                "rationale",
+                                "evidence_ids",
+                            ],
+                            "additionalProperties": False,
+                        },
+                    }
+                },
+                "required": ["results"],
+                "additionalProperties": False,
+            },
+        },
+    }
+
+
 def _validate(
     raw: bytes, candidate: Candidate, evidence_ids: frozenset[str], limits: SemanticLimits
 ) -> list[tuple[str, str, Confidence, str, tuple[str, ...]]]:
@@ -387,6 +443,8 @@ def enrich(
                 {"role": "user", "content": json.dumps(payload, ensure_ascii=True)},
             ]
         }
+        if getattr(provider, "structured_output", False):
+            request["response_format"] = _response_format(candidate, evidence, limits)
         encoded = json.dumps(
             {"model": provider.model, **request, "temperature": 0, "stream": False},
             ensure_ascii=True,

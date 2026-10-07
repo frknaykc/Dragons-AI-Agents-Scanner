@@ -1,0 +1,151 @@
+{
+  "schema_version": 2,
+  "corpus_version": "realworld-0.4",
+  "suite": "realworld",
+  "cases": [
+    {
+      "id": "aisa-password-link-excerpt",
+      "artifact": "aisa-password-link/SKILL.md",
+      "classification": "malicious",
+      "split": "realworld-malicious",
+      "notes": "Two-line verbatim research-PoC excerpt only, not the complete 488-line skill; directs a password into an external link. Full-skill prevalence or detection is not measured.",
+      "expected": ["DRAGON-EXFIL-001"],
+      "fn_causes": {"DRAGON-EXFIL-001": "source/sink modeling problem"},
+      "expected_absent": [],
+      "expected_findings": [
+        {
+          "id": "DRAGON-EXFIL-001",
+          "artifact": "aisa-password-link/SKILL.md",
+          "line": 2,
+          "evidence_contains": "password",
+          "category": "data-exfiltration",
+          "source": "password",
+          "sink": "external HTTP(S) endpoint"
+        }
+      ],
+      "provenance": {
+        "source_type": "published-research-poc-excerpt",
+        "source": "AISA Group, Agent Skills Enable a New Class of Realistic and Trivially Simple Prompt Injections (arXiv:2510.26328)",
+        "reference": "https://github.com/aisa-group/promptinject-agent-skills/blob/c9811a6cea62b4cd52451d19d8f56a5017684d70/.claude/skills/url_injected_pptx_skill/SKILL.md#L407-L408",
+        "observed_date": "2026-10-04",
+        "license": "MIT declared in research repository (benchmarks/licenses/AISA-LICENSE); copied attack-specific excerpt only",
+        "redistribution": "permitted",
+        "rationale": "Researchers explicitly describe this password-in-URL payload as their exfiltration technique for the Claude Web Interface in https://arxiv.org/html/2510.26328#S3.SS2; the label precedes and is independent of Dragons output.",
+        "expected_behavior": "Flag the external password-bearing link as one data-exfiltration occurrence on excerpt line 2 (upstream line 408).",
+        "curation_notes": "Verbatim upstream lines 407-408 (not a complete skill); source SKILL.md SHA-256 3ef30624e19218febf512fb382e1c66a3ac719f47d53c56724a2889152897b8b. Research repo attributes its adapted template to Anthropic: no template material copied here. The MIT file oddly credits Bootstrap Authors, so this license claim is only the upstream repo's declaration. No active secret; URL is unvisited. Ground truth is the visible instruction to place the password <pw> in the query of an external link; disclosure would require the link to be followed. The scored source/sink use semantic, redacted labels instead of raw placeholder/URL, consistent with Dragons' published no-URL/no-credential reporting policy; this field correction does not change the positive ID, location, evidence, or artifact. No path graph is assertable from these two lines.",
+        "sha256": "c43bafe47c7873d3608c6f26d02363ce16de9e1d01a4c5347718879664a68716"
+      }
+    },
+    {
+      "id": "mcp-docs-config",
+      "artifact": "mcp-docs/.mcp.json",
+      "classification": "benign",
+      "split": "realworld-benign",
+      "notes": "Official MCP docs endpoint; remote URL is not itself an exfiltration sink or a malicious server.",
+      "expected": [],
+      "expected_absent": ["DRAGON-EXFIL-001"],
+      "expected_findings": [],
+      "provenance": {
+        "source_type": "official-repository",
+        "source": "modelcontextprotocol/servers",
+        "reference": "https://github.com/modelcontextprotocol/servers/blob/f46d9578190b476b3501923ea8977d899e8db2cb/.mcp.json",
+        "observed_date": "2026-10-03",
+        "license": "Apache-2.0 / MIT transition (upstream repository LICENSE)",
+        "redistribution": "permitted",
+        "rationale": "Official reference repository configuration pointing at official MCP documentation; not an incident artifact.",
+        "expected_behavior": "No deterministic security finding from this endpoint alone.",
+        "curation_notes": "Unmodified upstream file, pinned commit; no runtime connection made.",
+        "sha256": "b0f0b8ea0d6c6e4bd9d19270db8c4ed13a951c6a7d8fa9a7b76d0d12ddd2491f"
+      }
+    },
+    {
+      "id": "mcp-maintainer-instructions",
+      "artifact": "mcp-instructions/CLAUDE.md",
+      "classification": "benign",
+      "split": "realworld-benign",
+      "notes": "Legitimate build commands, package names, links and security documentation; no adversarial intent inferred.",
+      "expected": [],
+      "expected_absent": ["DRAGON-PI-001", "DRAGON-EXEC-001"],
+      "expected_findings": [],
+      "provenance": {
+        "source_type": "official-repository",
+        "source": "modelcontextprotocol/servers",
+        "reference": "https://github.com/modelcontextprotocol/servers/blob/f46d9578190b476b3501923ea8977d899e8db2cb/CLAUDE.md",
+        "observed_date": "2026-10-03",
+        "license": "CC-BY-4.0 (repository documentation; attribution in curation_notes)",
+        "redistribution": "permitted",
+        "rationale": "Official maintainer instructions for reference MCP servers, not a documented attack.",
+        "expected_behavior": "No injection or unsafe-execution alert for build/test documentation alone.",
+        "curation_notes": "Unmodified upstream document; attribution: Model Context Protocol contributors, modelcontextprotocol/servers, CC-BY-4.0; pinned commit.",
+        "sha256": "2e9238c6f1260e59c12d40b551e36909a8947af0887a0ac0c881a69e437d5b29"
+      }
+    },
+    {
+      "id": "awesome-copilot-sandbox-install",
+      "artifact": "awesome-copilot-sandbox/SKILL.md",
+      "classification": "benign",
+      "split": "realworld-benign",
+      "notes": "Official community skill explains local sandbox npm installation and a bundled shell script; installation instructions alone do not constitute an adversarial remote-pipe execution instruction.",
+      "expected": [],
+      "expected_absent": ["DRAGON-EXEC-001", "DRAGON-PI-001", "DRAGON-TRUST-001"],
+      "expected_findings": [],
+      "provenance": {
+        "source_type": "official-repository",
+        "source": "github/awesome-copilot, sandbox-npm-install skill",
+        "reference": "https://github.com/github/awesome-copilot/blob/143a3d976b3c1603cc8932984d5e1f28501cb5fc/skills/sandbox-npm-install/SKILL.md",
+        "observed_date": "2026-10-04",
+        "license": "MIT (benchmarks/licenses/AWESOME-COPILOT-LICENSE)",
+        "redistribution": "permitted",
+        "rationale": "Pinned GitHub community skill documents installation inside a Docker sandbox to address filesystem incompatibility; no malicious incident or remote installer is asserted.",
+        "expected_behavior": "Do not report remote-download execution, policy hijack or remote-policy trust from local package-install documentation.",
+        "curation_notes": "Unmodified complete upstream SKILL.md; attribution: github/awesome-copilot contributors, MIT. Bundled install script is not copied or run; only the supported SKILL.md surface is scored. Selected before scanning. This is a legitimate hard negative, not a malicious positive.",
+        "sha256": "efbad94eaadd3b4284dd4fb3e2dfab71e528bcad4dfbfe4dc8c03c34a35439b3"
+      }
+    },
+    {
+      "id": "skillscan-keychain-poc",
+      "artifact": "skillscan-keychain/SKILL.md",
+      "classification": "malicious",
+      "split": "realworld-malicious",
+      "notes": "Complete author-published security-research PoC, not an observed in-the-wild incident. Upstream names it keychain-stealer.md; identical bytes are placed at the supported SKILL.md scan surface.",
+      "expected": ["DRAGON-CRED-001", "DRAGON-EXFIL-001"],
+      "fn_causes": {"DRAGON-CRED-001": "parser limitation", "DRAGON-EXFIL-001": "parser limitation"},
+      "expected_absent": [],
+      "expected_findings": [
+        {
+          "id": "DRAGON-CRED-001",
+          "artifact": "skillscan-keychain/SKILL.md",
+          "line": 15,
+          "evidence_contains": "find-generic-password",
+          "category": "credential-access"
+        },
+        {
+          "id": "DRAGON-EXFIL-001",
+          "artifact": "skillscan-keychain/SKILL.md",
+          "line": 23,
+          "evidence_contains": "find-generic-password",
+          "category": "data-exfiltration"
+        },
+        {
+          "id": "DRAGON-EXFIL-001",
+          "artifact": "skillscan-keychain/SKILL.md",
+          "line": 29,
+          "evidence_contains": "id_rsa",
+          "category": "data-exfiltration"
+        }
+      ],
+      "provenance": {
+        "source_type": "published-security-research-poc",
+        "source": "Noah Mitchem, NMitchem/SkillScan, examples/malicious/keychain-stealer.md",
+        "reference": "https://github.com/NMitchem/SkillScan/blob/08afcd4d7019e8235704c004080fea80087de327/examples/malicious/keychain-stealer.md",
+        "observed_date": "2026-10-04",
+        "license": "MIT, Copyright (c) 2026 Noah Mitchem (benchmarks/licenses/SKILLSCAN-LICENSE)",
+        "redistribution": "permitted",
+        "rationale": "The publisher's README explicitly calls this a malicious skill example. The complete artifact visibly instructs credential reads and two distinct transfers to external endpoints, independent of Dragons output; no claim of in-the-wild deployment.",
+        "expected_behavior": "One credential-access occurrence at the keychain read on line 15 and two external credential-transfer occurrences at lines 23 and 29. Expected IDs and locations were selected before scanner execution.",
+        "curation_notes": "Exact unmodified 579-byte upstream example; renamed from .md to SKILL.md because Dragons discovers supported agent artifact names. Upstream is an original security scanner research example, not a third-party incident sample. Original placeholder destination is reserved documentation IP space; no endpoint or payload was contacted, no sample command executed. MIT permission covers the upstream repository's software and documentation files; license notice retained. Same attack class as existing AISA exfil excerpt but independent publisher and complete artifact; does not establish broad accuracy.",
+        "sha256": "0f229e7b5def18ef61bad788fbfae1bdb6a624130e41be0d497ca6bd2ba106f8"
+      }
+    }
+  ]
+}

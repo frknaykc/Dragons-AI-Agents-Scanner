@@ -1,0 +1,231 @@
+{
+  "artifact_types": {
+    ".json": {
+      "evaluated_cases": 1,
+      "f1": null,
+      "fn": 0,
+      "fp": 0,
+      "precision": null,
+      "recall": null,
+      "tp": 0
+    },
+    ".md": {
+      "evaluated_cases": 4,
+      "f1": 0.4,
+      "fn": 3,
+      "fp": 0,
+      "precision": 1.0,
+      "recall": 0.25,
+      "tp": 1
+    }
+  },
+  "attack_class_coverage": {
+    "credential-access": {
+      "represented": true,
+      "scored_occurrences": 1,
+      "unique_malicious_artifacts": 1
+    },
+    "cross-artifact-attack-chain": {
+      "represented": false,
+      "scored_occurrences": 0,
+      "unique_malicious_artifacts": 0
+    },
+    "dangerous-execution": {
+      "represented": false,
+      "scored_occurrences": 0,
+      "unique_malicious_artifacts": 0
+    },
+    "exfiltration": {
+      "represented": true,
+      "scored_occurrences": 3,
+      "unique_malicious_artifacts": 2
+    },
+    "mcp-poisoning": {
+      "represented": false,
+      "scored_occurrences": 0,
+      "unique_malicious_artifacts": 0
+    },
+    "obfuscation-evasion": {
+      "represented": false,
+      "scored_occurrences": 0,
+      "unique_malicious_artifacts": 0
+    },
+    "package-runtime-execution": {
+      "represented": false,
+      "scored_occurrences": 0,
+      "unique_malicious_artifacts": 0
+    },
+    "persistence": {
+      "represented": false,
+      "scored_occurrences": 0,
+      "unique_malicious_artifacts": 0
+    },
+    "prompt-injection": {
+      "represented": false,
+      "scored_occurrences": 0,
+      "unique_malicious_artifacts": 0
+    },
+    "remote-trust": {
+      "represented": false,
+      "scored_occurrences": 0,
+      "unique_malicious_artifacts": 0
+    },
+    "sensitive-data-handling": {
+      "represented": true,
+      "scored_occurrences": 4,
+      "unique_malicious_artifacts": 2
+    },
+    "supply-chain": {
+      "represented": false,
+      "scored_occurrences": 0,
+      "unique_malicious_artifacts": 0
+    }
+  },
+  "corpus_version": "realworld-0.4",
+  "correctness": {
+    "checked": 4,
+    "failed": 3,
+    "hard_negative_checked": 6,
+    "hard_negative_failed": 0,
+    "status": "failed"
+  },
+  "failures": [],
+  "field_coverage": {
+    "category": {
+      "asserted": 4,
+      "correct": 1,
+      "mismatched": 0,
+      "missing": 3
+    },
+    "evidence": {
+      "asserted": 4,
+      "correct": 1,
+      "mismatched": 0,
+      "missing": 3
+    },
+    "location": {
+      "asserted": 4,
+      "correct": 1,
+      "mismatched": 0,
+      "missing": 3
+    },
+    "path": {
+      "asserted": 0,
+      "correct": 0,
+      "mismatched": 0,
+      "missing": 0
+    },
+    "sink": {
+      "asserted": 1,
+      "correct": 1,
+      "mismatched": 0,
+      "missing": 0
+    },
+    "source": {
+      "asserted": 1,
+      "correct": 1,
+      "mismatched": 0,
+      "missing": 0
+    }
+  },
+  "fn_taxonomy": {
+    "parser limitation": 3
+  },
+  "fp_taxonomy": {},
+  "id_level": {
+    "f1": 0.5,
+    "fn": 2,
+    "fp": 0,
+    "precision": 1.0,
+    "recall": 0.333333,
+    "tp": 1
+  },
+  "manifest_sha256": "ee650709061201cacf3eb86e3d4dff2caa1fb33807ef7c749d42f78eb28bbfde",
+  "observed_by_severity": {
+    "critical": 0,
+    "high": 1,
+    "info": 0,
+    "low": 0,
+    "medium": 0
+  },
+  "occurrence": {
+    "correct": 1,
+    "extra": 0,
+    "missing": 3,
+    "wrong_category": 0,
+    "wrong_evidence": 0,
+    "wrong_location": 0,
+    "wrong_path": 0,
+    "wrong_source_sink": 0
+  },
+  "scanner_commit": "7b231b80997819c5c9c33ac7a35af4c0a2d04f92",
+  "schema_version": 2,
+  "semantic": "not-evaluated",
+  "source_classes": {
+    "official-repository": {
+      "evaluated_cases": 3,
+      "f1": null,
+      "fn": 0,
+      "fp": 0,
+      "precision": null,
+      "recall": null,
+      "tp": 0
+    },
+    "published-research-poc-excerpt": {
+      "evaluated_cases": 1,
+      "f1": 1.0,
+      "fn": 0,
+      "fp": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "tp": 1
+    },
+    "published-security-research-poc": {
+      "evaluated_cases": 1,
+      "f1": 0.0,
+      "fn": 3,
+      "fp": 0,
+      "precision": null,
+      "recall": 0.0,
+      "tp": 0
+    }
+  },
+  "splits": {
+    "realworld-benign": {
+      "evaluated_cases": 3,
+      "f1": null,
+      "fn": 0,
+      "fp": 0,
+      "precision": null,
+      "recall": null,
+      "tp": 0
+    },
+    "realworld-malicious": {
+      "evaluated_cases": 2,
+      "f1": 0.4,
+      "fn": 3,
+      "fp": 0,
+      "precision": 1.0,
+      "recall": 0.25,
+      "tp": 1
+    }
+  },
+  "status": "completed",
+  "suite": "realworld",
+  "summary": {
+    "evaluated_cases": 5,
+    "f1": 0.4,
+    "failed_cases": 0,
+    "fn": 3,
+    "fp": 0,
+    "precision": 1.0,
+    "recall": 0.25,
+    "tp": 1
+  },
+  "targeted_negative_failures": 0,
+  "ti": {
+    "matches": 0
+  },
+  "ti_status": "not-evaluated-no-explicit-feed",
+  "unmapped_expected_ids": []
+}

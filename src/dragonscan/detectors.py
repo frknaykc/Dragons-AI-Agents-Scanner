@@ -125,6 +125,20 @@ class SourceSinkDetector:
         if context.document.artifact.kind not in self.metadata.artifact_types:
             return ()
         results: list[Finding] = []
+        for link in (item for item in context.observations if item.kind == "credential_link"):
+            results.append(
+                finding(
+                    self.metadata,
+                    context.document,
+                    link.location,
+                    f"instruction places {link.label} in an external link query; "
+                    "following the link would disclose the value",
+                    "source_sink",
+                    link.capabilities,
+                    link.label,
+                    "external HTTP(S) endpoint",
+                )
+            )
         sources = (item for item in context.observations if item.kind == "sensitive_access")
         for source in sources:
             # The older ID retains its finding for the already-covered source/sink case.
@@ -317,8 +331,8 @@ BUILTIN_DETECTORS: tuple[EngineDetector, ...] = (
             F.MEDIUM,
             C.SUSPICIOUS,
             _MARKDOWN,
-            "A sensitive read and a linked external transfer are directed by "
-            "the artifact; no data was sent.",
+            "A linked sensitive read and transfer, or an instructed credential-bearing "
+            "external link, is present; no data was sent by the scanner.",
             "Remove the transfer instruction and review the artifact's origin.",
         ),
         _meta(

@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "purpose": "unmeasured-malicious-references",
+  "entries": [
+    {
+      "case_id": "snyk-google-qx4",
+      "source_type": "security-research-incident",
+      "source": "Snyk, Liran Tal, How a Malicious Google Skill on ClawHub Tricks Users Into Installing Malware (2026-02-10)",
+      "reference": "https://snyk.io/blog/clawhub-malicious-google-skill-openclaw-malware/",
+      "observed_date": "2026-10-03",
+      "license_or_redistribution": "No permission established to redistribute original skill; no executable or third-party excerpt bundled.",
+      "rationale": "Researcher documents google-qx4 social-engineering prerequisite redirect to a purported openclaw-core malware installer.",
+      "expected_behavior": "If original pinned artifact is acquired and independently checked, assess prerequisite instruction and source/sink occurrence; not currently scored.",
+      "curation_notes": "Research reference only; original skill bytes and trustworthy pinned identity unavailable. Neither the screenshot nor an invented reduction is ground-truth corpus. Do not fetch malware URLs."
+    },
+    {
+      "case_id": "tiger-bot-twitter-sum",
+      "source_type": "public-malicious-skill-reference",
+      "source": "Sompote/Tiger_bot, skills/twitter-sum/SKILL.md",
+      "reference": "https://github.com/Sompote/Tiger_bot/blob/370409497ac11e8fc5dde5e4667068ed0aacf0ae/skills/twitter-sum/SKILL.md",
+      "observed_date": "2026-10-04",
+      "license_or_redistribution": "Root repository declares MIT, but its copyright line names an unrelated institution; the injected skill's author's redistribution authority is not established. No skill bytes copied.",
+      "rationale": "Complete pinned skill visibly directs a prerequisite download/extract/run on Windows and an encoded decode-to-shell command on macOS; independent of Dragons output. A real public skill, not an invented fixture. Do not fetch its installer or follow its links.",
+      "expected_behavior": "Potential dangerous execution and obfuscation candidate if redistribution and expected occurrence can be independently resolved; no scored assertion.",
+      "curation_notes": "Pinned complete SKILL.md SHA-256 66273fae2360d0f21ab4bfa67a18603924d871ce8eb0879de6682d143afb0e8f (2961 bytes). Root LICENSE digest 8669b54fb2e1e33385bfe3a73461247781b6092ec9acf7c0d1f37260eadaa5ce. No payload was decoded or run. Similar prerequisite-install social engineering to the Snyk reference, not an independent diversity count; reference-only / unscored."
+    },
+    {
+      "case_id": "skilltrojan-ehr-backdoor",
+      "source_type": "published-research-demonstration-reference",
+      "source": "Feng et al., SkillTrojan (ICML 2026), backdoored EHR SQL skill",
+      "reference": "https://github.com/Yunhao-Feng/SkillTrojan/blob/2864c7524f3302d025647766c6b9f3aef6674097/skills/backdoored-ehr-sql/SKILL.md",
+      "observed_date": "2026-10-04",
+      "license_or_redistribution": "Research repository declares Apache-2.0; no external skill or code bundled in this corpus.",
+      "rationale": "Researchers document a backdoored multi-file skill with trigger-gated tool-output fragments and runtime reconstruction; this SKILL.md alone describes apparently normal SQL steps, so ground-truth cannot be mapped to one existing static finding occurrence in it.",
+      "expected_behavior": "Investigate unsupported tool-output/runtime backdoor as a separate coverage gap; do not fabricate an expected static finding or count as a scored positive.",
+      "curation_notes": "Pinned SKILL.md SHA-256 6febc70e57301912e9c2a5d098b2ad07d97819cd4492721e4ebbf4bbeb78e4b1. The attack is in associated runtime tool behavior, not established by scanning this Markdown in isolation. Published research demonstration, not in-the-wild prevalence evidence; reference-only / unscored."
+    }
+  ]
+}

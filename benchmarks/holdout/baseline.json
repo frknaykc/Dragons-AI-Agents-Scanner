@@ -1,0 +1,193 @@
+{
+  "artifact_types": {
+    ".md": {
+      "evaluated_cases": 1,
+      "f1": null,
+      "fn": 0,
+      "fp": 0,
+      "precision": null,
+      "recall": null,
+      "tp": 0
+    }
+  },
+  "attack_class_coverage": {
+    "credential-access": {
+      "represented": false,
+      "scored_occurrences": 0,
+      "unique_malicious_artifacts": 0
+    },
+    "cross-artifact-attack-chain": {
+      "represented": false,
+      "scored_occurrences": 0,
+      "unique_malicious_artifacts": 0
+    },
+    "dangerous-execution": {
+      "represented": false,
+      "scored_occurrences": 0,
+      "unique_malicious_artifacts": 0
+    },
+    "exfiltration": {
+      "represented": false,
+      "scored_occurrences": 0,
+      "unique_malicious_artifacts": 0
+    },
+    "mcp-poisoning": {
+      "represented": false,
+      "scored_occurrences": 0,
+      "unique_malicious_artifacts": 0
+    },
+    "obfuscation-evasion": {
+      "represented": false,
+      "scored_occurrences": 0,
+      "unique_malicious_artifacts": 0
+    },
+    "package-runtime-execution": {
+      "represented": false,
+      "scored_occurrences": 0,
+      "unique_malicious_artifacts": 0
+    },
+    "persistence": {
+      "represented": false,
+      "scored_occurrences": 0,
+      "unique_malicious_artifacts": 0
+    },
+    "prompt-injection": {
+      "represented": false,
+      "scored_occurrences": 0,
+      "unique_malicious_artifacts": 0
+    },
+    "remote-trust": {
+      "represented": false,
+      "scored_occurrences": 0,
+      "unique_malicious_artifacts": 0
+    },
+    "sensitive-data-handling": {
+      "represented": false,
+      "scored_occurrences": 0,
+      "unique_malicious_artifacts": 0
+    },
+    "supply-chain": {
+      "represented": false,
+      "scored_occurrences": 0,
+      "unique_malicious_artifacts": 0
+    }
+  },
+  "corpus_version": "holdout-0.1",
+  "correctness": {
+    "checked": 0,
+    "failed": 0,
+    "hard_negative_checked": 1,
+    "hard_negative_failed": 0,
+    "status": "passed"
+  },
+  "failures": [],
+  "field_coverage": {
+    "category": {
+      "asserted": 0,
+      "correct": 0,
+      "mismatched": 0,
+      "missing": 0
+    },
+    "evidence": {
+      "asserted": 0,
+      "correct": 0,
+      "mismatched": 0,
+      "missing": 0
+    },
+    "location": {
+      "asserted": 0,
+      "correct": 0,
+      "mismatched": 0,
+      "missing": 0
+    },
+    "path": {
+      "asserted": 0,
+      "correct": 0,
+      "mismatched": 0,
+      "missing": 0
+    },
+    "sink": {
+      "asserted": 0,
+      "correct": 0,
+      "mismatched": 0,
+      "missing": 0
+    },
+    "source": {
+      "asserted": 0,
+      "correct": 0,
+      "mismatched": 0,
+      "missing": 0
+    }
+  },
+  "fn_taxonomy": {},
+  "fp_taxonomy": {},
+  "id_level": {
+    "f1": null,
+    "fn": 0,
+    "fp": 0,
+    "precision": null,
+    "recall": null,
+    "tp": 0
+  },
+  "manifest_sha256": "bd3a818d1d957830e07e2d421aec0b6edb07078d7e226a127fd64eaa071f74dd",
+  "observed_by_severity": {
+    "critical": 0,
+    "high": 0,
+    "info": 0,
+    "low": 0,
+    "medium": 0
+  },
+  "occurrence": {
+    "correct": 0,
+    "extra": 0,
+    "missing": 0,
+    "wrong_category": 0,
+    "wrong_evidence": 0,
+    "wrong_location": 0,
+    "wrong_path": 0,
+    "wrong_source_sink": 0
+  },
+  "scanner_commit": "7b231b80997819c5c9c33ac7a35af4c0a2d04f92",
+  "schema_version": 2,
+  "semantic": "not-evaluated",
+  "source_classes": {
+    "official-repository": {
+      "evaluated_cases": 1,
+      "f1": null,
+      "fn": 0,
+      "fp": 0,
+      "precision": null,
+      "recall": null,
+      "tp": 0
+    }
+  },
+  "splits": {
+    "independent-holdout": {
+      "evaluated_cases": 1,
+      "f1": null,
+      "fn": 0,
+      "fp": 0,
+      "precision": null,
+      "recall": null,
+      "tp": 0
+    }
+  },
+  "status": "completed",
+  "suite": "holdout",
+  "summary": {
+    "evaluated_cases": 1,
+    "f1": null,
+    "failed_cases": 0,
+    "fn": 0,
+    "fp": 0,
+    "precision": null,
+    "recall": null,
+    "tp": 0
+  },
+  "targeted_negative_failures": 0,
+  "ti": {
+    "matches": 0
+  },
+  "ti_status": "not-evaluated-no-explicit-feed",
+  "unmapped_expected_ids": []
+}

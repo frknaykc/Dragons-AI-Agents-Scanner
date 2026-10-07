@@ -11,6 +11,7 @@ import unicodedata
 from collections import Counter
 from pathlib import Path
 from typing import Any
+from urllib.error import HTTPError
 
 from dragonscan.discovery import DiscoveryError, discover
 from dragonscan.loading import LoadError, load_text
@@ -114,23 +115,24 @@ def load_manifest(path: Path) -> list[dict[str, Any]]:
 
 
 class _ObservedProvider:
-    """Count provider exceptions without storing requests, responses, or error messages."""
+    """Classify provider exceptions without serializing requests, responses, or errors."""
 
     def __init__(self, provider: SemanticProvider):
         self.provider = provider
         self.identity = provider.identity
         self.model = provider.model
-        self.exceptions: list[str] = []
+        self.structured_output = getattr(provider, "structured_output", False)
+        self.exceptions: list[Exception] = []
 
     def analyze(self, request: dict[str, object], timeout: float, max_response: int) -> bytes:
         try:
             return self.provider.analyze(request, timeout, max_response)
         except Exception as exc:
-            self.exceptions.append(type(exc).__name__)
+            self.exceptions.append(exc)
             raise
 
 
-def _partial_reason(report: Any, provider_errors: list[str]) -> str | None:
+def _partial_reason(report: Any, provider_errors: list[Exception]) -> str | None:
     if (
         report.errors
         or report.intelligence_status == "partial"
@@ -140,9 +142,19 @@ def _partial_reason(report: Any, provider_errors: list[str]) -> str | None:
     if report.semantic_status != "partial":
         return None
     diagnostics = report.semantic_diagnostics
-    if provider_errors or any(
-        "rate limited" in d or "provider or response failure" in d for d in diagnostics
-    ):
+    if provider_errors:
+        if any(isinstance(exc, HTTPError) and exc.code == 429 for exc in provider_errors):
+            return "rate_limit"
+        if any(isinstance(exc, HTTPError) and exc.code in (401, 403) for exc in provider_errors):
+            return "authentication_failure"
+        if any(isinstance(exc, HTTPError) and 500 <= exc.code <= 599 for exc in provider_errors):
+            return "provider_http_5xx"
+        if any(isinstance(exc, HTTPError) for exc in provider_errors):
+            return "provider_http_4xx"
+        if any(isinstance(exc, TimeoutError) for exc in provider_errors):
+            return "provider_timeout"
+        return "provider_failure"
+    if any("rate limited" in d or "provider or response failure" in d for d in diagnostics):
         return "provider_failure"
     if any("schema rejected" in d for d in diagnostics):
         return "schema_reject"
@@ -418,10 +430,15 @@ def run(
     provider: SemanticProvider | None = None,
     repeats: int = 3,
     limits: SemanticLimits | None = None,
+    case_ids: set[str] | None = None,
 ) -> dict[str, Any]:
     if not 1 <= repeats <= 30:
         raise BenchmarkError("repeats must be between 1 and 30")
     cases = load_manifest(manifest)
+    if case_ids is not None:
+        if not case_ids or case_ids - {case["id"] for case in cases}:
+            raise BenchmarkError("unknown semantic case ID")
+        cases = [case for case in cases if case["id"] in case_ids]
     root = manifest.resolve().parent
     limits = limits or SemanticLimits()
     rows = []
@@ -624,7 +641,18 @@ def main() -> int:
     parser.add_argument("manifest", type=Path)
     parser.add_argument("--provider-url")
     parser.add_argument("--model")
+    parser.add_argument(
+        "--allow-private-http",
+        action="store_true",
+        help="Explicitly allow plaintext HTTP to a literal RFC1918 IPv4 endpoint without a key.",
+    )
     parser.add_argument("--repeats", type=int, default=3)
+    parser.add_argument("--case-id", action="append", help="Select a case ID (repeatable).")
+    parser.add_argument(
+        "--structured-output", action="store_true", help="Send candidate-specific JSON Schema."
+    )
+    parser.add_argument("--request-timeout", type=float, default=5.0)
+    parser.add_argument("--total-timeout", type=float, default=30.0)
     parser.add_argument("--format", choices=("json", "terminal"), default="terminal")
     args = parser.parse_args()
     if bool(args.provider_url) != bool(args.model):
@@ -632,12 +660,22 @@ def main() -> int:
     try:
         provider = (
             OpenAICompatibleProvider(
-                args.provider_url, args.model, os.environ.get("DRAGONSCAN_SEMANTIC_API_KEY")
+                args.provider_url,
+                args.model,
+                os.environ.get("DRAGONSCAN_SEMANTIC_API_KEY"),
+                allow_private_http=args.allow_private_http,
+                structured_output=args.structured_output,
             )
             if args.provider_url
             else None
         )
-        result = run(args.manifest, provider=provider, repeats=args.repeats)
+        result = run(
+            args.manifest,
+            provider=provider,
+            repeats=args.repeats,
+            limits=SemanticLimits(timeout=args.request_timeout, total_timeout=args.total_timeout),
+            case_ids=set(args.case_id) if args.case_id is not None else None,
+        )
     except (BenchmarkError, ValueError) as exc:
         parser.error(str(exc))
     if args.format == "json":

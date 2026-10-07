@@ -5,6 +5,7 @@ import sys
 import tempfile
 from dataclasses import replace
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import click
 
@@ -18,6 +19,8 @@ from dragonscan.scanner import scan as scan_target
 from dragonscan.semantic_provider import OpenAICompatibleProvider
 from dragonscan.target_acquisition import AcquisitionCleanupError, acquire
 from dragonscan.threat_intel import FeedError, update_feed
+
+_NVIDIA_NIM_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
 
 
 @click.group()
@@ -63,6 +66,7 @@ class GroupedScanCommand(click.Command):
                 "semantic",
                 "semantic_url",
                 "semantic_model",
+                "allow_private_semantic_http",
                 "dynamic_mcp",
                 "allow_uncontained_mcp",
                 "dynamic_mcp_server",
@@ -166,6 +170,11 @@ def _terminal_color_enabled() -> bool:
 @click.option("--semantic-url", help="Trusted OpenAI-compatible /v1/chat/completions URL.")
 @click.option("--semantic-model", help="Trusted semantic model name.")
 @click.option(
+    "--allow-private-semantic-http",
+    is_flag=True,
+    help="Allow keyless plaintext semantic requests to a literal RFC1918 IPv4 server.",
+)
+@click.option(
     "--dynamic-mcp",
     is_flag=True,
     help="Request local stdio MCP metadata inspection (blocked without required isolation).",
@@ -200,6 +209,7 @@ def scan(
     semantic: bool,
     semantic_url: str | None,
     semantic_model: str | None,
+    allow_private_semantic_http: bool,
     dynamic_mcp: bool,
     allow_uncontained_mcp: bool,
     dynamic_mcp_server: str | None,
@@ -228,6 +238,8 @@ def scan(
     provider = None
     if not dynamic_mcp and (allow_uncontained_mcp or dynamic_mcp_server or dynamic_mcp_executable):
         raise click.UsageError("--dynamic-mcp is required for dynamic execution options")
+    if allow_private_semantic_http and not semantic:
+        raise click.UsageError("--semantic is required for --allow-private-semantic-http")
     dynamic_policy = DynamicPolicy(
         dynamic_mcp, allow_uncontained_mcp, dynamic_mcp_server, dynamic_mcp_executable
     )
@@ -235,8 +247,22 @@ def scan(
         if not semantic_url or not semantic_model:
             raise click.UsageError("semantic provider URL and model are required")
         try:
+            nvidia_host = urlsplit(semantic_url).hostname == "integrate.api.nvidia.com"
+            if nvidia_host and semantic_url != _NVIDIA_NIM_URL:
+                raise click.UsageError(
+                    "NVIDIA NIM requires its canonical HTTPS chat completions URL"
+                )
+            if nvidia_host:
+                api_key = os.environ.get("NVIDIA_API_KEY")
+                if not api_key:
+                    raise click.UsageError("NVIDIA_API_KEY is required for NVIDIA NIM")
+            else:
+                api_key = os.environ.get("DRAGONSCAN_SEMANTIC_API_KEY")
             provider = OpenAICompatibleProvider(
-                semantic_url, semantic_model, os.environ.get("DRAGONSCAN_SEMANTIC_API_KEY")
+                semantic_url,
+                semantic_model,
+                api_key,
+                allow_private_http=allow_private_semantic_http,
             )
         except ValueError:
             raise click.UsageError("invalid semantic provider configuration") from None

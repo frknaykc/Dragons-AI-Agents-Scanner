@@ -28,4 +28,6 @@ jobs:
           uv run --offline mypy scripts
           uv run --offline python -m scripts.benchmark benchmarks/corpus/manifest.json --format json > "$RUNNER_TEMP/benchmark.json"
           uv run --offline python -m scripts.benchmark_gate "$RUNNER_TEMP/benchmark.json"
+          uv run --offline python -m scripts.benchmark benchmarks/realworld/manifest.json --format terminal
+          uv run --offline python -m scripts.benchmark benchmarks/holdout/manifest.json --format terminal
           uv run --offline python -m scripts.semantic_benchmark benchmarks/semantic/corpus/manifest.json --format terminal

@@ -2,7 +2,9 @@
 
 import json
 import sys
+from email.message import Message
 from pathlib import Path
+from urllib.error import HTTPError
 
 import pytest
 
@@ -94,6 +96,33 @@ def test_offline_real_selection_and_static_overlap_without_provider(tmp_path, mo
     assert group["provider_quality"] == "NOT MEASURED"
     assert data["cases"][0]["stability"] == "NOT MEASURED"
     assert all(r["semantic"] == "NOT MEASURED" for r in data["cases"][0]["runs"])
+
+
+def test_case_id_selection_rejects_unknown_before_provider_calls(tmp_path):
+    path = manifest(tmp_path)
+    provider = FakeProvider()
+    with pytest.raises(BenchmarkError, match="unknown semantic case ID"):
+        bench.run(path, provider=provider, repeats=1, case_ids={"missing"})
+    assert provider.calls == 0
+    selected = bench.run(path, provider=provider, repeats=1, case_ids={"sample"})
+    assert len(selected["cases"]) == provider.calls == 1
+    assert selected["cases"][0]["id"] == "sample"
+
+
+def test_observed_provider_preserves_structured_output_request(tmp_path):
+    path = manifest(tmp_path)
+
+    class StructuredProvider(FakeProvider):
+        structured_output = True
+
+        def analyze(self, request, timeout, max_response):
+            assert request["response_format"]["type"] == "json_schema"
+            return super().analyze(request, timeout, max_response)
+
+    provider = StructuredProvider()
+    result = bench.run(path, provider=provider, repeats=1)
+    assert provider.calls == 1
+    assert result["status"] == "completed"
 
 
 def test_candidate_expectation_is_independent_of_semantic_label_and_measures_cost(tmp_path):
@@ -248,6 +277,30 @@ def test_partial_runs_never_count_as_provider_fn(tmp_path, response, fail, statu
     assert data["cases"][0]["stability"] == "inconclusive"
     assert data["run_statuses"] == {status: 1}
     assert "fixture-secret-do-not-persist" not in json.dumps(data)
+    assert data["per_id"]["DRAGON-SEM-001"]["provider_quality"]["fn"] == 0
+
+
+@pytest.mark.parametrize(
+    "error,status",
+    [
+        (HTTPError("https://example.org", 429, "secret", Message(), None), "rate_limit"),
+        (
+            HTTPError("https://example.org", 401, "secret", Message(), None),
+            "authentication_failure",
+        ),
+        (HTTPError("https://example.org", 503, "secret", Message(), None), "provider_http_5xx"),
+        (TimeoutError("secret"), "provider_timeout"),
+    ],
+)
+def test_provider_errors_are_classified_without_persisting_details(tmp_path, error, status):
+    class FailingProvider(FakeProvider):
+        def analyze(self, request, timeout, max_response):
+            raise error
+
+    data = bench.run(manifest(tmp_path), provider=FailingProvider(), repeats=1)
+    assert data["run_statuses"] == {status: 1}
+    assert data["status"] == "partial"
+    assert "secret" not in json.dumps(data)
     assert data["per_id"]["DRAGON-SEM-001"]["provider_quality"]["fn"] == 0
 
 

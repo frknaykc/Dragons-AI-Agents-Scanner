@@ -38,6 +38,44 @@ _SOURCE_PATTERNS = (
 _ACCESS = re.compile(r"\b(?:read|cat|open|load|copy|extract|export|dump|print)\b", re.I)
 _TRANSFER = re.compile(r"\b(?:send|upload|post|transmit|exfiltrate)\b", re.I)
 _HTTP = re.compile(r"\bhttps?://[^\s<>)]+", re.I)
+# Match only a named placeholder in an HTTPS query; never retain its value or URL.
+_CREDENTIAL_LINK = re.compile(
+    r"\bhttps?://[^\s<>)?]{1,512}\?[^\s<>#)]{0,512}=<([a-z_][a-z_0-9]{0,39})>", re.I
+)
+_LINK_DIRECTIVE = re.compile(
+    r"^(?:(?:when|after|before)\b[^.\n]{0,160},\s*)?"
+    r"(?:(?:please|always|you must|make sure to|ensure you)\s+)?"
+    r"(?:display|show|share|provide|send|open|visit|follow|click)\b",
+    re.I,
+)
+_LINK_SOURCES = (
+    ("password", "password"),
+    ("passphrase", "passphrase"),
+    ("API token", "API token"),
+    ("access token", "access token"),
+    ("auth token", "auth token"),
+    ("private key", "private key"),
+    ("seed phrase", "seed phrase"),
+)
+
+
+def credential_link_source(sentence: str) -> str | None:
+    """A directive links the *same* named credential placeholder to a URL query."""
+    if not _LINK_DIRECTIVE.match(sentence):
+        return None
+    for link in _CREDENTIAL_LINK.finditer(sentence):
+        before = sentence[: link.start()]
+        variable = re.escape(link.group(1))
+        sources = [
+            label
+            for name, label in _LINK_SOURCES
+            if re.search(r"\b" + re.escape(name) + r"\s+<" + variable + r">", before, re.I)
+        ]
+        if len(sources) == 1:
+            return sources[0]
+    return None
+
+
 _PRONOUN = re.compile(
     r"\b(?:it|its|their|them|the (?:file|contents|secrets?|keys?|credentials?|tokens?|data))\b",
     re.I,
@@ -115,7 +153,11 @@ def collect(document: Document) -> tuple[Observation, ...]:
         parts.append((instruction.text[start:], start))
         for segment, (sentence, offset) in enumerate(parts):
             sentence = sentence.strip()
-            if not sentence or _NEGATED.search(sentence) or not _IMPERATIVE.search(sentence):
+            if not sentence or _NEGATED.search(sentence):
+                continue
+            link_source = credential_link_source(sentence)
+            actionable = _IMPERATIVE.search(sentence)
+            if not actionable and link_source is None:
                 continue
             line = instruction.line + instruction.text[:offset].count("\n")
             location = replace(instruction.location, line=line)
@@ -130,6 +172,10 @@ def collect(document: Document) -> tuple[Observation, ...]:
             ) -> None:
                 observed.append(Observation(kind, label, location, index, segment, capabilities))
 
+            if link_source is not None:
+                add("credential_link", link_source, "credential-disclosure", "network-egress")
+            if not actionable:
+                continue
             if _OVERRIDE.search(sentence):
                 add("override", "prior instructions", "instruction-override")
             if _BYPASS.search(sentence):
