@@ -3,6 +3,7 @@
 import hashlib
 import importlib
 import json
+import os
 import platform
 import re
 import subprocess
@@ -83,9 +84,28 @@ def test_offline_installed_wheel_cli(tmp_path: Path) -> None:
         metadata = archive.read(metadata_name).decode("utf-8")
         assert "requires-dist: pyinstaller" not in metadata.lower()
     venv = tmp_path / "venv"
-    subprocess.run(["uv", "venv", "--python", "3.12", str(venv)], check=True, capture_output=True)
+    # A clean runner's uv cache may contain locked archives but not the registry
+    # metadata needed by `uv pip install --offline` to resolve broad constraints.
+    # Seed only runtime dependencies from the lock, then install the built wheel offline.
+    subprocess.run(
+        [
+            "uv",
+            "sync",
+            "--locked",
+            "--offline",
+            "--no-dev",
+            "--no-install-project",
+            "--python",
+            "3.12",
+        ],
+        cwd=ROOT,
+        env={**os.environ, "UV_PROJECT_ENVIRONMENT": str(venv)},
+        capture_output=True,
+        text=True,
+        check=True,
+    )
     install = subprocess.run(
-        ["uv", "pip", "install", "--offline", "--python", str(venv), str(wheel)],
+        ["uv", "pip", "install", "--offline", "--no-deps", "--python", str(venv), str(wheel)],
         capture_output=True,
         text=True,
         check=False,
