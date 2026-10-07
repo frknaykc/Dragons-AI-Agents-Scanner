@@ -84,11 +84,13 @@ def test_offline_installed_wheel_cli(tmp_path: Path) -> None:
         assert "requires-dist: pyinstaller" not in metadata.lower()
     venv = tmp_path / "venv"
     subprocess.run(["uv", "venv", "--python", "3.12", str(venv)], check=True, capture_output=True)
-    subprocess.run(
+    install = subprocess.run(
         ["uv", "pip", "install", "--offline", "--python", str(venv), str(wheel)],
-        check=True,
         capture_output=True,
+        text=True,
+        check=False,
     )
+    assert install.returncode == 0, install.stderr
     installed = subprocess.run(
         ["uv", "pip", "list", "--python", str(venv)],
         check=True,
