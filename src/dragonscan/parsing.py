@@ -18,6 +18,7 @@ Parser = Callable[[Artifact, str], Document]
 PARSERS: dict[SourceFormat, Parser] = {
     SourceFormat.MARKDOWN: parse_markdown,
     SourceFormat.JSON: parse_structured,
+    SourceFormat.JSONC: parse_structured,
     SourceFormat.YAML: parse_structured,
     SourceFormat.TOML: parse_structured,
 }
@@ -36,7 +37,8 @@ def parse(artifact: Artifact, text: str, *, allow_bare_mcp: bool = True) -> Docu
         raise ParseError("unsupported source format")
     document = (
         parse_structured(artifact, text, allow_bare_mcp=allow_bare_mcp)
-        if artifact.source_format in {SourceFormat.JSON, SourceFormat.YAML, SourceFormat.TOML}
+        if artifact.source_format
+        in {SourceFormat.JSON, SourceFormat.JSONC, SourceFormat.YAML, SourceFormat.TOML}
         else parser(artifact, text)
     )
     if document.servers or document.blocks:

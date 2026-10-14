@@ -144,7 +144,13 @@ class Scanner:
                     text = load_text(artifact.path)
                 document = parse(artifact, text, allow_bare_mcp=not self.dynamic_policy.requested)
             except LoadError as exc:
-                errors.append(f"{artifact.path}: {exc}")
+                if artifact.ecosystem == "Kilo Code" and (
+                    "exceeds 1 MiB" in str(exc) or "Unicode" in str(exc)
+                ):
+                    diagnostics.append(Diagnostic("coverage", f"{artifact.path}: {exc}"))
+                    skipped_parse += 1
+                else:
+                    errors.append(f"{artifact.path}: {exc}")
                 normalized.append(artifact)
                 continue
             except ParseError as exc:
@@ -157,7 +163,9 @@ class Scanner:
             diagnostics.extend(
                 Diagnostic(
                     "coverage"
-                    if diagnostic.startswith("unsupported MCP metadata schema")
+                    if diagnostic.startswith(
+                        ("unsupported MCP metadata schema", "unsupported Kilo")
+                    )
                     else "warning",
                     f"{artifact.path}: {diagnostic}",
                 )
@@ -360,7 +368,13 @@ class Scanner:
                 diagnostics.extend(Diagnostic("coverage", item) for item in flow_diagnostics)
             except GraphLimitError as exc:
                 diagnostics.append(Diagnostic("coverage", str(exc)))
-        if skipped_parse and not documents:
+        if (
+            skipped_parse
+            and not documents
+            and not (
+                normalized and all(artifact.ecosystem == "Kilo Code" for artifact in normalized)
+            )
+        ):
             errors.append("no supported artifact could be parsed")
         results = tuple(findings)
         risk, counts = summarize(results)

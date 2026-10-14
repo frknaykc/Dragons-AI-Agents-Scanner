@@ -25,6 +25,7 @@ ECOSYSTEM_DIRS = {
 FORMATS = {
     ".md": SourceFormat.MARKDOWN,
     ".json": SourceFormat.JSON,
+    ".jsonc": SourceFormat.JSONC,
     ".yaml": SourceFormat.YAML,
     ".yml": SourceFormat.YAML,
     ".toml": SourceFormat.TOML,
@@ -84,6 +85,9 @@ def classify(
         }.get(name, ArtifactKind.INSTRUCTIONS)
     elif name in MCP_NAMES:
         kind = ArtifactKind.MCP_CONFIG
+    elif name == "kilo.jsonc" or name == "kilo.json":
+        kind = ArtifactKind.AGENT_CONFIG
+        ecosystem = "Kilo Code"
     elif path.parent.name.lower() == ".claude-plugin" and name == "plugin.json":
         kind = ArtifactKind.PLUGIN_METADATA
     elif name == "hooks.json" and ecosystem is not None:

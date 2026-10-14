@@ -23,6 +23,7 @@ class ArtifactKind(StrEnum):
 class SourceFormat(StrEnum):
     MARKDOWN = "markdown"
     JSON = "json"
+    JSONC = "jsonc"
     YAML = "yaml"
     TOML = "toml"
     TEXT = "text"

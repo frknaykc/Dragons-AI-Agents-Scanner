@@ -239,19 +239,27 @@ SPECS = (
             Location(
                 ".config/kilo",
                 ("kilo.jsonc", "kilo.json"),
-                (("kilo.json", ArtifactKind.AGENT_CONFIG, SourceFormat.JSON),),
+                (
+                    ("kilo.json", ArtifactKind.AGENT_CONFIG, SourceFormat.JSON),
+                    ("kilo.jsonc", ArtifactKind.AGENT_CONFIG, SourceFormat.JSONC),
+                ),
                 project=False,
-                unsupported=("kilo.jsonc",),
             ),
             Location(
                 ".kilo",
                 (),
-                (("kilo.json", ArtifactKind.AGENT_CONFIG, SourceFormat.JSON),),
+                (
+                    ("kilo.json", ArtifactKind.AGENT_CONFIG, SourceFormat.JSON),
+                    ("kilo.jsonc", ArtifactKind.AGENT_CONFIG, SourceFormat.JSONC),
+                ),
                 user=False,
                 instruction_dirs=("rules",),
             ),
         ),
-        (("kilo.json", ArtifactKind.AGENT_CONFIG, SourceFormat.JSON),),
+        (
+            ("kilo.json", ArtifactKind.AGENT_CONFIG, SourceFormat.JSON),
+            ("kilo.jsonc", ArtifactKind.AGENT_CONFIG, SourceFormat.JSONC),
+        ),
         project_at_root_only=True,
         strict_project=True,
     ),

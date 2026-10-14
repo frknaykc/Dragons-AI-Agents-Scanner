@@ -158,14 +158,13 @@ def test_mode_specific_roo_root_and_empty_hermes_profile_are_distinct(tmp_path: 
     )
 
 
-def test_jsonc_is_reported_as_partial_not_treated_as_json(tmp_path: Path) -> None:
-    unsupported = _write(tmp_path, ".config/kilo/kilo.jsonc", '{ // comment\n "mcp": {}\n}')
+def test_jsonc_is_discovered_and_parsed(tmp_path: Path) -> None:
+    selected = _write(tmp_path, ".config/kilo/kilo.jsonc", '{ // comment\n "mcp": {}\n}')
     result = discover_installed(home=tmp_path)
     kilo = next(env for env in result.environments if env.agent == "Kilo Code")
-    assert kilo.status == "diagnostic"
-    assert kilo.resolution == "partial"
-    assert "JSONC" in (kilo.diagnostic or "")
-    assert unsupported not in {artifact.path for artifact in result.artifacts}
+    assert kilo.status == "discovered"
+    assert selected in {artifact.path for artifact in result.artifacts}
+    assert not kilo.diagnostic
 
 
 def test_static_mcp_and_no_execution(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

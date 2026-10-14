@@ -13,6 +13,7 @@ from yaml.events import AliasEvent
 from yaml.nodes import MappingNode, Node, SequenceNode
 
 from dragonscan.dependencies import structured_dependencies
+from dragonscan.jsonc import load_jsonc
 from dragonscan.mcp_normalization import (
     invocation,
     metadata,
@@ -104,6 +105,19 @@ def _reject_constant(value: str) -> None:
 def _load(artifact: Artifact, text: str) -> tuple[Any, Node | None]:
     fmt = artifact.source_format
     try:
+        if fmt == SourceFormat.JSONC:
+            if artifact.ecosystem != "Kilo Code" or artifact.path.name.lower() != "kilo.jsonc":
+                raise ParseError("unsupported JSONC configuration")
+            data, sanitized = load_jsonc(text, _unique_pairs, _reject_constant)
+            # JSON was already validated. Use the bounded composer for source positions only;
+            # never construct YAML values from JSONC or treat comments as evidence.
+            loader = BoundedSafeLoader(sanitized)
+            try:
+                return data, loader.get_single_node()
+            except yaml.YAMLError as exc:
+                raise ParseError("JSONC source location mapping unavailable") from exc
+            finally:
+                loader.dispose()
         if fmt == SourceFormat.JSON:
             return json.loads(
                 text, object_pairs_hook=_unique_pairs, parse_constant=_reject_constant
@@ -325,12 +339,92 @@ def _servers(
     return tuple(servers), tuple(relations), tuple(diagnostics)
 
 
+def _kilo_servers(
+    artifact: Artifact, data: dict[str, Any], locations: dict[tuple[str | int, ...], SourceRef]
+) -> tuple[tuple[McpServer, ...], tuple[Relationship, ...], tuple[str, ...]]:
+    """Normalize only Kilo's documented top-level mcp schema, never mcpServers."""
+    if "mcp" not in data:
+        return (), (), ()
+    definitions = data["mcp"]
+    if not isinstance(definitions, dict):
+        return (), (), ("unsupported Kilo MCP schema; server analysis skipped",)
+    servers: list[McpServer] = []
+    relations: list[Relationship] = []
+    diagnostics: list[str] = []
+    for name, config in definitions.items():
+        if not isinstance(config, dict) or not isinstance(name, str):
+            diagnostics.append("unsupported Kilo MCP server schema; server skipped")
+            continue
+        if config.get("enabled") is False:
+            continue
+        kind = config.get("type")
+        command = config.get("command")
+        url = config.get("url")
+        env = config.get("environment", {})
+        if (
+            config.get("enabled", True) is not True
+            or not isinstance(env, dict)
+            or not all(
+                isinstance(key, str) and isinstance(value, str) for key, value in env.items()
+            )
+            or (
+                kind == "local"
+                and (
+                    not isinstance(command, list)
+                    or not command
+                    or not all(isinstance(v, str) for v in command)
+                    or url is not None
+                )
+            )
+            or (kind == "remote" and (not isinstance(url, str) or command is not None))
+            or kind not in {"local", "remote"}
+        ):
+            diagnostics.append("unsupported Kilo MCP server schema; server skipped")
+            continue
+        argv = cast(list[str], command) if kind == "local" else []
+        normalized = {
+            "command": argv[0] if kind == "local" else "",
+            "args": argv[1:] if kind == "local" else [],
+            "url": url if kind == "remote" else None,
+            "env": env,
+            "headers": config.get("headers") if kind == "remote" else None,
+            "type": "stdio" if kind == "local" else "http",
+        }
+        prefix = ("mcpServers", name)
+        translated: dict[tuple[str | int, ...], SourceRef] = {
+            prefix: locations.get(("mcp", name), _location(artifact, None)),
+            (*prefix, "env"): locations.get(
+                ("mcp", name, "environment"), _location(artifact, None)
+            ),
+            (*prefix, "headers"): locations.get(
+                ("mcp", name, "headers"), _location(artifact, None)
+            ),
+            (*prefix, "url"): locations.get(("mcp", name, "url"), _location(artifact, None)),
+        }
+        try:
+            selected, edges, notes = _servers(
+                artifact, {"mcpServers": {name: normalized}}, translated
+            )
+        except ParseError:
+            diagnostics.append("unsupported Kilo MCP server metadata; server skipped")
+            continue
+        servers.extend(selected)
+        relations.extend(edges)
+        diagnostics.extend(notes)
+    return tuple(servers), tuple(relations), tuple(diagnostics)
+
+
 def parse_structured(artifact: Artifact, text: str, *, allow_bare_mcp: bool = True) -> Document:
     data, node = _load(artifact, text)
     if not isinstance(data, dict) or not all(isinstance(key, str) for key in data):
         raise ParseError("structured config requires an object with string keys")
+    kilo = artifact.ecosystem == "Kilo Code" and artifact.path.name.lower() in {
+        "kilo.json",
+        "kilo.jsonc",
+    }
     if (
         allow_bare_mcp
+        and not kilo
         and artifact.kind == ArtifactKind.MCP_CONFIG
         and "mcpServers" not in data
         and data
@@ -341,9 +435,27 @@ def parse_structured(artifact: Artifact, text: str, *, allow_bare_mcp: bool = Tr
     ):
         # Some agent/plugin configs use a bare server-name map rather than mcpServers.
         data = {"mcpServers": data}
-    if artifact.kind == ArtifactKind.STRUCTURED_CONFIG and isinstance(data.get("mcpServers"), dict):
+    if (
+        not kilo
+        and artifact.kind == ArtifactKind.STRUCTURED_CONFIG
+        and isinstance(data.get("mcpServers"), dict)
+    ):
         artifact = replace(artifact, kind=ArtifactKind.MCP_CONFIG)
     entries = _entries(artifact, data, node)
+    if kilo:
+        entries = tuple(
+            replace(entry, value="[redacted]")
+            if entry.key_path
+            and entry.key_path[0] in {"mcp", "mcpServers"}
+            and any(
+                part in {"environment", "headers", "command", "url", "args"}
+                for part in entry.key_path
+                if isinstance(part, str)
+            )
+            and isinstance(entry.value, str)
+            else entry
+            for entry in entries
+        )
     if isinstance(data.get("mcpServers"), dict):
         entries = tuple(
             replace(entry, value="[redacted]")
@@ -356,10 +468,27 @@ def parse_structured(artifact: Artifact, text: str, *, allow_bare_mcp: bool = Tr
             for entry in entries
         )
     locations = {entry.key_path: entry.location for entry in entries}
-    servers, relationships, mcp_diagnostics = _servers(artifact, data, locations)
+    servers, relationships, mcp_diagnostics = (
+        _kilo_servers(artifact, data, locations) if kilo else _servers(artifact, data, locations)
+    )
     relations = list(relationships)
     for entry in entries:
         key = entry.key_path[-1]
+        if kilo and entry.key_path and entry.key_path[0] in {"mcp", "mcpServers"}:
+            continue
+        if (
+            kilo
+            and len(entry.key_path) == 2
+            and entry.key_path[0] == "instructions"
+            and isinstance(key, int)
+            and isinstance(entry.value, str)
+            and not PurePath(entry.value).is_absolute()
+            and ".." not in PurePath(entry.value).parts
+            and PurePath(entry.value).suffix.lower() == ".md"
+        ):
+            relations.append(Relationship("loads_file", entry.value, entry.location))
+        if kilo:
+            continue
         if (
             isinstance(key, str)
             and key.lower() in {"skillfile", "instructionfile", "agentsfile", "configfile"}
@@ -400,5 +529,13 @@ def parse_structured(artifact: Artifact, text: str, *, allow_bare_mcp: bool = Tr
         entries=entries,
         relationships=tuple(dict.fromkeys(relations)),
         dependencies=dependencies,
-        diagnostics=(*diagnostics, *mcp_diagnostics),
+        diagnostics=(
+            *diagnostics,
+            *mcp_diagnostics,
+            *(
+                ("unsupported Kilo mcpServers schema; ignored",)
+                if kilo and "mcpServers" in data
+                else ()
+            ),
+        ),
     )
