@@ -1,7 +1,7 @@
 """Observe security behavior once per normalized document, without executing content."""
 
 import re
-from dataclasses import replace
+from dataclasses import dataclass, replace
 
 from dragonscan.detection import Observation
 from dragonscan.models import Document, SourceRef
@@ -109,6 +109,119 @@ _FETCH_SHELL = re.compile(
     r"\b(?:curl|wget)\b[^\n|]{0,300}https?://[^\s|]+[^\n|]{0,300}\|\s*(?:sh|bash|zsh)\b", re.I
 )
 _BIDI = re.compile("[\u202a-\u202e\u2066-\u2069]")
+_SHELL_DIRECTIVE = re.compile(
+    r"^(?:(?:first|then|next)[,:]?\s+)?"
+    r"(?:let'?s|run|execute|set|sync|verify|check|read|send|upload|use)\b",
+    re.I,
+)
+_KEYCHAIN_READ = re.compile(r"\bsecurity\s+find-generic-password\b[^;|)]{0,300}\s-w\b", re.I)
+_SSH_KEY = re.compile(r"(?:~?/)?\.ssh/(?P<name>id_rsa|id_ed25519|id_ecdsa|id_dsa)\b", re.I)
+_CURL_HTTP = re.compile(r"\bcurl\b[^;]{0,500}\bhttps?://[^\s\"'<>]+", re.I)
+_CURL_BODY = re.compile(r"(?:^|\s)(?:-d|--data(?:-binary)?)\s+", re.I)
+_STDIN_BODY = re.compile(r"(?:^|\s)(?:-d|--data(?:-binary)?)\s+@-(?:\s|$)", re.I)
+_DIRECT_KEY_BODY = re.compile(
+    r"(?:^|\s)(?:-d|--data(?:-binary)?)\s+[\"']?\$\(\s*"
+    r"security\s+find-generic-password\b[^;|)]{0,300}\s-w\b[^;|)]{0,300}\)",
+    re.I,
+)
+_DIRECT_SSH_BODY = re.compile(
+    r"(?:^|\s)(?:-d|--data(?:-binary)?)\s+@(?:~?/)?"
+    r"\.ssh/(?:id_rsa|id_ed25519|id_ecdsa|id_dsa)\b",
+    re.I,
+)
+_KEY_PIPE = re.compile(
+    r"\bsecurity\s+find-generic-password\b[^;|)]{0,300}\s-w\b[^;|)]{0,300}\|\s*"
+    r"(?:base64(?:\s+[-\w]+)?\s*\|\s*)?curl\b",
+    re.I,
+)
+_SSH_PIPE = re.compile(
+    r"\bcat\s+(?:~?/)?\.ssh/(?:id_rsa|id_ed25519|id_ecdsa|id_dsa)\b\s*\|\s*"
+    r"(?:base64(?:\s+[-\w]+)?\s*\|\s*)?curl\b",
+    re.I,
+)
+
+
+@dataclass(frozen=True)
+class ShellAccess:
+    """A sensitive read in an instructed shell fence; transfer requires a linked body."""
+
+    location: SourceRef
+    source: str
+    evidence: str
+    transferred: bool
+
+
+def shell_accesses(document: Document) -> tuple[ShellAccess, ...]:
+    """Inspect inert shell text only when adjacent prose directs its use."""
+    if document.artifact.kind not in _INSTRUCTION_KINDS:
+        return ()
+    accesses: list[ShellAccess] = []
+    previous = None
+    for block in document.blocks:
+        if (
+            block.kind != "code"
+            or (block.language or "").lower() not in {"bash", "sh", "shell", "zsh"}
+            or previous is None
+            or block.location.line is None
+            or previous.kind not in {"paragraph", "list_item"}
+            or not _SHELL_DIRECTIVE.match(previous.text.strip())
+        ):
+            previous = block
+            continue
+        command = ""
+        for offset, physical in enumerate(block.text.splitlines(), 1):
+            stripped = physical.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            command += stripped.rstrip("\\").strip() + " "
+            if stripped.endswith("\\"):
+                continue
+            line = block.location.line + offset
+            for part in re.split(r"\s*(?:;|&&|\|\|)\s*", command.strip()):
+                keychain = _KEYCHAIN_READ.search(part)
+                ssh = _SSH_KEY.search(part)
+                ssh_read = ssh is not None and (
+                    _SSH_PIPE.search(part) is not None
+                    or re.search(r"\bcat\s+" + re.escape(ssh.group()), part, re.I) is not None
+                    or _DIRECT_SSH_BODY.search(part) is not None
+                )
+                if (keychain is not None) == ssh_read:
+                    continue  # No source, or multiple sources that cannot be attributed safely.
+                curl = _CURL_HTTP.search(part)
+                body = _CURL_BODY.search(part)
+                if keychain is not None:
+                    transferred = bool(
+                        curl
+                        and body
+                        and (
+                            _DIRECT_KEY_BODY.search(part)
+                            or (_KEY_PIPE.search(part) and _STDIN_BODY.search(part))
+                        )
+                    )
+                    source = "macOS Keychain password"
+                    evidence = (
+                        "shell command security find-generic-password -w reads a Keychain password"
+                    )
+                else:
+                    transferred = bool(
+                        curl
+                        and body
+                        and (
+                            _DIRECT_SSH_BODY.search(part)
+                            or (_SSH_PIPE.search(part) and _STDIN_BODY.search(part))
+                        )
+                    )
+                    source = "SSH private key"
+                    assert ssh is not None
+                    evidence = f"shell command reads SSH private key ({ssh.group('name')})"
+                if transferred:
+                    evidence += " and supplies the same value to a curl HTTP(S) request body"
+                accesses.append(
+                    ShellAccess(replace(block.location, line=line), source, evidence, transferred)
+                )
+            command = ""
+        previous = block
+    return tuple(accesses)
 
 
 def segment_text(text: str, index: int) -> str:

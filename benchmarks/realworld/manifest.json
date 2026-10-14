@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "corpus_version": "realworld-0.4",
+  "corpus_version": "realworld-0.5",
   "suite": "realworld",
   "cases": [
     {
@@ -117,21 +117,30 @@
           "artifact": "skillscan-keychain/SKILL.md",
           "line": 15,
           "evidence_contains": "find-generic-password",
-          "category": "credential-access"
+          "category": "credential-access",
+          "source": "macOS Keychain password",
+          "sink": null,
+          "path_edges": []
         },
         {
           "id": "DRAGON-EXFIL-001",
           "artifact": "skillscan-keychain/SKILL.md",
           "line": 23,
           "evidence_contains": "find-generic-password",
-          "category": "data-exfiltration"
+          "category": "data-exfiltration",
+          "source": "macOS Keychain password",
+          "sink": "external HTTP(S) endpoint",
+          "path_edges": []
         },
         {
           "id": "DRAGON-EXFIL-001",
           "artifact": "skillscan-keychain/SKILL.md",
           "line": 29,
           "evidence_contains": "id_rsa",
-          "category": "data-exfiltration"
+          "category": "data-exfiltration",
+          "source": "SSH private key",
+          "sink": "external HTTP(S) endpoint",
+          "path_edges": []
         }
       ],
       "provenance": {
@@ -143,7 +152,7 @@
         "redistribution": "permitted",
         "rationale": "The publisher's README explicitly calls this a malicious skill example. The complete artifact visibly instructs credential reads and two distinct transfers to external endpoints, independent of Dragons output; no claim of in-the-wild deployment.",
         "expected_behavior": "One credential-access occurrence at the keychain read on line 15 and two external credential-transfer occurrences at lines 23 and 29. Expected IDs and locations were selected before scanner execution.",
-        "curation_notes": "Exact unmodified 579-byte upstream example; renamed from .md to SKILL.md because Dragons discovers supported agent artifact names. Upstream is an original security scanner research example, not a third-party incident sample. Original placeholder destination is reserved documentation IP space; no endpoint or payload was contacted, no sample command executed. MIT permission covers the upstream repository's software and documentation files; license notice retained. Same attack class as existing AISA exfil excerpt but independent publisher and complete artifact; does not establish broad accuracy.",
+        "curation_notes": "Exact unmodified 579-byte upstream example; renamed from .md to SKILL.md because Dragons discovers supported agent artifact names. Upstream is an original security scanner research example, not a third-party incident sample. Original placeholder destination is reserved documentation IP space; no endpoint or payload was contacted, no sample command executed. MIT permission covers the upstream repository's software and documentation files; license notice retained. The scored ID/location/evidence expectations predate this fix; version 0.5 adds source/sink and empty graph-path assertions after independent manual review of the visible shell dataflow, without removing any missed occurrence. Same attack class as existing AISA exfil excerpt but independent publisher and complete artifact; does not establish broad accuracy.",
         "sha256": "0f229e7b5def18ef61bad788fbfae1bdb6a624130e41be0d497ca6bd2ba106f8"
       }
     }

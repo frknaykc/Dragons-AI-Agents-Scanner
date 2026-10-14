@@ -72,7 +72,7 @@ def parse_markdown(artifact: Artifact, text: str) -> Document:
             start, end = token.map or [0, 0]
             blocks.append(
                 MarkdownBlock(
-                    "code",
+                    "quote" if "blockquote_open" in container else "code",
                     token.content,
                     SourceRef(artifact.path, artifact.source_format, start + 1, end),
                     language=token.info.strip().split(None, 1)[0] if token.info.strip() else None,

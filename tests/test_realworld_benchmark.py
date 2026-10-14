@@ -52,23 +52,27 @@ def fixture(tmp_path: Path, *, suite: str = "realworld") -> tuple[Path, dict]:
     return manifest, entry
 
 
-def test_pinned_research_artifacts_preserve_measured_false_negatives() -> None:
+def test_pinned_research_artifacts_match_reviewed_occurrences() -> None:
     manifest = Path(__file__).resolve().parents[1] / "benchmarks/realworld/manifest.json"
     result = run(manifest)
-    assert result["corpus_version"] == "realworld-0.4"
+    assert result["corpus_version"] == "realworld-0.5"
     assert result["summary"]["evaluated_cases"] == 5
-    assert (result["summary"]["tp"], result["summary"]["fp"], result["summary"]["fn"]) == (1, 0, 3)
-    assert result["occurrence"]["correct"] == 1
-    assert result["occurrence"]["missing"] == 3
+    assert (result["summary"]["tp"], result["summary"]["fp"], result["summary"]["fn"]) == (4, 0, 0)
+    assert result["occurrence"]["correct"] == 4
+    assert result["occurrence"]["missing"] == 0
     skill = next(case for case in result["cases"] if case["id"] == "skillscan-keychain-poc")
-    assert skill["actual"] == []
+    assert [(item["id"], item["line"]) for item in skill["actual"]] == [
+        ("DRAGON-CRED-001", 15),
+        ("DRAGON-EXFIL-001", 23),
+        ("DRAGON-EXFIL-001", 29),
+    ]
     assert skill["classification"] == "malicious"
     assert len(skill["expected_findings"]) == 3
-    assert result["fn_taxonomy"]["parser limitation"] == 3
+    assert not result["fn_taxonomy"]
     assert result["occurrence"]["wrong_source_sink"] == 0
-    assert result["field_coverage"]["source"]["correct"] == 1
-    assert result["field_coverage"]["sink"]["correct"] == 1
-    assert result["field_coverage"]["path"]["asserted"] == 0
+    assert result["field_coverage"]["source"]["correct"] == 4
+    assert result["field_coverage"]["sink"]["correct"] == 4
+    assert result["field_coverage"]["path"]["correct"] == 3
     assert result["attack_class_coverage"]["exfiltration"] == {
         "represented": True,
         "scored_occurrences": 3,

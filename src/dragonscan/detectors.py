@@ -3,7 +3,7 @@
 import re
 from dataclasses import dataclass
 
-from dragonscan.behavior import related_transfer
+from dragonscan.behavior import related_transfer, shell_accesses
 from dragonscan.detection import DetectionContext, DetectionMetadata, EngineDetector, finding
 from dragonscan.mcp_security import MCP_DETECTORS
 from dragonscan.models import Classification as C
@@ -174,6 +174,19 @@ class SourceSinkDetector:
                         source.label,
                     )
                 )
+        for access in shell_accesses(context.document):
+            results.append(
+                finding(
+                    self.metadata if access.transferred else self.access_metadata,
+                    context.document,
+                    access.location,
+                    access.evidence,
+                    "source_sink",
+                    ("secret-read", "network-egress") if access.transferred else ("secret-read",),
+                    access.source,
+                    "external HTTP(S) endpoint" if access.transferred else None,
+                )
+            )
         return tuple(results)
 
 
