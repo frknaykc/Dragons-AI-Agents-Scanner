@@ -1,16 +1,19 @@
 """Non-executing Markdown parsing with block/inline structure and line ranges."""
 
 import re
+from dataclasses import replace
 from pathlib import PurePosixPath
 
 from markdown_it import MarkdownIt
 
 from dragonscan.models import (
     Artifact,
+    ConfigEntry,
     Document,
     Instruction,
     MarkdownBlock,
     Relationship,
+    SourceFormat,
     SourceRef,
     Span,
 )
@@ -41,6 +44,49 @@ def _reference(destination: str, location: SourceRef) -> Relationship | None:
 
 
 def parse_markdown(artifact: Artifact, text: str) -> Document:
+    cursor_rule = artifact.ecosystem == "Cursor" and artifact.path.suffix.lower() == ".mdc"
+    frontmatter_end = 0
+    frontmatter_diagnostics: tuple[str, ...] = ()
+    frontmatter_entries: tuple[ConfigEntry, ...] = ()
+    if cursor_rule:
+        lines = text.splitlines()
+        if not lines or lines[0].strip() != "---":
+            return Document(artifact, diagnostics=("Cursor rule missing frontmatter; ignored",))
+        frontmatter_end = next(
+            (index for index, line in enumerate(lines[1:], 2) if line.strip() == "---"), 0
+        )
+        if not frontmatter_end:
+            return Document(artifact, diagnostics=("Cursor rule frontmatter not closed; ignored",))
+        from dragonscan.models import ArtifactKind
+        from dragonscan.structured_parser import parse_structured
+
+        try:
+            metadata = parse_structured(
+                Artifact(artifact.path, ArtifactKind.STRUCTURED_CONFIG, SourceFormat.YAML),
+                "\n".join(lines[1 : frontmatter_end - 1]),
+            )
+            values = {entry.key_path: entry.value for entry in metadata.entries}
+            if (
+                not isinstance(values.get(("description",)), str)
+                and not isinstance(values.get(("globs",)), str)
+                and values.get(("alwaysApply",)) is not True
+            ) or (("alwaysApply",) in values and type(values[("alwaysApply",)]) is not bool):
+                frontmatter_diagnostics = ("unsupported Cursor rule frontmatter; ignored",)
+            else:
+                frontmatter_entries = tuple(
+                    replace(
+                        entry,
+                        location=SourceRef(
+                            artifact.path,
+                            SourceFormat.MARKDOWN,
+                            entry.location.line + 1 if entry.location.line is not None else None,
+                        ),
+                    )
+                    for entry in metadata.entries
+                    if entry.key_path in {("description",), ("globs",), ("alwaysApply",)}
+                )
+        except ParseError:
+            frontmatter_diagnostics = ("malformed Cursor rule frontmatter; ignored",)
     parser = MarkdownIt("commonmark", {"html": False, "maxNesting": 64})
     try:
         tokens = parser.parse(text)
@@ -144,9 +190,17 @@ def parse_markdown(artifact: Artifact, text: str) -> Document:
                     relation = _reference(load.group("path"), location)
                     if relation is not None and relation.kind == "references_file":
                         relations.append(Relationship("loads_file", relation.target, location))
+    if cursor_rule:
+        blocks = [block for block in blocks if (block.location.line or 0) > frontmatter_end]
+        instructions = [
+            item for item in instructions if (item.location.line or 0) > frontmatter_end
+        ]
+        relations = [item for item in relations if (item.location.line or 0) > frontmatter_end]
     return Document(
         artifact,
         instructions=tuple(instructions),
         blocks=tuple(blocks),
+        entries=frontmatter_entries,
         relationships=tuple(dict.fromkeys(relations)),
+        diagnostics=frontmatter_diagnostics,
     )

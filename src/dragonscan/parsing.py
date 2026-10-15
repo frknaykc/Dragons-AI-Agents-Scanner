@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from dataclasses import replace
+from pathlib import Path
 
 from dragonscan.dependencies import (
     parse_npmrc,
@@ -24,7 +25,13 @@ PARSERS: dict[SourceFormat, Parser] = {
 }
 
 
-def parse(artifact: Artifact, text: str, *, allow_bare_mcp: bool = True) -> Document:
+def parse(
+    artifact: Artifact,
+    text: str,
+    *,
+    allow_bare_mcp: bool = True,
+    claude_project: Path | None = None,
+) -> Document:
     if artifact.source_format == SourceFormat.TEXT:
         name = artifact.path.name.lower()
         if name == ".npmrc":
@@ -36,7 +43,12 @@ def parse(artifact: Artifact, text: str, *, allow_bare_mcp: bool = True) -> Docu
     if parser is None:
         raise ParseError("unsupported source format")
     document = (
-        parse_structured(artifact, text, allow_bare_mcp=allow_bare_mcp)
+        parse_structured(
+            artifact,
+            text,
+            allow_bare_mcp=allow_bare_mcp,
+            claude_project=claude_project,
+        )
         if artifact.source_format
         in {SourceFormat.JSON, SourceFormat.JSONC, SourceFormat.YAML, SourceFormat.TOML}
         else parser(artifact, text)

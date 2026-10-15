@@ -114,6 +114,7 @@ class Scanner:
         artifacts: tuple[Artifact, ...] | None = None,
         boundaries: dict[Path, Path] | None = None,
         reference_boundaries: dict[Path, Path] | None = None,
+        claude_project: Path | None = None,
     ) -> ScanReport:
         # A reused scanner must observe the current installed feed, never a stale index.
         intel_feeds, intel_diagnostics = (
@@ -142,7 +143,12 @@ class Scanner:
                     intel_digests[artifact.path] = hashlib.sha256(raw).hexdigest()
                 else:
                     text = load_text(artifact.path)
-                document = parse(artifact, text, allow_bare_mcp=not self.dynamic_policy.requested)
+                document = parse(
+                    artifact,
+                    text,
+                    allow_bare_mcp=not self.dynamic_policy.requested,
+                    claude_project=claude_project if artifact.path.name == ".claude.json" else None,
+                )
             except LoadError as exc:
                 if artifact.ecosystem in {"Kilo Code", "Zed Agent", "Goose"} and (
                     "exceeds 1 MiB" in str(exc) or "Unicode" in str(exc)
@@ -189,7 +195,16 @@ class Scanner:
                         DetectionContext(document, observations, tuple(document_findings))
                     )
                 )
-            if self.signature_engine is not None:
+            if artifact.ecosystem == "Claude Code" and artifact.path.name == ".claude.json":
+                diagnostics.append(
+                    Diagnostic(
+                        "coverage",
+                        f"{artifact.path}: private state excluded from raw signature analysis",
+                    )
+                )
+            if self.signature_engine is not None and not (
+                artifact.ecosystem == "Claude Code" and artifact.path.name == ".claude.json"
+            ):
                 document_findings.extend(self.signature_engine.detect(document, text))
                 if self.signature_engine.limit_reason:
                     diagnostics.append(
@@ -401,6 +416,12 @@ class Scanner:
                 for document in documents
                 for server in document.servers
             ),
+            mcp_scope_hints=tuple(
+                (document.artifact.path, server.name, server.config_scope)
+                for document in documents
+                for server in document.servers
+                if server.config_scope is not None
+            ),
         )
         if self.vulnerability_provider is not None:
             report, graph = enrich_vulnerabilities(
@@ -545,6 +566,11 @@ class Scanner:
             artifacts=tuple(unique),
             boundaries=boundaries,
             reference_boundaries=reference_boundaries,
+            claude_project=(
+                target.path.absolute() if target.path.is_dir() else target.path.absolute().parent
+            )
+            if target is not None
+            else None,
         )
         environments = (
             *(project.environments if project is not None else ()),
@@ -576,6 +602,7 @@ class Scanner:
             for environment in environments
         )
         server_origins: list[McpServerOrigin] = []
+        scope_hints = {(path, name): scope for path, name, scope in report.mcp_scope_hints}
         for config, server, transport in report.mcp_inventory:
             matching = [
                 origin
@@ -593,7 +620,7 @@ class Scanner:
                         server,
                         transport,
                         origin.agent,
-                        origin.scope,
+                        scope_hints.get((config, server), origin.scope),
                         origin.source,
                     )
                 )

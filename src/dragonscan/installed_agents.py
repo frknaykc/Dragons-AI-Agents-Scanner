@@ -54,9 +54,43 @@ class AgentSpec:
 
 
 SPECS = (
-    AgentSpec("Claude Code", (Location(".claude", ("settings.json", "CLAUDE.md", "skills")),)),
-    AgentSpec("Codex", (Location(".codex", ("config.toml", "AGENTS.md", "skills")),)),
-    AgentSpec("Cursor", (Location(".cursor", ("mcp.json", "settings.json", "rules")),)),
+    AgentSpec(
+        "Claude Code",
+        (
+            Location(
+                ".claude",
+                ("settings.json", "CLAUDE.md", "skills"),
+                (("settings.json", ArtifactKind.AGENT_CONFIG, SourceFormat.JSON),),
+            ),
+        ),
+        ((".mcp.json", ArtifactKind.MCP_CONFIG, SourceFormat.JSON),),
+    ),
+    AgentSpec(
+        "Codex",
+        (
+            Location(
+                ".codex",
+                ("config.toml", "AGENTS.md", "skills"),
+                (("config.toml", ArtifactKind.AGENT_CONFIG, SourceFormat.TOML),),
+            ),
+        ),
+    ),
+    AgentSpec(
+        "Cursor",
+        (
+            Location(
+                ".cursor",
+                ("mcp.json", "settings.json", "skills"),
+                project=False,
+            ),
+            Location(
+                ".cursor",
+                ("mcp.json", "settings.json", "rules", "skills"),
+                user=False,
+                instruction_dirs=("rules",),
+            ),
+        ),
+    ),
     AgentSpec(
         "Gemini CLI",
         (
@@ -447,6 +481,13 @@ def _spec_artifact(path: Path, root: Path, spec: AgentSpec, location: Location) 
             return Artifact(path, kind, source_format, spec.kind)
     if path.name == "SKILL.md" and relative.is_relative_to("skills"):
         return Artifact(path, ArtifactKind.SKILL, SourceFormat.MARKDOWN, spec.kind)
+    if (
+        spec.kind == "Cursor"
+        and location.project
+        and path.suffix.lower() == ".mdc"
+        and relative.is_relative_to("rules")
+    ):
+        return Artifact(path, ArtifactKind.INSTRUCTIONS, SourceFormat.MARKDOWN, spec.kind)
     if path.suffix.lower() != ".md":
         return None
     if any(relative.is_relative_to(directory) for directory in location.memory_dirs):
@@ -748,4 +789,44 @@ def discover_installed(
                         artifact.path, "installed_agent", spec.kind, root, source, scope="user"
                     )
                 )
+    # Claude Code stores user-scope MCP servers beside, not inside, ~/.claude/.
+    claude_file = base / ".claude.json"
+    try:
+        mode = _safe_mode(claude_file, base)
+        if mode is not None and stat.S_ISREG(mode):
+            if len(artifacts) >= MAX_ARTIFACTS or len(environments) >= MAX_ENVIRONMENTS:
+                raise DiscoveryError("agent discovery limit exceeded")
+            artifact = Artifact(
+                claude_file, ArtifactKind.MCP_CONFIG, SourceFormat.JSON, "Claude Code"
+            )
+            artifacts.append(artifact)
+            source = "known-home-location:.claude.json"
+            origins.append(
+                ArtifactOrigin(
+                    claude_file, "installed_agent", "Claude Code", base, source, scope="user"
+                )
+            )
+            environments.append(
+                InstalledEnvironment(
+                    "Claude Code",
+                    claude_file,
+                    source,
+                    (claude_file,),
+                    "discovered",
+                    evidence=("mcp_config",),
+                    resolution="complete",
+                )
+            )
+    except DiscoveryError as exc:
+        environments.append(
+            InstalledEnvironment(
+                "Claude Code",
+                claude_file,
+                "known-home-location:.claude.json",
+                (),
+                "diagnostic",
+                str(exc),
+                resolution="partial",
+            )
+        )
     return InstalledDiscovery(tuple(environments), tuple(artifacts), tuple(origins))

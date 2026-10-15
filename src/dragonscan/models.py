@@ -160,6 +160,7 @@ class McpServer:
     resources: tuple[McpContent, ...] = ()
     prompts: tuple[McpContent, ...] = ()
     mutable_tools_url: str | None = None
+    config_scope: str | None = None  # Static source scope, not runtime activation.
 
 
 @dataclass(frozen=True)
@@ -458,6 +459,8 @@ class ScanReport:
     artifact_origins: tuple[ArtifactOrigin, ...] = ()
     # Parsed once in the scanner; exported only for explicit installed discovery.
     mcp_inventory: tuple[tuple[Path, str, str], ...] = ()
+    # Internal per-server scope hint; not part of JSON/SARIF public output.
+    mcp_scope_hints: tuple[tuple[Path, str, str], ...] = ()
     installed_mcp_servers: tuple[McpServerOrigin, ...] = ()
     acquisition_status: str = "not_required"
     acquisition_kind: str | None = None

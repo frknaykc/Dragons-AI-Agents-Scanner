@@ -62,6 +62,7 @@ def json_report(report: ScanReport, policy: PolicyResult | None = None) -> str:
     data.pop("installed_environments")
     data.pop("artifact_origins")
     data.pop("mcp_inventory")
+    data.pop("mcp_scope_hints")
     data.pop("installed_mcp_servers")
     for key in ("intelligence_status", "intelligence_feeds", "intelligence_diagnostics"):
         data.pop(key)

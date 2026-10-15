@@ -1,10 +1,11 @@
 """Bounded, non-executing structured config parsing and MCP normalization."""
 
 import json
+import re
 import tomllib
 from dataclasses import replace
 from datetime import date, datetime, time
-from pathlib import PurePath
+from pathlib import Path, PurePath
 from typing import Any, cast
 from urllib.parse import urlsplit
 
@@ -37,6 +38,7 @@ from dragonscan.models import (
 )
 from dragonscan.parse_errors import ParseError
 from dragonscan.parse_helpers import safe_url
+from dragonscan.semantic import redact
 
 _MAX_DEPTH = 64
 _MAX_NODES = 20_000
@@ -658,7 +660,195 @@ def _goose_servers(
     return tuple(servers), tuple(relations), tuple(diagnostics)
 
 
-def parse_structured(artifact: Artifact, text: str, *, allow_bare_mcp: bool = True) -> Document:
+_SENSITIVE_ARG = re.compile(
+    r"^--?(?:api[-_]?key|token|password|secret|authorization|auth|header|credential)$",
+    re.I,
+)
+
+
+def _safe_agent_args(args: list[str]) -> list[str]:
+    """Keep invocation evidence without retaining credential-bearing flag values."""
+    cleaned: list[str] = []
+    previous_sensitive = False
+    for argument in args:
+        flag, separator, value = argument.partition("=")
+        sensitive = bool(_SENSITIVE_ARG.fullmatch(flag))
+        if previous_sensitive:
+            cleaned.append("[redacted]")
+        elif sensitive and separator:
+            cleaned.append(f"{flag}=[redacted]")
+        elif separator and value.startswith(("http://", "https://")):
+            cleaned.append(f"{flag}={safe_mcp_url(value) or '[redacted]'}")
+        elif argument.startswith(("http://", "https://")):
+            cleaned.append(safe_mcp_url(argument) or "[redacted]")
+        else:
+            cleaned.append(redact(argument) or "[redacted]")
+        previous_sensitive = sensitive and not separator
+    return cleaned
+
+
+def _agent_mcp_servers(
+    artifact: Artifact,
+    data: dict[str, Any],
+    locations: dict[tuple[str | int, ...], SourceRef],
+    field: str,
+) -> tuple[tuple[McpServer, ...], tuple[Relationship, ...], tuple[str, ...]]:
+    """Validate documented agent shapes before reusing the generic MCP normalizer."""
+    if field not in data:
+        return (), (), ()
+    definitions = data[field]
+    agent = artifact.ecosystem or "agent"
+    if not isinstance(definitions, dict):
+        return (), (), (f"unsupported {agent} MCP schema; server analysis skipped",)
+    selected: dict[str, dict[str, Any]] = {}
+    mapped: dict[tuple[str | int, ...], SourceRef] = {}
+    diagnostics: list[str] = []
+    for name, config in definitions.items():
+        if not isinstance(name, str) or not name or not isinstance(config, dict):
+            diagnostics.append(f"unsupported {agent} MCP server schema; server skipped")
+            continue
+        if config.get("enabled") is False and agent in {"Hermes Agent", "Codex"}:
+            continue
+        command, url = config.get("command"), config.get("url")
+        args, env = config.get("args", []), config.get("env", {})
+        headers = config.get("headers", config.get("http_headers", {}))
+        transport = config.get("transport", config.get("type"))
+        remote_types = {"http", "streamable-http", "sse"} if agent == "Claude Code" else {None}
+        local_types = {None, "stdio"} if agent == "Claude Code" else {None}
+        valid = (
+            type(config.get("enabled", True)) is bool
+            and type(config.get("disabled", False)) is bool
+            and isinstance(args, list)
+            and all(isinstance(item, str) for item in args)
+            and isinstance(env, dict)
+            and all(isinstance(key, str) and isinstance(value, str) for key, value in env.items())
+            and isinstance(headers, dict)
+            and all(
+                isinstance(key, str) and isinstance(value, str) for key, value in headers.items()
+            )
+            and (
+                (
+                    isinstance(command, str)
+                    and bool(command.strip())
+                    and url is None
+                    and transport in local_types
+                    and not headers
+                )
+                or (
+                    command is None
+                    and isinstance(url, str)
+                    and bool(url)
+                    and transport in remote_types
+                    and not args
+                    and not env
+                )
+            )
+        )
+        if "disabled" in config:
+            valid = False
+        if agent == "Codex" and ("type" in config or "transport" in config):
+            valid = False
+        if agent == "Hermes Agent" and ("type" in config or "transport" in config):
+            valid = False
+        if agent == "Claude Code" and ("transport" in config or "enabled" in config):
+            valid = False
+        if isinstance(url, str) and safe_mcp_url(url) is None:
+            valid = False
+        if not valid:
+            diagnostics.append(f"unsupported {agent} MCP server schema; server skipped")
+            continue
+        prefix = (field, name)
+        for key_path, location in locations.items():
+            if key_path[:2] == prefix:
+                mapped[("mcpServers", *key_path[1:])] = location
+        selected[name] = {
+            "command": (redact(command) or "[redacted]") if command else "",
+            "args": _safe_agent_args(args),
+            "env": env,
+            "url": url,
+            "type": "http"
+            if transport == "streamable-http"
+            else transport or ("http" if url is not None else "stdio"),
+            "headers": headers,
+        }
+    servers, edges, notes = _servers(artifact, {"mcpServers": selected}, mapped)
+    uncertain = {
+        server.name
+        for server in servers
+        if server.package is not None and "redacted" in server.package.lower()
+    }
+    if uncertain:
+        servers = tuple(
+            replace(server, package=None, package_version=None, pinning=None)
+            if server.name in uncertain
+            else server
+            for server in servers
+        )
+        edges = tuple(
+            edge
+            for edge in edges
+            if not (edge.kind == "invokes_package" and edge.subject in uncertain)
+        )
+    if agent == "Codex":
+        updated: list[McpServer] = []
+        for server in servers:
+            config = definitions[server.name]
+            bearer = config.get("bearer_token_env_var")
+            header_vars = config.get("env_http_headers", {})
+            if (bearer is not None and (not isinstance(bearer, str) or not bearer)) or (
+                not isinstance(header_vars, dict)
+                or not all(
+                    isinstance(k, str) and isinstance(v, str) for k, v in header_vars.items()
+                )
+            ):
+                diagnostics.append("unsupported Codex MCP authentication schema; server skipped")
+                continue
+            headers = (
+                (McpSecretRef("Authorization", "reference", True, server.location),)
+                if bearer
+                else ()
+            )
+            headers += tuple(
+                McpSecretRef(k, "reference", True, server.location) for k in header_vars
+            )
+            variables = (
+                *((bearer,) if isinstance(bearer, str) else ()),
+                *header_vars.values(),
+            )
+            updated.append(
+                replace(
+                    server,
+                    headers=(*server.headers, *headers),
+                    env_names=tuple(dict.fromkeys((*server.env_names, *variables))),
+                )
+            )
+        servers = tuple(updated)
+        edges = tuple(
+            edge
+            for edge in edges
+            if edge.subject is None or any(s.name == edge.subject for s in servers)
+        )
+    return servers, edges, (*diagnostics, *notes)
+
+
+def _toml_mcp_locations(
+    artifact: Artifact, text: str, locations: dict[tuple[str | int, ...], SourceRef]
+) -> None:
+    for line_number, line in enumerate(text.splitlines(), 1):
+        match = re.match(r"^\s*\[mcp_servers\.([A-Za-z0-9_-]+)\]\s*(?:#.*)?$", line)
+        if match:
+            locations[("mcp_servers", match.group(1))] = SourceRef(
+                artifact.path, artifact.source_format, line_number, line_number
+            )
+
+
+def parse_structured(
+    artifact: Artifact,
+    text: str,
+    *,
+    allow_bare_mcp: bool = True,
+    claude_project: Path | None = None,
+) -> Document:
     data, node = _load(artifact, text)
     if not isinstance(data, dict) or not all(isinstance(key, str) for key in data):
         raise ParseError("structured config requires an object with string keys")
@@ -676,6 +866,42 @@ def parse_structured(artifact: Artifact, text: str, *, allow_bare_mcp: bool = Tr
         and artifact.kind == ArtifactKind.AGENT_CONFIG
         and artifact.path.name == "config.yaml"
     )
+    hermes = artifact.ecosystem == "Hermes Agent" and artifact.path.name == "config.yaml"
+    codex = artifact.ecosystem == "Codex" and artifact.path.name == "config.toml"
+    claude = artifact.ecosystem == "Claude Code" and artifact.path.name in {
+        ".mcp.json",
+        ".claude.json",
+    }
+    claude_settings = artifact.ecosystem == "Claude Code" and artifact.path.name.startswith(
+        "settings"
+    )
+    claude_local_names: set[str] = set()
+    claude_scope_diagnostics: tuple[str, ...] = ()
+    if artifact.path.name == ".claude.json" and claude:
+        # Project-local MCP state shares an auth-bearing file with user servers.
+        # Project identity is exact and explicit: never inventory other projects.
+        user_servers = data.get("mcpServers")
+        projected: dict[str, Any] = {"mcpServers": user_servers} if "mcpServers" in data else {}
+        projects = data.get("projects")
+        if claude_project is not None and isinstance(projects, dict):
+            local = projects.get(str(claude_project.absolute()))
+            if isinstance(local, dict) and "mcpServers" in local:
+                definitions = local["mcpServers"]
+                if isinstance(definitions, dict) and isinstance(user_servers, dict):
+                    projected["mcpServers"] = {**user_servers, **definitions}
+                elif isinstance(definitions, dict) and user_servers is None:
+                    projected["mcpServers"] = definitions
+                else:
+                    claude_scope_diagnostics = (
+                        "unsupported Claude Code local MCP schema; ignored",
+                    )
+                if not claude_scope_diagnostics:
+                    claude_local_names = {name for name in definitions if isinstance(name, str)}
+        elif claude_project is not None and projects is not None:
+            claude_scope_diagnostics = ("unsupported Claude Code project scope schema; ignored",)
+        data = projected
+    if claude_settings and "mcpServers" in data:
+        data = {key: value for key, value in data.items() if key != "mcpServers"}
     if (
         allow_bare_mcp
         and not kilo
@@ -731,6 +957,14 @@ def parse_structured(artifact: Artifact, text: str, *, allow_bare_mcp: bool = Tr
             else entry
             for entry in entries
         )
+    if hermes or codex or claude:
+        field = "mcp_servers" if hermes or codex else "mcpServers"
+        entries = tuple(
+            replace(entry, value="[redacted]")
+            if entry.key_path and entry.key_path[0] == field and isinstance(entry.value, str)
+            else entry
+            for entry in entries
+        )
     if isinstance(data.get("mcpServers"), dict):
         entries = tuple(
             replace(entry, value="[redacted]")
@@ -743,8 +977,14 @@ def parse_structured(artifact: Artifact, text: str, *, allow_bare_mcp: bool = Tr
             for entry in entries
         )
     locations = {entry.key_path: entry.location for entry in entries}
+    if codex:
+        _toml_mcp_locations(artifact, text, locations)
     servers, relationships, mcp_diagnostics = (
-        _goose_servers(artifact, data, locations)
+        _agent_mcp_servers(artifact, data, locations, "mcp_servers")
+        if hermes or codex
+        else _agent_mcp_servers(artifact, data, locations, "mcpServers")
+        if claude
+        else _goose_servers(artifact, data, locations)
         if goose
         else _kilo_servers(artifact, data, locations)
         if kilo
@@ -753,10 +993,17 @@ def parse_structured(artifact: Artifact, text: str, *, allow_bare_mcp: bool = Tr
         else _servers(artifact, data, locations)
     )
     relations = list(relationships)
+    if claude and artifact.path.name == ".claude.json":
+        servers = tuple(
+            replace(server, config_scope="local" if server.name in claude_local_names else "user")
+            for server in servers
+        )
     for entry in entries:
         key = entry.key_path[-1]
         if (
             (goose and entry.key_path and entry.key_path[0] in {"extensions", "mcpServers"})
+            or ((hermes or codex) and entry.key_path and entry.key_path[0] == "mcp_servers")
+            or (claude and entry.key_path and entry.key_path[0] == "mcpServers")
             or (kilo and entry.key_path and entry.key_path[0] in {"mcp", "mcpServers"})
             or (zed and entry.key_path and entry.key_path[0] in {"context_servers", "mcpServers"})
         ):
@@ -816,6 +1063,7 @@ def parse_structured(artifact: Artifact, text: str, *, allow_bare_mcp: bool = Tr
         dependencies=dependencies,
         diagnostics=(
             *diagnostics,
+            *claude_scope_diagnostics,
             *mcp_diagnostics,
             *(
                 ("unsupported Goose mcpServers schema; ignored",)
