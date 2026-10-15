@@ -8,7 +8,7 @@ Each finding has a stable **detection ID** (for example, `DRAGON-PI-001`), categ
 
 Where evidence supports it, `source` and `sink` describe the input and destination, `flow` describes structured transfer context and `path` contains supported attack-graph steps. Missing fields mean the relationship was **not established**, not that the artifact is safe. Location may be file-only for some formats. Diagnostics describe unreadable/malformed/omitted analysis, **not** security findings. A diagnostic can make a scan partial even when findings also exist.
 
-The terminal summary presents `Status` (`COMPLETE`, `PARTIAL`, `FAILED`), risk, severity counts, `Policy` (`PASS`, `POLICY_VIOLATION`, `INCOMPLETE`, `SCAN_ERROR`) and reason. It groups `ERROR`, `WARNING` and `COVERAGE` separately. The [clean result](assets/cli/clean-scan.txt) and [missing-target diagnostic](assets/cli/diagnostic.txt) are exact captures from inert bundled fixtures.
+The terminal summary presents `Status` (`COMPLETE`, `PARTIAL`, `FAILED`), risk, severity counts, `Policy` (`PASS`, `POLICY_VIOLATION`, `INCOMPLETE`, `SCAN_ERROR`) and reason. It groups `ERROR`, `WARNING` and `COVERAGE` separately. [Real clean-scan screenshot](../assets/screenshots/dragons-clean-scan.png) · [real gated-finding screenshot](../assets/screenshots/dragons-severity-policy.png) · [missing-target text capture](assets/cli/diagnostic.txt). The [screenshot log](../assets/screenshots/README.md) records commands, fixtures and exit codes.
 
 A verified synthetic security finding, with the absolute local artifact path intentionally **omitted** (this is a summary, not a verbatim terminal capture):
 

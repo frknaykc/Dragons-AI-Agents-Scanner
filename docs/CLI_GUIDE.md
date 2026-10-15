@@ -2,7 +2,17 @@
 
 [Overview](../README.md) · [Install first](INSTALLATION.md) · [Findings and reports](FINDINGS_AND_REPORTS.md)
 
-All source-checkout examples use `uv run dragonscan`. Run `uv run dragonscan --help` and `uv run dragonscan scan --help` for the current flags; exact help captures: [main](assets/cli/main-help.txt), [scan](assets/cli/scan-help.txt). The examples below use bundled inert fixtures where actual output is quoted. Paths such as `./agent-directory` and `./bundle.zip` are placeholders for **your local files**, not bundled samples.
+All source-checkout examples use `uv run dragonscan`. Run `uv run dragonscan --help` and `uv run dragonscan scan --help` for the current flags; exact help captures: [main](assets/cli/main-help.txt), [scan](assets/cli/scan-help.txt). The examples below use bundled inert fixtures where actual output is quoted. Paths such as `./agent-directory` and `./bundle.zip` are placeholders for **your local files**, not bundled samples. [Real Terminal screenshots and reproduction details](../assets/screenshots/README.md).
+
+## Help and first scan
+
+```sh
+uv run dragonscan --help
+uv run dragonscan scan --help
+uv run dragonscan scan benchmarks/corpus/benign-credential-guide/AGENTS.md
+```
+
+Help prints usage and exits **0**. The bundled sample scan exits **0** with `COMPLETE`, `PASS` and no findings; no target content is executed. [Help screenshot](../assets/screenshots/dragons-help.png) · [Clean scan screenshot](../assets/screenshots/dragons-clean-scan.png). Initial `uv run` may resolve this project's dependencies unless the environment is already synced; use `uv sync --locked` first ([installation](INSTALLATION.md)).
 
 ## Local file and directory
 
@@ -29,7 +39,7 @@ uv run dragonscan scan benchmarks/corpus/pi-override/SKILL.md --fail-on high
 uv run dragonscan scan ./agent-directory --fail-on high --fail-on-incomplete
 ```
 
-The first uses an inert synthetic detection fixture. It produced `Status COMPLETE`, `Risk HIGH`, `Policy POLICY_VIOLATION`, `DRAGON-PI-001` (high confidence) and exit **1**. The finding's original path is absolute, so it is **not embedded in this guide**. `--fail-on` accepts `critical`, `high`, `medium`, `low`, `info` (lowercase); it gates a completed scan at or above the selected severity. `--fail-on-incomplete` additionally gates selected semantic candidate coverage and partial installed-agent resolution; analysis diagnostics can already make a scan partial. A partial/failed scan exits **3** even if it also has threshold findings.
+The first uses an inert synthetic detection fixture. It produced `Status COMPLETE`, `Risk HIGH`, `Policy POLICY_VIOLATION`, `DRAGON-PI-001` (high confidence) and exit **1**. The finding's original path is absolute, so it is **not embedded in this guide**. The [security-finding](../assets/screenshots/dragons-security-finding.png) and [severity-gate](../assets/screenshots/dragons-severity-policy.png) screenshots use a copy in a generic shared demo directory; their exact setup and commands are in the [capture log](../assets/screenshots/README.md). `--fail-on` accepts `critical`, `high`, `medium`, `low`, `info` (lowercase); it gates a completed scan at or above the selected severity. `--fail-on-incomplete` additionally gates selected semantic candidate coverage and partial installed-agent resolution; analysis diagnostics can already make a scan partial. A partial/failed scan exits **3** even if it also has threshold findings.
 
 Interactive terminal output colors severity/status labels; output redirected to a file or disabled with `NO_COLOR` is plain text. Findings are ordered by severity; a summary at the top shows status, risk, counts and policy. Operational `ERROR`, `WARNING` and `COVERAGE` diagnostics are grouped separately from security findings.
 
@@ -40,7 +50,7 @@ uv run dragonscan scan benchmarks/corpus/benign-credential-guide/AGENTS.md --for
 uv run dragonscan scan benchmarks/corpus/pi-override/SKILL.md --format sarif --output scan.sarif --fail-on high
 ```
 
-JSON stdout was verified for the benign sample; SARIF stdout was verified for the synthetic finding; SARIF `--output` was verified for the benign sample. The `--output` destination must have a writable parent and stays local. It suppresses stdout but **does not suppress exit 1 or 3**. Inspect the file and exit code separately. The finding SARIF has `ruleId: DRAGON-PI-001`, `level: error`, `startLine: 1`, `runs[0].properties.policy.status: policy_violation`; unlike terminal/JSON, its repository URI is relative. [Report fields and a path-free SARIF excerpt](FINDINGS_AND_REPORTS.md).
+JSON and SARIF `--output` were also exercised on the synthetic finding with exit **0** (no severity gate); both produced parseable local files. The `--output` destination must have a writable parent and stays local. It suppresses stdout but **does not suppress exit 1 or 3**. Inspect the file and exit code separately. The gated finding SARIF has `ruleId: DRAGON-PI-001`, `level: error`, `startLine: 1`, `runs[0].properties.policy.status: policy_violation`; unlike terminal/JSON, its repository URI is relative. [Report fields and a path-free SARIF excerpt](FINDINGS_AND_REPORTS.md).
 
 ## Local archives and Git trees
 

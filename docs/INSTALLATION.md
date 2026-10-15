@@ -17,7 +17,7 @@ uv run dragonscan --help
 uv run dragonscan scan benchmarks/corpus/benign-credential-guide/AGENTS.md
 ```
 
-`uv sync --locked --offline` also works when the pinned interpreter and dependencies are already cached (verified on the development host). `uv run` uses this checkout's locked environment. Scanning an artifact never installs its declared dependencies. The sample is an inert, bundled test fixture and returns `COMPLETE`, `PASS`, zero findings and exit 0 on the verified checkout.
+`uv sync --locked --offline` also works when the pinned interpreter and dependencies are already cached (verified on macOS). `uv run` uses this checkout's locked environment. Scanning an artifact never installs its declared dependencies. The sample is an inert, bundled test fixture and returns `COMPLETE`, `PASS`, zero findings and exit 0 on the verified checkout. [See the real Terminal capture](../assets/screenshots/dragons-clean-scan.png).
 
 ## Isolated invocation from local source
 
@@ -30,7 +30,7 @@ uv build --offline --sdist --wheel
 uvx --offline --from dist/dragons_ai_agent_scanner-0.1.0-py3-none-any.whl dragonscan --help
 ```
 
-The sdist and wheel build and local-wheel `uvx` help command were verified offline on macOS with cached build/runtime requirements, using an output directory outside the repository for validation. `uvx --from` expects a wheel path; dependencies still need to be cached for offline use. The filename includes the version from `pyproject.toml` and will change with that version. For a persistent isolated environment instead, create a Python 3.12+ venv and install the local wheel with `uv pip install --python /path/to/venv/bin/python dist/*.whl` (installation in that separate venv was **not** exercised here). The source checkout is the simplest verified path.
+The sdist and wheel build and local-wheel `uvx` help command were verified offline on macOS with cached build/runtime requirements, using an output directory outside the repository for validation. The example above uses the default `dist/` output; if building elsewhere, pass that wheel path instead. Dependencies still need to be cached for offline use. The filename includes the version from `pyproject.toml` and will change with that version. For a persistent isolated environment instead, create a Python 3.12+ venv and install the local wheel with `uv pip install --python /path/to/venv/bin/python dist/*.whl` (installation in that separate venv was **not** exercised here). The source checkout is the simplest verified path.
 
 ## Standalone and container options
 
@@ -46,7 +46,7 @@ uv run dragonscan scan benchmarks/corpus/benign-credential-guide/AGENTS.md --for
 uv run dragonscan scan benchmarks/corpus/benign-credential-guide/AGENTS.md --format sarif --output scan.sarif
 ```
 
-The help, sample scan and SARIF `--output` commands were exercised; JSON stdout was exercised with the same fixture. `--output` writes a local file atomically. Scan your own artifact only after reviewing the [security model](SECURITY_MODEL.md). [CI integration](CI_INTEGRATION.md) covers unattended scans.
+The help and sample scan were exercised; JSON and SARIF `--output` were also verified on an inert synthetic finding in a separate demo directory. `--output` writes a local file atomically. Scan your own artifact only after reviewing the [security model](SECURITY_MODEL.md). [CI integration](CI_INTEGRATION.md) covers unattended scans.
 
 ## Troubleshooting
 

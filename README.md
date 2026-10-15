@@ -1,90 +1,88 @@
-![Dragons AI Agent Scanner banner](banner.png)
+![Dragons AI Agents Scanner original banner](assets/branding/banner.png)
 
-# Dragons AI Agent Scanner
+# Dragons AI Agent Security Scanner
 
-Inspect AI-agent instructions, skills, MCP configurations and dependency metadata **before trusting them**. Dragons statically reads supported artifacts and reports security findings with file, severity, confidence and bounded evidence. A finding signals a risk, not proof that code ran or data was exfiltrated.
+[![Python 3.12+](https://img.shields.io/badge/Python-3.12%2B-24546a)](docs/INSTALLATION.md) [![Offline quality and security regression](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/actions/workflows/quality.yml/badge.svg?branch=main)](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/actions/workflows/quality.yml) [![GitHub stars](https://img.shields.io/github/stars/frknaykc/Dragons-AI-Agents-Scanner?style=flat&label=Stars)](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/stargazers)
+
+**Inspect agent artifacts before you trust them.** Dragons statically scans AI-agent instructions, skills, MCP configurations and related dependency metadata. It reports bounded evidence, location, severity and confidence so you can review suspicious behavior without executing the artifact. A finding is a signal to investigate, not proof of compromise.
 
 ## Quick start
 
-Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/). From a repository checkout (the package is **not published**):
+Requires Python 3.12+, [uv](https://docs.astral.sh/uv/) and a local repository checkout. Dragons is **not published** to PyPI or as a GitHub Release.
 
 ```sh
 uv sync --locked
 uv run dragonscan scan benchmarks/corpus/benign-credential-guide/AGENTS.md
-uv run dragonscan scan . --format json --output scan.json
 ```
 
-The first command scans a bundled inert example; replace the path with your own file or directory. A completed scan with findings still exits **0** unless you request a severity gate. Follow the [installation and first-scan guide](docs/INSTALLATION.md).
+Run these from the repository root. The bundled inert example returns `COMPLETE`, zero findings and `PASS` (exit 0). Replace the sample path with your own supported file or directory. The first sync may download this project's locked dependencies; **scanning a target never installs its dependencies**. [Installation options](docs/INSTALLATION.md) · [CLI commands](docs/CLI_GUIDE.md)
 
-## What Dragons checks
+## See the scanner
 
-- **Agent and skill discovery:** known instruction files, agent-owned settings, MCP definitions and opt-in installed-agent locations.
-- **Prompt injection and credential risks:** instruction overrides, persistence, sensitive reads and linked external transfers.
-- **MCP and supply chain:** static server metadata, dangerous configuration combinations, Python/Node dependency declarations and selected lifecycle scripts.
-- **Evidence flow and obfuscation:** bounded source-to-sink paths and static decoding/evasion indicators. A reported path requires evidence; it does not prove execution.
-- **Optional intelligence:** local signatures/feeds; explicit OSV HTTPS lookups and experimental semantic analysis require opt-in.
-- **Reporting and CI:** terminal summaries, JSON, SARIF and severity-based exit gates; an example composite Action is included.
+These are screenshots of **real macOS Terminal executions** against inert fixtures, not rendered text or mock terminal windows. Open an image to zoom on mobile. The command, fixture, exit code and capture method for each image are recorded in the [screenshot verification log](assets/screenshots/README.md).
 
-Ordinary scans are **offline and execution-free**: no target commands, MCP servers, package installs, fetched links or model calls. Remote HTTPS acquisition, OSV and semantic requests require separate flags. Experimental dynamic MCP inspection can execute a specifically approved local binary **without an OS sandbox**; never use it on untrusted executables. See the [security model](docs/SECURITY_MODEL.md).
+**Clean scan** — one supported document, no findings.
 
-## CLI preview
+![Terminal showing Dragons scanning a bundled inert AGENTS.md file with COMPLETE status, zero findings and PASS policy](assets/screenshots/dragons-clean-scan.png)
 
-Actual, unedited [clean-scan terminal capture](docs/assets/cli/clean-scan.txt), taken from the bundled benign fixture:
+**Security finding** — a synthetic instruction-override fixture; no payload was executed.
 
-```text
-Dragons Scan
-Target      'benchmarks/corpus/benign-credential-guide/AGENTS.md'
-Artifacts   1
-Status      COMPLETE
-Risk        NONE
-Findings    0
-Severities  CRITICAL 0, HIGH 0, MEDIUM 0, LOW 0, INFO 0
-Policy      PASS
-Reason      Scan complete; policy threshold not reached
+![Terminal showing a DRAGON-PI-001 high-severity finding in an inert synthetic SKILL.md](assets/screenshots/dragons-security-finding.png)
 
-Findings    None
-```
+[Main help screenshot](assets/screenshots/dragons-help.png) · [Severity gate screenshot (exit 1)](assets/screenshots/dragons-severity-policy.png) · [All commands and reports](docs/CLI_GUIDE.md)
 
-This environment could not capture terminal-window screenshots; these are **text captures, not screenshots**. See the exact [`--help`](docs/assets/cli/main-help.txt), [`scan --help`](docs/assets/cli/scan-help.txt) and [diagnostic](docs/assets/cli/diagnostic.txt) captures. [CLI guide](docs/CLI_GUIDE.md) explains findings, severity colors and exit status.
+## What Dragons detects
 
-## Common commands
+| Surface | Examples of static signals |
+| --- | --- |
+| Agent instructions and skills | Instruction overrides, persistence and suspicious trust changes |
+| Credentials and transfer | Sensitive-read directives linked to external sends; evidence-based source/sink paths |
+| MCP configurations | Exposed or dangerous server definitions, mutable execution references |
+| Dependency metadata | Selected package and lifecycle-script risks; opt-in OSV lookup |
+| Encoded or evasive content | Bounded static decoding and context-aware evasion indicators |
+
+No detector covers every attack. Static evidence does not establish that a target executed, contacted a server or leaked data. [Finding interpretation](docs/FINDINGS_AND_REPORTS.md) · [Technical scope](docs/REFERENCE.md)
+
+## Agent coverage
+
+Dragons recognizes **subsets**, not complete integrations, of Claude Code, Codex, Cursor, Cline, Hermes Agent, Kilo Code, Zed Agent and Goose artifacts. Coverage varies by format and platform; some agent-specific locations were tested only with synthetic fixtures. **Antigravity has no agent-specific adapter.** Explicit path scans do not search user agent installations; `--installed-agents` is a separate opt-in to read known local roots. [Coverage table and gaps](docs/SUPPORTED_AGENTS.md)
+
+## How it works
+
+**Discover → Parse → Detect → Evidence/Flow → Risk → Report.** Dragons bounds local loading, parses supported formats as untrusted data, runs independent rules and presents the highest finding severity as overall risk. Missing source/sink or flow information means the relation was not established. [Reports explained](docs/FINDINGS_AND_REPORTS.md)
+
+## Terminal, JSON and SARIF
 
 ```sh
 uv run dragonscan scan ./AGENTS.md
-uv run dragonscan scan ./agent-directory --fail-on high --fail-on-incomplete
-uv run dragonscan scan ./bundle.zip --format sarif --output scan.sarif
 uv run dragonscan scan ./agent-directory --format json --output scan.json
-uv run dragonscan scan ./agent-directory --installed-agents
+uv run dragonscan scan ./agent-directory --format sarif --output scan.sarif --fail-on high
 ```
 
-The last command also inspects known user-level agent roots: run it only if you intend to scan local configuration. `--output` writes reports atomically. [Full command and consent guide](docs/CLI_GUIDE.md).
+The latter paths are examples: supply your own supported artifact or directory. Reports are written locally. A complete scan with findings still exits 0 unless a requested severity threshold is reached (exit 1); incomplete/failed analysis exits 3. SARIF generation does **not** upload to GitHub; hosted Code Scanning acceptance has not been validated. [Exit codes](docs/CLI_GUIDE.md#exit-status-and-policy) · [CI integration](docs/CI_INTEGRATION.md)
 
-A locally built container can scan a read-only mount with container networking disabled (build requires access to dependencies unless cached; this documentation pass did not build the image):
+## Security boundaries
+
+Default local scans are **offline and non-executing**: Dragons does not run target scripts, start MCP servers, follow artifact URLs, install target packages or call a model. Remote HTTPS acquisition, OSV lookup and experimental semantic analysis require explicit flags; semantic mode can transmit selected excerpts with best-effort redaction. Separately consented dynamic MCP inspection can run a selected binary **without an OS sandbox**. Do not approve an untrusted executable. Static analysis cannot certify that an artifact is safe. [Security model and limitations](docs/SECURITY_MODEL.md)
+
+A locally built container can scan a read-only mount with networking disabled (image build requires dependencies unless cached; this example has not been exercised in this documentation pass):
 
 ```sh
 docker build -t dragonscan:local .
 docker run --rm --network none -v "$PWD:/target:ro" dragonscan:local scan /target
 ```
 
-Docker is not a sandbox for the experimental MCP execution mode.
+Docker is not a sandbox for the separately consented dynamic MCP execution mode.
 
-## Supported agents
+## Documentation
 
-Dragons recognizes **subsets** of Claude Code, Codex, Cursor, Cline, Hermes, Kilo Code, Zed Agent and Goose artifacts; coverage differs by agent and platform. Antigravity has **no agent-specific adapter**. Synthetic tests do not validate a real installation. Read the [agent-by-agent scope and validation table](docs/SUPPORTED_AGENTS.md) before using `--installed-agents`.
+| Get started | Understand results | Operate safely |
+| --- | --- | --- |
+| [Installation](docs/INSTALLATION.md) | [Findings and reports](docs/FINDINGS_AND_REPORTS.md) | [Security model](docs/SECURITY_MODEL.md) |
+| [CLI guide](docs/CLI_GUIDE.md) | [Supported agents](docs/SUPPORTED_AGENTS.md) | [CI integration](docs/CI_INTEGRATION.md) |
 
-## Reports and CI
+[Technical reference](docs/REFERENCE.md) · [Benchmark methodology](benchmarks/README.md) · [Agent coverage evidence](docs/AGENT_COVERAGE_REVIEW.md) · [Product vision (proposals, not features)](IDEA.md)
 
-`--format json` exposes findings and diagnostics; `--format sarif` emits security results for code-scanning consumers. Exit **0** means complete/pass even if findings exist, **1** means a requested severity gate failed, **2** invalid CLI usage, **3** incomplete or failed analysis. See [findings and reports](docs/FINDINGS_AND_REPORTS.md) and [CI integration](docs/CI_INTEGRATION.md). Neither SARIF upload nor hosted Code Scanning acceptance is validated.
+## Release and license status
 
-## Limits and documentation
-
-Static analysis can miss attacks or flag benign content. Supported file names, size limits, private-state redaction, archive/remote restrictions and experimental modes are described in the [security model](docs/SECURITY_MODEL.md) and [technical reference](docs/REFERENCE.md). No PyPI package, standalone binary, container image or GitHub Release has been published.
-
-- [Install and first scan](docs/INSTALLATION.md) · [CLI guide](docs/CLI_GUIDE.md) · [Agent coverage](docs/SUPPORTED_AGENTS.md)
-- [Security model](docs/SECURITY_MODEL.md) · [Findings and reports](docs/FINDINGS_AND_REPORTS.md) · [CI integration](docs/CI_INTEGRATION.md)
-- [Technical reference](docs/REFERENCE.md) · [Benchmark methodology](benchmarks/README.md) · [Agent coverage evidence and decisions](docs/AGENT_COVERAGE_REVIEW.md)
-- [Product vision](IDEA.md) (not a feature list) · [Contributor safety rules](AGENTS.md)
-
-## License
-
-This repository has no project-level LICENSE file. Do not assume a grant to redistribute it; the licenses in `benchmarks/licenses/` cover third-party benchmark materials, not Dragons itself.
+No PyPI package, standalone binary, container image or GitHub Release has been published. No project-level `LICENSE` has been selected; **do not assume a right to redistribute Dragons**. Third-party benchmark licenses cover their respective artifacts, not the scanner. See [installation](docs/INSTALLATION.md) for verified local use.
