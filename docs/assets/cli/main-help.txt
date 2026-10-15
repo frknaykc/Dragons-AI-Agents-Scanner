@@ -1,0 +1,10 @@
+Usage: dragonscan [OPTIONS] COMMAND [ARGS]...
+
+  Scan local AI agent artifacts; execution requires separate MCP consent.
+
+Options:
+  --help  Show this message and exit.
+
+Commands:
+  intel  Manage optional intelligence; scans never update feeds.
+  scan   Scan a local file, directory, or archive; remote access requires...

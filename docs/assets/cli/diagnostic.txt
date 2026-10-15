@@ -1,0 +1,17 @@
+Dragons Scan
+Target      'benchmarks/corpus/missing/SKILL.md'
+Artifacts   0
+Status      FAILED
+Risk        NONE
+Findings    0
+Severities  CRITICAL 0, HIGH 0, MEDIUM 0, LOW 0, INFO 0
+Policy      SCAN_ERROR
+Reason      Scanner or acquisition error
+
+Diagnostics
+ERROR: 1 (scan details; not security findings)
+  1 x target does not exist or is not a regular file/directory
+  Example: target does not exist or is not a regular file/directory
+Full per-artifact diagnostics: --format json --output scan.json
+
+Findings    None

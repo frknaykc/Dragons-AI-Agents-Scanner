@@ -1,0 +1,11 @@
+Dragons Scan
+Target      'benchmarks/corpus/benign-credential-guide/AGENTS.md'
+Artifacts   1
+Status      COMPLETE
+Risk        NONE
+Findings    0
+Severities  CRITICAL 0, HIGH 0, MEDIUM 0, LOW 0, INFO 0
+Policy      PASS
+Reason      Scan complete; policy threshold not reached
+
+Findings    None

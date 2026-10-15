@@ -1,0 +1,52 @@
+Usage: dragonscan scan [OPTIONS] [PATH]
+
+  Scan a local file, directory, or archive; remote access requires --remote.
+
+Target:
+  PATH  Local file, directory or archive (unless --installed-agents).
+  --remote            Explicitly download one public HTTPS artifact; network
+                      access.
+  --git               Scan a local Git working tree; remote Git is
+                      unavailable.
+  --installed-agents  Scan bounded known local agent environments
+
+Policy:
+  --fail-on [critical|high|medium|low|info]
+                                  Opt in to exit 1 on findings at or above
+                                  this severity.
+  --fail-on-incomplete            Also fail on partial installed-agent
+                                  resolution and semantic candidate coverage.
+
+Output:
+  --format [terminal|json|sarif]  [default: terminal]
+  --output PATH                   Atomically write the report; use with
+                                  --format json/sarif for large scans.
+
+Optional analysis:
+  --signature-pack PATH          Load static JSON signatures from an explicit
+                                 local directory.
+  --intel PATH                   Explicit local intelligence JSON
+                                 (repeatable).
+  --intel-store PATH             Use an explicitly selected offline
+                                 intelligence store.
+  --vuln-check                   Query OSV over HTTPS; sends normalized
+                                 package names and exact versions to OSV.
+  --semantic                     Opt in; sends excerpts to a model. Redaction
+                                 is best-effort; review target privacy before
+                                 remote use.
+  --semantic-url TEXT            Trusted OpenAI-compatible
+                                 /v1/chat/completions URL.
+  --semantic-model TEXT          Trusted semantic model name.
+  --allow-private-semantic-http  Allow keyless plaintext semantic requests to
+                                 a literal RFC1918 IPv4 server.
+  --dynamic-mcp                  Request local stdio MCP metadata inspection
+                                 (blocked without required isolation).
+  --allow-uncontained-mcp        Legacy uncontained execution: consent to
+                                 running code WITHOUT network or filesystem
+                                 sandboxing.
+  --dynamic-mcp-server TEXT      Exact declared server name (must be unique).
+  --dynamic-mcp-executable PATH  Exact absolute executable path in the MCP
+                                 config.
+
+Options:
+  --help  Show this message and exit.
