@@ -167,6 +167,16 @@ SPECS = (
                 ("mcp.json", "rules", "skills"),
                 instruction_dirs=("rules",),
             ),
+            Location(
+                ".cline/data/settings",
+                ("cline_mcp_settings.json", "global-settings.json"),
+                (
+                    ("cline_mcp_settings.json", ArtifactKind.MCP_CONFIG, SourceFormat.JSON),
+                    ("global-settings.json", ArtifactKind.AGENT_CONFIG, SourceFormat.JSON),
+                ),
+                project=False,
+                strict_user=True,
+            ),
             Location(".clinerules", (), user=False, instruction_dirs=(".",)),
         ),
         project_at_root_only=True,

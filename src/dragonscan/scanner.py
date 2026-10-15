@@ -144,7 +144,7 @@ class Scanner:
                     text = load_text(artifact.path)
                 document = parse(artifact, text, allow_bare_mcp=not self.dynamic_policy.requested)
             except LoadError as exc:
-                if artifact.ecosystem in {"Kilo Code", "Zed Agent"} and (
+                if artifact.ecosystem in {"Kilo Code", "Zed Agent", "Goose"} and (
                     "exceeds 1 MiB" in str(exc) or "Unicode" in str(exc)
                 ):
                     diagnostics.append(Diagnostic("coverage", f"{artifact.path}: {exc}"))
@@ -166,6 +166,7 @@ class Scanner:
                     if diagnostic.startswith(
                         (
                             "unsupported MCP metadata schema",
+                            "unsupported Goose",
                             "unsupported Kilo",
                             "unsupported Zed",
                             "Zed extension",

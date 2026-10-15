@@ -28,6 +28,7 @@ from dragonscan.models import (
     ConfigEntry,
     Document,
     McpContent,
+    McpSecretRef,
     McpServer,
     McpTool,
     Relationship,
@@ -535,6 +536,128 @@ def _zed_servers(
     return tuple(servers), tuple(relations), tuple(diagnostics)
 
 
+def _goose_servers(
+    artifact: Artifact, data: dict[str, Any], locations: dict[tuple[str | int, ...], SourceRef]
+) -> tuple[tuple[McpServer, ...], tuple[Relationship, ...], tuple[str, ...]]:
+    """Inventory only active, external Goose MCP extensions in its config.yaml."""
+    if "extensions" not in data:
+        return (), (), ()
+    definitions = data["extensions"]
+    if not isinstance(definitions, dict):
+        return (), (), ("unsupported Goose extensions schema; server analysis skipped",)
+    servers: list[McpServer] = []
+    relations: list[Relationship] = []
+    diagnostics: list[str] = []
+    seen_names: set[str] = set()
+    for key, config in definitions.items():
+        if not key or not isinstance(config, dict):
+            diagnostics.append("unsupported Goose extension schema; server skipped")
+            continue
+        if config.get("enabled") is False:
+            diagnostics.append("disabled Goose extension; not in active inventory")
+            continue
+        kind = config.get("type")
+        if not isinstance(kind, str):
+            diagnostics.append("unsupported Goose extension type; server skipped")
+            continue
+        if kind in {"builtin", "platform"}:
+            diagnostics.append("non-MCP Goose extension; not in external server inventory")
+            continue
+        if kind not in {"stdio", "streamable_http"}:
+            diagnostics.append("unsupported Goose extension type; server skipped")
+            continue
+        name = config.get("name")
+        envs = config.get("envs", config.get("env", {}))
+        keys = config.get("env_keys", [])
+        args = config.get("args", [])
+        headers = config.get("headers", {})
+        cmd, uri = config.get("cmd"), config.get("uri")
+        allowed = {
+            "type",
+            "name",
+            "enabled",
+            "bundled",
+            "display_name",
+            "description",
+            "timeout",
+            "available_tools",
+            "envs",
+            "env_keys",
+        }
+        allowed |= {"cmd", "args", "cwd", "env"} if kind == "stdio" else {"uri", "headers"}
+        if (
+            config.get("enabled") is not True
+            or not isinstance(name, str)
+            or not name.strip()
+            or not set(config) <= allowed
+            or "env" in config
+            and "envs" in config
+            or not isinstance(envs, dict)
+            or not all(isinstance(k, str) and isinstance(v, str) for k, v in envs.items())
+            or not isinstance(keys, list)
+            or not all(isinstance(k, str) and k for k in keys)
+            or not isinstance(args, list)
+            or not all(isinstance(arg, str) for arg in args)
+            or not isinstance(headers, dict)
+            or not all(isinstance(k, str) and isinstance(v, str) for k, v in headers.items())
+            or (kind == "stdio" and "args" not in config)
+            or (kind == "stdio" and (not isinstance(cmd, str) or not cmd.strip()))
+            or (kind == "streamable_http" and (not isinstance(uri, str) or not uri.strip()))
+        ):
+            diagnostics.append("unsupported Goose extension schema; server skipped")
+            continue
+        if name in seen_names:
+            diagnostics.append("duplicate Goose extension identity; server skipped")
+            continue
+        origin = ("extensions", key)
+        prefix = ("mcpServers", key)
+        translated = {
+            prefix: locations.get(origin, _location(artifact, None)),
+            (*prefix, "env"): locations.get(
+                (*origin, "envs"), locations.get((*origin, "env"), _location(artifact, None))
+            ),
+            (*prefix, "headers"): locations.get((*origin, "headers"), _location(artifact, None)),
+            (*prefix, "url"): locations.get((*origin, "uri"), _location(artifact, None)),
+        }
+        normalized = (
+            {"command": cmd, "args": args, "env": envs, "cwd": config.get("cwd"), "type": "stdio"}
+            if kind == "stdio"
+            else {"url": uri, "headers": headers, "type": "streamable_http"}
+        )
+        try:
+            selected, edges, notes = _servers(
+                artifact, {"mcpServers": {key: normalized}}, translated
+            )
+        except ParseError:
+            diagnostics.append("unsupported Goose extension metadata; server skipped")
+            continue
+        if not selected:
+            diagnostics.extend(notes or ("unsupported Goose MCP server; skipped",))
+            continue
+        seen_names.add(name)
+        if keys:
+            key_location = locations.get((*origin, "env_keys"), translated[prefix])
+            selected = tuple(
+                replace(
+                    server,
+                    env_names=tuple(dict.fromkeys((*server.env_names, *keys))),
+                    environment=(
+                        *server.environment,
+                        *(
+                            McpSecretRef(key, "reference", True, key_location)
+                            for key in keys
+                            if key not in envs
+                        ),
+                    ),
+                )
+                for server in selected
+            )
+        servers.extend(selected)
+        relations.extend(edges)
+        diagnostics.extend(notes)
+    return tuple(servers), tuple(relations), tuple(diagnostics)
+
+
 def parse_structured(artifact: Artifact, text: str, *, allow_bare_mcp: bool = True) -> Document:
     data, node = _load(artifact, text)
     if not isinstance(data, dict) or not all(isinstance(key, str) for key in data):
@@ -548,10 +671,16 @@ def parse_structured(artifact: Artifact, text: str, *, allow_bare_mcp: bool = Tr
         and artifact.kind == ArtifactKind.AGENT_CONFIG
         and artifact.path.name.lower() == "settings.json"
     )
+    goose = (
+        artifact.ecosystem == "Goose"
+        and artifact.kind == ArtifactKind.AGENT_CONFIG
+        and artifact.path.name == "config.yaml"
+    )
     if (
         allow_bare_mcp
         and not kilo
         and not zed
+        and not goose
         and artifact.kind == ArtifactKind.MCP_CONFIG
         and "mcpServers" not in data
         and data
@@ -593,6 +722,15 @@ def parse_structured(artifact: Artifact, text: str, *, allow_bare_mcp: bool = Tr
             else entry
             for entry in entries
         )
+    if goose:
+        entries = tuple(
+            replace(entry, value="[redacted]")
+            if entry.key_path
+            and entry.key_path[0] in {"extensions", "mcpServers"}
+            and isinstance(entry.value, str)
+            else entry
+            for entry in entries
+        )
     if isinstance(data.get("mcpServers"), dict):
         entries = tuple(
             replace(entry, value="[redacted]")
@@ -606,7 +744,9 @@ def parse_structured(artifact: Artifact, text: str, *, allow_bare_mcp: bool = Tr
         )
     locations = {entry.key_path: entry.location for entry in entries}
     servers, relationships, mcp_diagnostics = (
-        _kilo_servers(artifact, data, locations)
+        _goose_servers(artifact, data, locations)
+        if goose
+        else _kilo_servers(artifact, data, locations)
         if kilo
         else _zed_servers(artifact, data, locations)
         if zed
@@ -615,8 +755,10 @@ def parse_structured(artifact: Artifact, text: str, *, allow_bare_mcp: bool = Tr
     relations = list(relationships)
     for entry in entries:
         key = entry.key_path[-1]
-        if (kilo and entry.key_path and entry.key_path[0] in {"mcp", "mcpServers"}) or (
-            zed and entry.key_path and entry.key_path[0] in {"context_servers", "mcpServers"}
+        if (
+            (goose and entry.key_path and entry.key_path[0] in {"extensions", "mcpServers"})
+            or (kilo and entry.key_path and entry.key_path[0] in {"mcp", "mcpServers"})
+            or (zed and entry.key_path and entry.key_path[0] in {"context_servers", "mcpServers"})
         ):
             continue
         if (
@@ -630,7 +772,7 @@ def parse_structured(artifact: Artifact, text: str, *, allow_bare_mcp: bool = Tr
             and PurePath(entry.value).suffix.lower() == ".md"
         ):
             relations.append(Relationship("loads_file", entry.value, entry.location))
-        if kilo or zed:
+        if kilo or zed or goose:
             continue
         if (
             isinstance(key, str)
@@ -675,6 +817,11 @@ def parse_structured(artifact: Artifact, text: str, *, allow_bare_mcp: bool = Tr
         diagnostics=(
             *diagnostics,
             *mcp_diagnostics,
+            *(
+                ("unsupported Goose mcpServers schema; ignored",)
+                if goose and "mcpServers" in data
+                else ()
+            ),
             *(
                 ("unsupported Zed mcpServers schema; ignored",)
                 if zed and "mcpServers" in data
