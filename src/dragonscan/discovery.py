@@ -85,6 +85,9 @@ def classify(
         }.get(name, ArtifactKind.INSTRUCTIONS)
     elif name in MCP_NAMES:
         kind = ArtifactKind.MCP_CONFIG
+    elif name == "settings.json" and path.parent.name == ".zed":
+        kind = ArtifactKind.AGENT_CONFIG
+        ecosystem = "Zed Agent"
     elif name == "kilo.jsonc" or name == "kilo.json":
         kind = ArtifactKind.AGENT_CONFIG
         ecosystem = "Kilo Code"

@@ -338,13 +338,6 @@ SPECS = (
             ),
             Location(
                 ".zed",
-                ("settings.json",),
-                (("settings.json", ArtifactKind.AGENT_CONFIG, SourceFormat.JSON),),
-                project=False,
-                platforms=("darwin",),
-            ),
-            Location(
-                ".zed",
                 (),
                 (("settings.json", ArtifactKind.AGENT_CONFIG, SourceFormat.JSON),),
                 user=False,

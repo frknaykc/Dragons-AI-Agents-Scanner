@@ -105,8 +105,16 @@ def _reject_constant(value: str) -> None:
 def _load(artifact: Artifact, text: str) -> tuple[Any, Node | None]:
     fmt = artifact.source_format
     try:
-        if fmt == SourceFormat.JSONC:
-            if artifact.ecosystem != "Kilo Code" or artifact.path.name.lower() != "kilo.jsonc":
+        zed_settings = (
+            fmt == SourceFormat.JSON
+            and artifact.ecosystem == "Zed Agent"
+            and artifact.kind == ArtifactKind.AGENT_CONFIG
+            and artifact.path.name.lower() == "settings.json"
+        )
+        if fmt == SourceFormat.JSONC or zed_settings:
+            if fmt == SourceFormat.JSONC and (
+                artifact.ecosystem != "Kilo Code" or artifact.path.name.lower() != "kilo.jsonc"
+            ):
                 raise ParseError("unsupported JSONC configuration")
             data, sanitized = load_jsonc(text, _unique_pairs, _reject_constant)
             # JSON was already validated. Use the bounded composer for source positions only;
@@ -414,6 +422,119 @@ def _kilo_servers(
     return tuple(servers), tuple(relations), tuple(diagnostics)
 
 
+def _zed_servers(
+    artifact: Artifact, data: dict[str, Any], locations: dict[tuple[str | int, ...], SourceRef]
+) -> tuple[tuple[McpServer, ...], tuple[Relationship, ...], tuple[str, ...]]:
+    """Map only Zed's documented stdio/HTTP context server shapes."""
+    if "context_servers" not in data:
+        return (), (), ()
+    definitions = data["context_servers"]
+    if not isinstance(definitions, dict):
+        return (), (), ("unsupported Zed context_servers schema; server analysis skipped",)
+    servers: list[McpServer] = []
+    relations: list[Relationship] = []
+    diagnostics: list[str] = []
+    local_fields = {"command", "args", "env", "enabled", "remote", "timeout"}
+    http_fields = {"url", "headers", "enabled", "timeout", "oauth"}
+    for name, config in definitions.items():
+        if not isinstance(name, str) or not name or not isinstance(config, dict):
+            diagnostics.append("unsupported Zed context server shape; server skipped")
+            continue
+        if config.get("enabled") is False:
+            diagnostics.append("disabled Zed context server; not in active inventory")
+            continue
+        if config.get("enabled", True) is not True:
+            diagnostics.append("unsupported Zed context server enabled value; server skipped")
+            continue
+        if "settings" in config and "command" not in config and "url" not in config:
+            diagnostics.append("Zed extension context server not statically resolvable; skipped")
+            continue
+        command, url = config.get("command"), config.get("url")
+        local = "command" in config and "url" not in config
+        remote = "url" in config and "command" not in config
+        if not local and not remote and "command" not in config and "url" not in config:
+            diagnostics.append("Zed context server missing command or url; server skipped")
+            continue
+        env = config.get("env")
+        headers = config.get("headers")
+        oauth = config.get("oauth")
+        timeout = config.get("timeout")
+        valid_oauth = oauth is None or (
+            isinstance(oauth, dict)
+            and set(oauth) <= {"client_id", "client_secret"}
+            and isinstance(oauth.get("client_id"), str)
+            and ("client_secret" not in oauth or isinstance(oauth["client_secret"], str))
+        )
+        if (
+            (not local and not remote)
+            or not set(config) <= (local_fields if local else http_fields)
+            or ("timeout" in config and (type(timeout) is not int or timeout < 0))
+            or (
+                local
+                and (
+                    not isinstance(command, str)
+                    or not command.strip()
+                    or not isinstance(config.get("args", []), list)
+                    or not all(isinstance(arg, str) for arg in config.get("args", []))
+                    or (
+                        env is not None
+                        and (
+                            not isinstance(env, dict)
+                            or not all(
+                                isinstance(k, str) and isinstance(v, str) for k, v in env.items()
+                            )
+                        )
+                    )
+                    or type(config.get("remote", False)) is not bool
+                )
+            )
+            or (
+                remote
+                and (
+                    not isinstance(url, str)
+                    or not url.strip()
+                    or (
+                        headers is not None
+                        and (
+                            not isinstance(headers, dict)
+                            or not all(
+                                isinstance(k, str) and isinstance(v, str)
+                                for k, v in headers.items()
+                            )
+                        )
+                    )
+                    or not valid_oauth
+                )
+            )
+        ):
+            diagnostics.append("unsupported Zed context server shape; server skipped")
+            continue
+        prefix = ("mcpServers", name)
+        origin = ("context_servers", name)
+        translated: dict[tuple[str | int, ...], SourceRef] = {
+            prefix: locations.get(origin, _location(artifact, None)),
+            (*prefix, "env"): locations.get((*origin, "env"), _location(artifact, None)),
+            (*prefix, "headers"): locations.get((*origin, "headers"), _location(artifact, None)),
+            (*prefix, "url"): locations.get((*origin, "url"), _location(artifact, None)),
+        }
+        normalized = (
+            {"command": command, "args": config.get("args", []), "env": env or {}, "type": "stdio"}
+            if local
+            else {"url": url, "headers": headers or {}, "type": "http"}
+        )
+        try:
+            selected, edges, notes = _servers(
+                artifact, {"mcpServers": {name: normalized}}, translated
+            )
+        except ParseError:
+            diagnostics.append("unsupported Zed context server metadata; server skipped")
+            continue
+        servers.extend(selected)
+        relations.extend(edges)
+        diagnostics.extend(notes)
+    return tuple(servers), tuple(relations), tuple(diagnostics)
+
+
 def parse_structured(artifact: Artifact, text: str, *, allow_bare_mcp: bool = True) -> Document:
     data, node = _load(artifact, text)
     if not isinstance(data, dict) or not all(isinstance(key, str) for key in data):
@@ -422,9 +543,15 @@ def parse_structured(artifact: Artifact, text: str, *, allow_bare_mcp: bool = Tr
         "kilo.json",
         "kilo.jsonc",
     }
+    zed = (
+        artifact.ecosystem == "Zed Agent"
+        and artifact.kind == ArtifactKind.AGENT_CONFIG
+        and artifact.path.name.lower() == "settings.json"
+    )
     if (
         allow_bare_mcp
         and not kilo
+        and not zed
         and artifact.kind == ArtifactKind.MCP_CONFIG
         and "mcpServers" not in data
         and data
@@ -437,11 +564,21 @@ def parse_structured(artifact: Artifact, text: str, *, allow_bare_mcp: bool = Tr
         data = {"mcpServers": data}
     if (
         not kilo
+        and not zed
         and artifact.kind == ArtifactKind.STRUCTURED_CONFIG
         and isinstance(data.get("mcpServers"), dict)
     ):
         artifact = replace(artifact, kind=ArtifactKind.MCP_CONFIG)
     entries = _entries(artifact, data, node)
+    if zed:
+        entries = tuple(
+            replace(entry, value="[redacted]")
+            if entry.key_path
+            and entry.key_path[0] in {"context_servers", "mcpServers"}
+            and isinstance(entry.value, str)
+            else entry
+            for entry in entries
+        )
     if kilo:
         entries = tuple(
             replace(entry, value="[redacted]")
@@ -469,12 +606,18 @@ def parse_structured(artifact: Artifact, text: str, *, allow_bare_mcp: bool = Tr
         )
     locations = {entry.key_path: entry.location for entry in entries}
     servers, relationships, mcp_diagnostics = (
-        _kilo_servers(artifact, data, locations) if kilo else _servers(artifact, data, locations)
+        _kilo_servers(artifact, data, locations)
+        if kilo
+        else _zed_servers(artifact, data, locations)
+        if zed
+        else _servers(artifact, data, locations)
     )
     relations = list(relationships)
     for entry in entries:
         key = entry.key_path[-1]
-        if kilo and entry.key_path and entry.key_path[0] in {"mcp", "mcpServers"}:
+        if (kilo and entry.key_path and entry.key_path[0] in {"mcp", "mcpServers"}) or (
+            zed and entry.key_path and entry.key_path[0] in {"context_servers", "mcpServers"}
+        ):
             continue
         if (
             kilo
@@ -487,7 +630,7 @@ def parse_structured(artifact: Artifact, text: str, *, allow_bare_mcp: bool = Tr
             and PurePath(entry.value).suffix.lower() == ".md"
         ):
             relations.append(Relationship("loads_file", entry.value, entry.location))
-        if kilo:
+        if kilo or zed:
             continue
         if (
             isinstance(key, str)
@@ -532,6 +675,11 @@ def parse_structured(artifact: Artifact, text: str, *, allow_bare_mcp: bool = Tr
         diagnostics=(
             *diagnostics,
             *mcp_diagnostics,
+            *(
+                ("unsupported Zed mcpServers schema; ignored",)
+                if zed and "mcpServers" in data
+                else ()
+            ),
             *(
                 ("unsupported Kilo mcpServers schema; ignored",)
                 if kilo and "mcpServers" in data

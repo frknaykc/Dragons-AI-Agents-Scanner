@@ -205,12 +205,12 @@ def test_hermes_profile_does_not_crawl_unrelated_worktree(tmp_path: Path) -> Non
 
 
 def test_zed_macos_user_location(tmp_path: Path) -> None:
-    selected = _write(tmp_path, ".zed/settings.json", "{}")
-    mac = discover_installed(home=tmp_path, platform="darwin")
-    assert any(a.path == selected and a.ecosystem == "Zed Agent" for a in mac.artifacts)
-    assert selected not in {
-        a.path for a in discover_installed(home=tmp_path, platform="linux").artifacts
-    }
+    selected = _write(tmp_path, ".config/zed/settings.json", "{}")
+    legacy = _write(tmp_path, ".zed/settings.json", "{}")
+    for platform in ("darwin", "linux"):
+        artifacts = discover_installed(home=tmp_path, platform=platform).artifacts
+        assert any(a.path == selected and a.ecosystem == "Zed Agent" for a in artifacts)
+        assert legacy not in {a.path for a in artifacts}
 
 
 def test_platform_location_and_symlink_boundary(tmp_path: Path) -> None:

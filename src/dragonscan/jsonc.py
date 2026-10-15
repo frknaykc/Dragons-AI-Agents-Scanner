@@ -1,4 +1,4 @@
-"""Bounded, string-aware JSONC preprocessing for known Kilo config files only."""
+"""Bounded, string-aware JSONC preprocessing for known agent config files only."""
 
 import json
 from typing import Any
