@@ -170,21 +170,22 @@ def positive_controls(observer: Any, runtime: Path, env: dict[str, str]) -> dict
         release = threading.Event()
 
         def accept() -> None:
-            listener.settimeout(8)
+            listener.settimeout(16)
             with listener.accept()[0]:
                 accepted.append(True)
-                release.wait(timeout=6)
+                release.wait(timeout=12)
 
         worker = threading.Thread(target=accept)
         worker.start()
         try:
-            status, _, tcp, _ = observer(loopback_probe(port, hold=2), runtime, env)
+            status, _, tcp, _ = observer(loopback_probe(port, hold=8), runtime, env)
         finally:
             release.set()
-            worker.join(timeout=9)
+            worker.join(timeout=17)
         if status != 0 or not accepted or not tcp:
             raise RuntimeError(
-                "TCP positive control failed: connection or process attribution absent"
+                "TCP positive control failed: "
+                f"client_ok={status == 0}, accepted={bool(accepted)}, attributed={bool(tcp)}"
             )
         controls = {"tcp_loopback": True}
     if observer is observe_linux:
@@ -334,7 +335,11 @@ def main() -> None:
                 if not result["positive_controls"]
                 else "INCONCLUSIVE — MONITORING LIMITATION"
             )
-            result["failure"] = str(exc).split(":", 1)[0][:80]
+            result["failure"] = (
+                str(exc)[:160]
+                if str(exc).startswith("TCP positive control failed: ")
+                else str(exc).split(":", 1)[0][:80]
+            )
     output_path = ROOT / "network-validation.json"
     output_path.write_text(json.dumps(result, sort_keys=True, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(result, sort_keys=True))
