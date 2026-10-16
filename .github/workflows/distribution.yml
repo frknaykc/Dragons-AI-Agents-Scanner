@@ -32,7 +32,7 @@ jobs:
       - name: Install locked development and build dependencies
         run: uv sync --locked --python 3.12.12 --group standalone
       - name: Test full scanner suite
-        run: uv run --locked --group standalone pytest -q
+        run: uv run --locked --group standalone pytest -q -rs
       - name: Build native executable
         run: uv run --locked --group standalone python scripts/build_standalone.py
       - name: Smoke test executable

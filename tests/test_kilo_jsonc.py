@@ -81,7 +81,7 @@ def test_jsonc_comments_strings_locations_and_no_false_findings(tmp_path: Path) 
     )
     artifact = classify(config, explicit=True)
     assert artifact is not None
-    document = parse(artifact, config.read_text())
+    document = parse(artifact, config.read_text(encoding="utf-8"))
     values = {entry.key_path: entry.value for entry in document.entries}
     assert values[("metadata", "quoted")] == 'a"b'
     assert values[("metadata", "unicode")] == "☃"
