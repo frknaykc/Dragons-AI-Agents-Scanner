@@ -4,28 +4,49 @@
 
 [![Python 3.12+](https://img.shields.io/badge/Python-3.12%2B-24546a)](docs/INSTALLATION.md) [![Offline quality and security regression](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/actions/workflows/quality.yml/badge.svg?branch=main)](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/actions/workflows/quality.yml) [![GitHub stars](https://img.shields.io/github/stars/frknaykc/Dragons-AI-Agents-Scanner?style=flat&label=Stars)](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/stargazers)
 
-**Inspect agent artifacts before you trust them.** Dragons statically scans AI-agent instructions, skills, MCP configurations and related dependency metadata. It reports bounded evidence, location, severity and confidence so you can review suspicious behavior without executing the artifact. A finding is a signal to investigate, not proof of compromise.
+**Inspect AI agent components before you trust them.** Dragons statically scans agent instructions, skills, MCP configurations and related dependency metadata. Findings include the affected location, bounded evidence, severity and confidence. You can investigate suspicious behavior without executing the inspected component. A finding warrants review; it does not prove compromise.
+
+> [!WARNING]
+> **Development status.** Dragons is under active development. Evaluate its results in context and review the [security limitations](#security-boundaries) before relying on a scan. Contributions and technical feedback are welcome.
 
 ## Quick start
 
-Requires Python 3.12+, [uv](https://docs.astral.sh/uv/) and a local repository checkout. Dragons is **not published** to PyPI or as a GitHub Release.
+You need Python 3.12+, [uv](https://docs.astral.sh/uv/) and a local checkout of this repository.
+
+> [!IMPORTANT]
+> Dragons is not published on PyPI or distributed through GitHub Releases. Run the commands below from the repository root.
 
 ```sh
 uv sync --locked
 uv run dragonscan scan benchmarks/corpus/benign-credential-guide/AGENTS.md
 ```
 
-Run these from the repository root. The bundled inert example returns `COMPLETE`, zero findings and `PASS` (exit 0). Replace the sample path with your own supported file or directory. The first sync may download this project's locked dependencies; **scanning a target never installs its dependencies**. [Installation options](docs/INSTALLATION.md) · [CLI commands](docs/CLI_GUIDE.md)
+The bundled file is an inert test artifact. Its scan produces:
+
+| Result | Value |
+| --- | --- |
+| Scan status | `COMPLETE` |
+| Security findings | 0 |
+| Policy evaluation | `PASS` |
+| Exit code | 0 |
+
+Replace the example path with a supported file or directory of your own. The first `uv sync` may download this project's locked dependencies. **Scanning a target does not install that target's dependencies.**
+
+[Installation options](docs/INSTALLATION.md) · [CLI commands](docs/CLI_GUIDE.md)
 
 ## See the scanner
 
-These are screenshots of **real macOS Terminal executions** against inert fixtures, not rendered text or mock terminal windows. Open an image to zoom on mobile. The command, fixture, exit code and capture method for each image are recorded in the [screenshot verification log](assets/screenshots/README.md).
+The images below capture real macOS Terminal sessions using inert test fixtures. They are not simulated terminal interfaces, and no malicious payload was executed. The [screenshot verification log](assets/screenshots/README.md) records the command, fixture, exit code and capture method for each image. Tap an image to enlarge it on mobile.
 
-**Clean scan** — one supported document, no findings.
+### Clean scan
+
+One supported document, no security findings.
 
 ![Terminal showing Dragons scanning a bundled inert AGENTS.md file with COMPLETE status, zero findings and PASS policy](assets/screenshots/dragons-clean-scan.png)
 
-**Security finding** — a synthetic instruction-override fixture; no payload was executed.
+### Security finding
+
+A synthetic instruction-override fixture produces a finding without executing the fixture's instructions.
 
 ![Terminal showing a DRAGON-PI-001 high-severity finding in an inert synthetic SKILL.md](assets/screenshots/dragons-security-finding.png)
 
@@ -33,25 +54,55 @@ These are screenshots of **real macOS Terminal executions** against inert fixtur
 
 ## What Dragons detects
 
-| Surface | Examples of static signals |
-| --- | --- |
-| Agent instructions and skills | Instruction overrides, persistence and suspicious trust changes |
-| Credentials and transfer | Sensitive-read directives linked to external sends; evidence-based source/sink paths |
-| MCP configurations | Exposed or dangerous server definitions, mutable execution references |
-| Dependency metadata | Selected package and lifecycle-script risks; opt-in OSV lookup |
-| Encoded or evasive content | Bounded static decoding and context-aware evasion indicators |
+Dragons looks for security indicators in supported AI agent artifacts using static analysis.
 
-No detector covers every attack. Static evidence does not establish that a target executed, contacted a server or leaked data. [Finding interpretation](docs/FINDINGS_AND_REPORTS.md) · [Technical scope](docs/REFERENCE.md)
+| Inspection surface | Examples of statically detectable indicators |
+| --- | --- |
+| Agent instructions and skills | Instruction overrides, persistence mechanisms and suspicious trust-boundary changes |
+| Credentials and data transfer | Sensitive-data reading directives linked to external transmission; evidence-based source/sink paths |
+| MCP configurations | Exposed or potentially dangerous server definitions and mutable execution references |
+| Dependency metadata | Selected package risks, lifecycle scripts and optional OSV vulnerability lookups |
+| Encoded or obfuscated content | Bounded static decoding and context-aware evasion indicators |
+
+### Detection limits
+
+No detector covers every attack. Static evidence cannot establish whether a target was executed, contacted a server or exfiltrated data. Findings require review in context; false positives and false negatives remain possible.
+
+[Finding interpretation](docs/FINDINGS_AND_REPORTS.md) · [Technical scope](docs/REFERENCE.md)
 
 ## Agent coverage
 
-Dragons recognizes **subsets**, not complete integrations, of Claude Code, Codex, Cursor, Cline, Hermes Agent, Kilo Code, Zed Agent and Goose artifacts. Coverage varies by format and platform; some agent-specific locations were tested only with synthetic fixtures. **Antigravity has no agent-specific adapter.** Explicit path scans do not search user agent installations; `--installed-agents` is a separate opt-in to read known local roots. [Coverage table and gaps](docs/SUPPORTED_AGENTS.md)
+Dragons recognizes selected file and configuration formats associated with Claude Code, Codex, Cursor, Cline, Hermes Agent, Kilo Code, Zed Agent and Goose.
+
+> [!IMPORTANT]
+> **Partial platform support.** These are supported artifact subsets, not full integrations. Coverage varies by file format and platform; some locations have only synthetic-fixture validation. Antigravity has no agent-specific adapter. See the [coverage table and gaps](docs/SUPPORTED_AGENTS.md) before treating a platform as supported for your particular setup.
+
+Scanning a path does not search your installed agents. To inspect known local agent roots, opt in separately:
+
+```sh
+uv run dragonscan scan --installed-agents
+```
+
+This option reads known local locations; it does not prove an agent is installed or active. [Installed-agent details](docs/SUPPORTED_AGENTS.md)
 
 ## How it works
 
-**Discover → Parse → Detect → Evidence/Flow → Risk → Report.** Dragons bounds local loading, parses supported formats as untrusted data, runs independent rules and presents the highest finding severity as overall risk. Missing source/sink or flow information means the relation was not established. [Reports explained](docs/FINDINGS_AND_REPORTS.md)
+**Discover → Parse → Detect → Evidence/Flow → Risk → Report**
+
+| Stage | What happens |
+| --- | --- |
+| Discover | Identify supported files and configurations at the selected target. |
+| Parse | Load within resource limits and parse supported formats as untrusted data. |
+| Detect | Run independent rules to identify suspicious static indicators. |
+| Evidence/Flow | Connect sources, sinks and possible paths where the available evidence permits. |
+| Risk | Assign finding severity; the highest finding severity sets the overall risk level. |
+| Report | Present findings with locations and bounded supporting evidence. |
+
+Missing source, sink or flow information means Dragons could not establish that relationship; it does not prove the relationship is impossible. [Reports explained](docs/FINDINGS_AND_REPORTS.md)
 
 ## Terminal, JSON and SARIF
+
+Dragons writes terminal output by default. Use `--format` and `--output` for local reports:
 
 ```sh
 uv run dragonscan scan ./AGENTS.md
@@ -59,20 +110,45 @@ uv run dragonscan scan ./agent-directory --format json --output scan.json
 uv run dragonscan scan ./agent-directory --format sarif --output scan.sarif --fail-on high
 ```
 
-The latter paths are examples: supply your own supported artifact or directory. Reports are written locally. A complete scan with findings still exits 0 unless a requested severity threshold is reached (exit 1); incomplete/failed analysis exits 3. SARIF generation does **not** upload to GitHub; hosted Code Scanning acceptance has not been validated. [Exit codes](docs/CLI_GUIDE.md#exit-status-and-policy) · [CI integration](docs/CI_INTEGRATION.md)
+`./AGENTS.md` and `./agent-directory` are example paths; supply your own supported artifact or directory. Reports are written to the local filesystem. `--fail-on high` opts into a policy failure when a completed scan finds a high- or critical-severity issue.
+
+| Exit code | Meaning |
+| --- | --- |
+| `0` | Scan completed; findings may still exist if no requested severity threshold was met. |
+| `1` | A completed scan met the `--fail-on` threshold. |
+| `2` | Invalid CLI usage or option. |
+| `3` | Analysis was incomplete or failed. |
+
+Generating SARIF does **not** upload a report to GitHub. Acceptance by GitHub's hosted Code Scanning service has not been validated. [Exit codes and policy](docs/CLI_GUIDE.md#exit-status-and-policy) · [CI integration](docs/CI_INTEGRATION.md)
 
 ## Security boundaries
 
-Default local scans are **offline and non-executing**: Dragons does not run target scripts, start MCP servers, follow artifact URLs, install target packages or call a model. Remote HTTPS acquisition, OSV lookup and experimental semantic analysis require explicit flags; semantic mode can transmit selected excerpts with best-effort redaction. Separately consented dynamic MCP inspection can run a selected binary **without an OS sandbox**. Do not approve an untrusted executable. Static analysis cannot certify that an artifact is safe. [Security model and limitations](docs/SECURITY_MODEL.md)
+Default local scans are **offline and non-executing**. Dragons reads supported targets as untrusted data. It does not run target scripts, start declared MCP servers, follow URLs found in artifacts, install target packages or call an AI model.
 
-A locally built container can scan a read-only mount with networking disabled (image build requires dependencies unless cached; this example has not been exercised in this documentation pass):
+The following operations require separate opt-in:
+
+| Operation | Boundary |
+| --- | --- |
+| Remote HTTPS acquisition (`--remote`) | Downloads one explicitly selected public HTTPS artifact. |
+| OSV lookup (`--vuln-check`) | Sends normalized package names and exact versions to OSV. |
+| Experimental semantic analysis (`--semantic`) | May transmit selected excerpts to an external provider. Redaction is best-effort and cannot guarantee removal of all sensitive data. |
+| Dynamic MCP inspection (`--dynamic-mcp`) | Requires additional consent and exact selection; uncontained execution may launch the selected executable. |
+
+> [!CAUTION]
+> **Dynamic MCP execution is not sandboxed by the operating system when uncontained execution is authorized.** Do not authorize untrusted binaries. This mode is separate from the default static scan.
+
+Static analysis cannot certify that an artifact is safe. Review findings, paths and report contents before sharing them. [Security model and limitations](docs/SECURITY_MODEL.md)
+
+## Offline scanning with Docker
+
+A locally built image can scan a read-only mount with container networking disabled:
 
 ```sh
 docker build -t dragonscan:local .
 docker run --rm --network none -v "$PWD:/target:ro" dragonscan:local scan /target
 ```
 
-Docker is not a sandbox for the separately consented dynamic MCP execution mode.
+`--network none` disables container networking and `-v "$PWD:/target:ro"` mounts the current directory read-only at `/target`. Image creation may download this project's dependencies unless cached. **This Docker example has not been validated during this documentation review.** Do not treat this container setup as a sandbox for separately authorized dynamic MCP execution.
 
 ## Documentation
 
@@ -85,4 +161,13 @@ Docker is not a sandbox for the separately consented dynamic MCP execution mode.
 
 ## Release and license status
 
-No PyPI package, standalone binary, container image or GitHub Release has been published. No project-level `LICENSE` has been selected; **do not assume a right to redistribute Dragons**. Third-party benchmark licenses cover their respective artifacts, not the scanner. See [installation](docs/INSTALLATION.md) for verified local use.
+Dragons remains under development. There is no published PyPI package, standalone executable, official container image or GitHub Release.
+
+> [!IMPORTANT]
+> **License notice.** No project-level `LICENSE` has been selected. Do not assume permission to redistribute, modify or commercially distribute the scanner. Third-party benchmark licenses apply to their respective artifacts, not to Dragons itself.
+
+See [installation](docs/INSTALLATION.md) for verified local usage.
+
+## Contributions and feedback
+
+Technical feedback and contributions are welcome, especially around detection accuracy, artifact coverage, false positives, evidence and flow analysis, documentation and tests. Include a reproducible example when reporting a detection gap; use inert fixtures and avoid sharing private configurations or credentials.
