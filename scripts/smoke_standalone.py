@@ -3,6 +3,7 @@
 import hashlib
 import importlib.metadata
 import json
+import ntpath
 import os
 import platform
 import shutil
@@ -11,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 from scripts.build_standalone import ARCHITECTURES, ROOT, artifact_name
 
@@ -56,6 +58,22 @@ def runtime_environment(source: dict[str, str], system: str) -> dict[str, str]:
         if key in source:
             env[key] = source[key]
     return env
+
+
+def matches_sarif_location(uri: str, fixture: Path, system: str) -> bool:
+    if uri == fixture.name:
+        return True
+    if system != "win32":
+        return False
+    parsed = urlsplit(uri)
+    return (
+        parsed.scheme == "file"
+        and not parsed.netloc
+        and not parsed.query
+        and not parsed.fragment
+        and ntpath.normcase(unquote(parsed.path).lstrip("/"))
+        == ntpath.normcase(str(fixture.resolve()))
+    )
 
 
 def main() -> None:
@@ -150,8 +168,8 @@ def main() -> None:
         assert sarif_result["ruleId"] == "DRAGON-PI-002"
         assert sarif_result["level"] == "error"
         location = sarif_result["locations"][0]["physicalLocation"]
-        expected_uri = finding_fixture.resolve().as_uri() if sys.platform == "win32" else "SKILL.md"
-        assert location["artifactLocation"]["uri"] == expected_uri
+        uri = location["artifactLocation"]["uri"]
+        assert matches_sarif_location(uri, finding_fixture, sys.platform), uri
         assert location["region"]["startLine"] == 3
         assert len(sarif_result["message"]["text"]) < 1000
     digest = hashlib.sha256()

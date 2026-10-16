@@ -210,6 +210,14 @@ def test_isolated_smoke_environment_excludes_python_and_project_paths() -> None:
     assert "PYTHONPATH" not in win
 
 
+def test_standalone_sarif_location_checks_full_windows_path(tmp_path: Path) -> None:
+    fixture = tmp_path / "SKILL.md"
+    assert smoke_module.matches_sarif_location("SKILL.md", fixture, "win32")
+    assert not smoke_module.matches_sarif_location("other/SKILL.md", fixture, "win32")
+    assert not smoke_module.matches_sarif_location("file:///C:/wrong/SKILL.md", fixture, "win32")
+    assert not smoke_module.matches_sarif_location("file:///C:/wrong/SKILL.md", fixture, "darwin")
+
+
 def test_tag_must_match_package_version() -> None:
     validate_tag(VERSION, "branch", "main")
     validate_tag(VERSION, "tag", f"v{VERSION}")
