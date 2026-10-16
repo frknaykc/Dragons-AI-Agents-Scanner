@@ -150,7 +150,8 @@ def main() -> None:
         assert sarif_result["ruleId"] == "DRAGON-PI-002"
         assert sarif_result["level"] == "error"
         location = sarif_result["locations"][0]["physicalLocation"]
-        assert location["artifactLocation"]["uri"] == "SKILL.md"
+        expected_uri = finding_fixture.resolve().as_uri() if sys.platform == "win32" else "SKILL.md"
+        assert location["artifactLocation"]["uri"] == expected_uri
         assert location["region"]["startLine"] == 3
         assert len(sarif_result["message"]["text"]) < 1000
     digest = hashlib.sha256()
