@@ -109,11 +109,30 @@ def socket_snapshot(pid: int) -> bool:
         output = subprocess.run(
             ["netstat", "-ano", "-p", "tcp"], capture_output=True, text=True, timeout=10, check=True
         ).stdout
-        return any(
+        netstat_match = any(
             row.split()[-1] == str(pid) and "ESTABLISHED" in row.upper()
             for row in output.splitlines()
             if row.split()
         )
+        if netstat_match:
+            return True
+        # The NetTCPIP CIM query independently checks PID/state without parsing localized
+        # netstat output. It remains a sampled established-connection check, not tracing.
+        query = subprocess.run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                f"if (Get-NetTCPConnection -OwningProcess {pid} -State Established "
+                "-ErrorAction SilentlyContinue | Select-Object -First 1) {'MATCH'}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=True,
+        )
+        return "MATCH" in query.stdout
     output = subprocess.run(
         ["/usr/sbin/lsof", "-nP", "-a", "-p", str(pid), "-iTCP", "-sTCP:ESTABLISHED"],
         capture_output=True,
@@ -223,7 +242,7 @@ def main() -> None:
         "platform": target,
         "observer": "strace child-tree network syscalls"
         if sys.platform == "linux"
-        else "netstat established-TCP polling"
+        else "netstat / Get-NetTCPConnection established-TCP polling"
         if sys.platform == "win32"
         else "lsof established-TCP polling",
         "observer_version": "unknown",
