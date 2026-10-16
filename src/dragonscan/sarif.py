@@ -2,6 +2,7 @@
 
 import json
 import ntpath
+import os
 from pathlib import Path, PureWindowsPath
 from typing import Any
 from urllib.parse import quote
@@ -34,7 +35,8 @@ def _uri(report: ScanReport, artifact: Path) -> str | None:
             return None
         target = str(report.target)
         if value == target or value.startswith(target + "!"):
-            value = report.acquisition_source + value[len(target) :]
+            # The acquisition source is a URL; Path uses native separators on Windows.
+            value = report.acquisition_source + value[len(target) :].replace("\\", "/")
         else:
             return None  # Do not expose an unprojected acquisition workspace path.
     cleaned = redact(value)
@@ -43,7 +45,9 @@ def _uri(report: ScanReport, artifact: Path) -> str | None:
     if value.startswith("https://"):
         return quote(value, safe="/:!")
     # On POSIX, Path treats Windows drive/UNC paths as relative text.
-    if "\\" in value or (len(value) > 1 and value[1] == ":"):
+    # On Windows, native paths (including relative paths with backslashes)
+    # must instead use the same checkout-relative projection as other paths.
+    if os.name != "nt" and ("\\" in value or (len(value) > 1 and value[1] == ":")):
         windows = PureWindowsPath(ntpath.normpath(value))
         if not windows.is_absolute():
             return None
@@ -54,12 +58,14 @@ def _uri(report: ScanReport, artifact: Path) -> str | None:
             else ("file:///" + quote(normalized, safe="/:!"))
         )
     if report.acquisition_kind == "archive":
-        return "file://" + quote(value, safe="/:!") if artifact.is_absolute() else None
+        return artifact.as_uri().replace("%21", "!") if artifact.is_absolute() else None
     physical = artifact.resolve(strict=False)
+    if redact(str(physical)) != str(physical):
+        return None
     try:
         return quote(physical.relative_to(Path.cwd().resolve()).as_posix(), safe="/:!")
     except ValueError:
-        return "file://" + quote(physical.as_posix(), safe="/:!")
+        return physical.as_uri().replace("%21", "!")
 
 
 def _result(report: ScanReport, finding: Finding) -> dict[str, Any]:

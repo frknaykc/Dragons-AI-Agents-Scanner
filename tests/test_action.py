@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 ACTION = ROOT / "action.yml"
 WORKFLOW = ROOT / "examples" / "dragons-action.yml"
 HOSTED_WORKFLOW = ROOT / ".github" / "workflows" / "hosted-action-sarif.yml"
+CLI = Path(sys.executable).parent / ("dragonscan.exe" if os.name == "nt" else "dragonscan")
 SPEC = importlib.util.spec_from_file_location("action_scan", ROOT / "scripts" / "action_scan.py")
 assert SPEC is not None and SPEC.loader is not None
 MODULE = importlib.util.module_from_spec(SPEC)
@@ -141,7 +142,7 @@ def _scan(
     workspace = tmp_path / "workspace"
     workspace.mkdir(exist_ok=True)
     output = tmp_path / "output"
-    cli = Path(sys.executable).parent / "dragonscan"
+    cli = CLI
     assert cli.is_file()
     code, sarif = MODULE.scan_action(
         workspace, tmp_path / "runner", cli, target, fail_on, fail_on_incomplete, output, env=env
@@ -274,7 +275,7 @@ def test_scanner_receives_only_minimal_environment_and_argument_vector(
         "LANG": "C.UTF-8",
     }
     assert observed["command"] == [
-        str(Path(sys.executable).parent / "dragonscan"),
+        str(CLI),
         "scan",
         str(workspace / "SKILL.md"),
         "--format",
@@ -311,9 +312,9 @@ def test_action_script_with_runner_environment(tmp_path: Path) -> None:
     workspace.mkdir()
     (workspace / "SKILL.md").write_text("Ordinary local document.\n", encoding="utf-8")
     runner = tmp_path / "runner"
-    bin_dir = runner / "dragons-venv" / "bin"
+    bin_dir = runner / "dragons-venv" / ("Scripts" if os.name == "nt" else "bin")
     bin_dir.mkdir(parents=True)
-    (bin_dir / "dragonscan").symlink_to(Path(sys.executable).parent / "dragonscan")
+    (bin_dir / CLI.name).symlink_to(CLI)
     output = tmp_path / "github-output"
     env = {
         **os.environ,

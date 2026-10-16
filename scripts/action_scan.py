@@ -79,7 +79,7 @@ def main() -> None:
     scan_action(
         Path(os.environ["GITHUB_WORKSPACE"]),
         temp,
-        temp / "dragons-venv" / "bin" / "dragonscan",
+        temp / "dragons-venv" / ("Scripts/dragonscan.exe" if os.name == "nt" else "bin/dragonscan"),
         os.environ["INPUT_TARGET"],
         os.environ["INPUT_FAIL_ON"],
         os.environ["INPUT_FAIL_ON_INCOMPLETE"],

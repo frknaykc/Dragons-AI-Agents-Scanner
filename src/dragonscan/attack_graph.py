@@ -122,7 +122,9 @@ def build_graph(
     nodes: dict[str, GraphNode] = {}
     edges: dict[GraphEdge, None] = {}
     known = frozenset(doc.artifact.path for doc in documents)
-    case_counts = Counter(str(path).casefold() for path in known)
+    # Windows Path equality collapses differently cased spellings in a set.
+    # Retain the document multiplicity when detecting ambiguous references.
+    case_counts = Counter(str(doc.artifact.path).casefold() for doc in documents)
     root = boundary if boundary.is_dir() else boundary.parent
 
     def node(kind: str, key: str, label: str, artifact: Path | None = None) -> str:

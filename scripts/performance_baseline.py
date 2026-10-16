@@ -6,9 +6,10 @@ Output is one JSON document; each case runs in a fresh Python interpreter for RS
 """
 
 import argparse
+import ctypes
+import ctypes.wintypes
 import json
 import platform
-import resource
 import subprocess
 import sys
 import tempfile
@@ -72,7 +73,41 @@ def workloads(smoke: bool) -> tuple[Workload, ...]:
 
 
 def peak_rss_mb() -> float:
-    """OS high-water RSS (macOS bytes, Linux KiB), including interpreter/setup."""
+    """OS high-water RSS, including interpreter/setup."""
+    if sys.platform == "win32":
+
+        class Counters(ctypes.Structure):
+            _fields_ = [
+                ("cb", ctypes.wintypes.DWORD),
+                ("PageFaultCount", ctypes.wintypes.DWORD),
+                ("PeakWorkingSetSize", ctypes.c_size_t),
+                ("WorkingSetSize", ctypes.c_size_t),
+                ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                ("PagefileUsage", ctypes.c_size_t),
+                ("PeakPagefileUsage", ctypes.c_size_t),
+            ]
+
+        counters = Counters()
+        counters.cb = ctypes.sizeof(counters)
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+        psapi = ctypes.WinDLL("psapi", use_last_error=True)
+        psapi.GetProcessMemoryInfo.argtypes = [
+            ctypes.c_void_p,
+            ctypes.POINTER(Counters),
+            ctypes.wintypes.DWORD,
+        ]
+        psapi.GetProcessMemoryInfo.restype = ctypes.wintypes.BOOL
+        if not psapi.GetProcessMemoryInfo(
+            kernel32.GetCurrentProcess(), ctypes.byref(counters), counters.cb
+        ):
+            raise OSError(ctypes.get_last_error(), "GetProcessMemoryInfo failed")
+        return round(counters.PeakWorkingSetSize / (1024 * 1024), 3)
+    import resource
+
     rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     return round(rss / (1024 * 1024) if sys.platform == "darwin" else rss / 1024, 3)
 

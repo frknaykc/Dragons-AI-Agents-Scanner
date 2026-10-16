@@ -357,6 +357,12 @@ def update_feed(url: str, expected_sha256: str, store: Path) -> Feed:
     # Do not follow existing store ancestors into another user-selected path.
     if any(parent.is_symlink() for parent in (store, *store.parents)):
         raise FeedError("store symlink not allowed")
+    if os.name == "nt":
+        # st_mode does not describe Windows ACLs; do not create/download a
+        # secret-bearing feed without an equivalent store permission check.
+        raise FeedError(
+            "intelligence updates require verified store permissions; Windows ACLs are unsupported"
+        )
     try:
         store.mkdir(mode=0o700, parents=True, exist_ok=True)
         if store.stat().st_mode & 0o022:

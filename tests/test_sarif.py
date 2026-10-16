@@ -119,12 +119,13 @@ def test_hostile_text_redaction_and_invalid_unicode() -> None:
     assert json.loads(text)["runs"][0]["results"][0]["ruleId"] == "DAAS-001"
 
 
-def test_archive_and_remote_logical_provenance() -> None:
+def test_archive_and_remote_logical_provenance(tmp_path: Path) -> None:
+    archive_path = tmp_path / "archive.zip"
     archive = report(
-        sample(Path("/tmp/archive.zip!/SKILL.md")),
-        target=Path("/tmp/archive.zip"),
+        sample(Path(str(archive_path) + "!/SKILL.md")),
+        target=archive_path,
         acquisition_kind="archive",
-        acquisition_source="/tmp/archive.zip",
+        acquisition_source=str(archive_path),
     )
     remote = report(
         sample(Path("https:/example.com/archive.zip!/SKILL.md")),
@@ -136,11 +137,24 @@ def test_archive_and_remote_logical_provenance() -> None:
         parsed(archive)["runs"][0]["results"][0]["locations"][0]["physicalLocation"][
             "artifactLocation"
         ]["uri"]
-        == "file:///tmp/archive.zip!/SKILL.md"
+        == archive_path.as_uri() + "!/SKILL.md"
     )
     text = sarif_report(remote)
     assert "https://example.com/archive.zip!/SKILL.md" in text
     assert "dragonscan-" not in text
+
+
+def test_external_local_uri_preserves_native_drive_and_location(tmp_path: Path) -> None:
+    artifact = tmp_path / "scan result" / "SKILL.md"
+    result = parsed(report(sample(artifact)))["runs"][0]["results"][0]
+    assert result["locations"] == [
+        {
+            "physicalLocation": {
+                "artifactLocation": {"uri": artifact.as_uri()},
+                "region": {"startLine": 7},
+            }
+        }
+    ]
 
 
 @pytest.mark.parametrize(
@@ -229,7 +243,10 @@ def test_repo_relative_uri_and_finding_id_count(tmp_path: Path) -> None:
     ids = set()
     for module in source.glob("*.py"):
         ids.update(
-            re.findall(r"(?<![A-Z0-9-])(?:DAAS|DRAGON-[A-Z]+)-\d{3}(?!\d)", module.read_text())
+            re.findall(
+                r"(?<![A-Z0-9-])(?:DAAS|DRAGON-[A-Z]+)-\d{3}(?!\d)",
+                module.read_text(encoding="utf-8"),
+            )
         )
     assert len(ids) == 46
     assert "DRAGON-TI-001" in ids
@@ -433,24 +450,25 @@ def test_remote_archive_projection_uses_source_uri_not_workspace(tmp_path: Path)
     assert "dragonscan-acquire-" not in output
 
 
-def test_existing_flow_path_is_bounded_and_uses_logical_locations() -> None:
-    path = Path("/tmp/sample.zip!/SKILL.md")
+def test_existing_flow_path_is_bounded_and_uses_logical_locations(tmp_path: Path) -> None:
+    archive_path = tmp_path / "sample.zip"
+    path = Path(str(archive_path) + "!/SKILL.md")
     steps = tuple(
         PathStep("static", "instruction", "sink", path, index + 1, "static", Confidence.HIGH)
         for index in range(20)
     )
     source = report(
         replace(sample(path, source="instruction", sink="network"), path=steps),
-        target=Path("/tmp/sample.zip"),
+        target=archive_path,
         acquisition_kind="archive",
-        acquisition_source="/tmp/sample.zip",
+        acquisition_source=str(archive_path),
     )
     result = parsed(source)["runs"][0]["results"][0]
     assert result["properties"]["source"] == "instruction"
     assert result["properties"]["sink"] == "network"
     assert len(result["relatedLocations"]) == 16
     assert result["relatedLocations"][0]["physicalLocation"] == {
-        "artifactLocation": {"uri": "file:///tmp/sample.zip!/SKILL.md"},
+        "artifactLocation": {"uri": archive_path.as_uri() + "!/SKILL.md"},
         "region": {"startLine": 1},
     }
     assert "dragonscan-acquire-" not in sarif_report(source)

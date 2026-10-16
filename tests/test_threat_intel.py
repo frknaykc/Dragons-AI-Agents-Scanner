@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 import socket
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -78,7 +79,7 @@ def test_feed_validation():
 def test_exact_matches_provenance_and_no_flow(tmp_path: Path):
     skill = tmp_path / "SKILL.md"
     skill.write_text("Contact https://malicious.example.test/path and 8.8.8.8\n")
-    digest = hashlib.sha256(skill.read_text().encode()).hexdigest()
+    digest = hashlib.sha256(skill.read_bytes()).hexdigest()
     items = [
         record("domain", "malicious.example.test"),
         {**record("url", "https://malicious.example.test/path"), "id": "test-2"},
@@ -243,6 +244,9 @@ def test_hash_and_skill_filename_are_not_text_or_name_only_matches(tmp_path: Pat
     )
 
 
+@pytest.mark.skipif(
+    os.name == "nt", reason="Windows ACLs cannot establish secure update-store permissions"
+)
 def test_update_atomic_and_offline_scan(tmp_path: Path):
     store = tmp_path / "store"
     old = feed(record("domain", "old.example.test"))
@@ -285,6 +289,22 @@ def test_update_rejects_private_url_without_network(tmp_path: Path):
             update_feed("https://127.0.0.1/intel.json", "a" * 64, tmp_path / "store")
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Windows ACL fail-closed behavior")
+def test_windows_update_preserves_store_without_network(tmp_path: Path):
+    store = tmp_path / "store"
+    store.mkdir()
+    original = feed(record("domain", "old.example.test"))
+    (store / "intel.json").write_bytes(original)
+    with patch("dragonscan.threat_intel._download", side_effect=AssertionError("network")):
+        with pytest.raises(FeedError, match="Windows ACLs are unsupported"):
+            update_feed("https://public.example.test/feed", "a" * 64, store)
+    assert (store / "intel.json").read_bytes() == original
+    assert sorted(path.name for path in store.iterdir()) == ["intel.json"]
+
+
+@pytest.mark.skipif(
+    os.name == "nt", reason="Windows intelligence updates fail closed before download"
+)
 def test_update_redirect_private_and_size_bound_preserve_old_feed(tmp_path: Path):
     store = tmp_path / "store"
     store.mkdir()
@@ -309,6 +329,9 @@ def test_update_redirect_private_and_size_bound_preserve_old_feed(tmp_path: Path
     assert (store / "intel.json").read_bytes() == old
 
 
+@pytest.mark.skipif(
+    os.name == "nt", reason="Windows intelligence updates fail closed before download"
+)
 @pytest.mark.parametrize("mode", ["no_length", "false_small", "truncated", "oversized", "failure"])
 def test_streamed_update_is_bounded_and_cleans_partial_candidates(tmp_path: Path, mode: str):
     store = tmp_path / "store"
@@ -341,6 +364,9 @@ def test_streamed_update_is_bounded_and_cleans_partial_candidates(tmp_path: Path
     assert sorted(item.name for item in store.iterdir()) == ["intel.json"]
 
 
+@pytest.mark.skipif(
+    os.name == "nt", reason="Windows ACLs cannot establish secure update-store permissions"
+)
 def test_update_downgrade_and_permissions(tmp_path: Path):
     store = tmp_path / "store"
     store.mkdir()
@@ -360,6 +386,9 @@ def test_update_downgrade_and_permissions(tmp_path: Path):
     assert b"old.example.test" in (store / "intel.json").read_bytes()
 
 
+@pytest.mark.skipif(
+    os.name == "nt", reason="Windows intelligence updates fail closed before download"
+)
 def test_update_rejects_symlink_store_and_invalid_feed(tmp_path: Path):
     store = tmp_path / "store"
     store.mkdir()

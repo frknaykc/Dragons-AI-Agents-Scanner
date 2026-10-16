@@ -142,17 +142,19 @@ def test_system_git_follows_redirect_without_destination_revalidation(tmp_path: 
     worker = threading.Thread(target=server.serve_forever)
     worker.start()
     try:
-        subprocess.run(
+        result = subprocess.run(
             [git, "ls-remote", f"http://127.0.0.1:{port}/repo.git"],
             check=False,
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
             timeout=5,
             env={
                 "HOME": str(tmp_path),
+                "PATH": os.environ.get("PATH", ""),
                 "GIT_CONFIG_NOSYSTEM": "1",
                 "GIT_CONFIG_GLOBAL": os.devnull,
                 "GIT_TERMINAL_PROMPT": "0",
+                **({"SystemRoot": os.environ["SystemRoot"]} if os.name == "nt" else {}),
             },
         )
     finally:
@@ -160,8 +162,8 @@ def test_system_git_follows_redirect_without_destination_revalidation(tmp_path: 
         server.server_close()
         worker.join(timeout=5)
     assert not worker.is_alive()
-    assert any(path.startswith("/repo.git/") for path in requests)
-    assert any(path.startswith("/private.git/") for path in requests)
+    assert any(path.startswith("/repo.git/") for path in requests), result.stderr
+    assert any(path.startswith("/private.git/") for path in requests), result.stderr
 
 
 def test_inert_local_git_artifacts_cannot_open_host_path(tmp_path: Path) -> None:

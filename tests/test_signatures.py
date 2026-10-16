@@ -64,7 +64,7 @@ def mcp(tmp_path: Path, url: str) -> Path:
 
 def skill(tmp_path: Path, content: str) -> Path:
     file = tmp_path / "SKILL.md"
-    file.write_text(content, encoding="utf-8")
+    file.write_bytes(content.encode("utf-8"))
     return file
 
 

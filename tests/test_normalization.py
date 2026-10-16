@@ -300,6 +300,9 @@ def test_dependency_manifest_relations(tmp_path):
         ("config.json", '{"many":[' + "0," * 20_001 + "0]}"),
         ("config.toml", 'value = "\\x00"'),
     ],
+    ids=lambda value: (
+        value if value in {"config.json", "config.yaml", "config.toml"} else "invalid-input"
+    ),
 )
 def test_invalid_structured_input_is_diagnostic(tmp_path, name, content):
     with pytest.raises(ParseError):
@@ -318,7 +321,7 @@ def test_hostile_binary_unicode_and_malformed_markdown(tmp_path):
     path.write_text("# 🐉\n\n```unterminated\n\u202eexample\n", encoding="utf-8")
     report = Scanner().scan(Target(path))
     assert not report.errors and not report.findings
-    doc = parse(discover(Target(path))[0], path.read_text())
+    doc = parse(discover(Target(path))[0], path.read_text(encoding="utf-8"))
     assert doc.blocks[-1].kind == "code"
 
 

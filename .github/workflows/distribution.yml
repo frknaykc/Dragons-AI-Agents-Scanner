@@ -31,14 +31,8 @@ jobs:
           enable-cache: 'false'
       - name: Install locked development and build dependencies
         run: uv sync --locked --python 3.12.12 --group standalone
-      - name: Test scanner (Linux and macOS)
-        if: runner.os != 'Windows'
+      - name: Test full scanner suite
         run: uv run --locked --group standalone pytest -q
-      # The full suite has pre-existing Windows-specific failures in POSIX resource,
-      # locale and path tests. This is not a full-suite Windows pass.
-      - name: Test distribution on Windows
-        if: runner.os == 'Windows'
-        run: uv run --locked --group standalone pytest -q tests/test_distribution.py
       - name: Build native executable
         run: uv run --locked --group standalone python scripts/build_standalone.py
       - name: Smoke test executable

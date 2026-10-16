@@ -16,7 +16,7 @@ from dragonscan.scanner import Scanner
 def _write(root: Path, relative: str, text: str) -> Path:
     path = root / relative
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text)
+    path.write_text(text, encoding="utf-8")
     return path
 
 
