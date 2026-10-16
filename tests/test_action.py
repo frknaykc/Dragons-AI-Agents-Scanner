@@ -15,6 +15,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 ACTION = ROOT / "action.yml"
 WORKFLOW = ROOT / "examples" / "dragons-action.yml"
+HOSTED_WORKFLOW = ROOT / ".github" / "workflows" / "hosted-action-sarif.yml"
 SPEC = importlib.util.spec_from_file_location("action_scan", ROOT / "scripts" / "action_scan.py")
 assert SPEC is not None and SPEC.loader is not None
 MODULE = importlib.util.module_from_spec(SPEC)
@@ -79,6 +80,54 @@ def test_action_metadata_and_workflow() -> None:
         "fail-on-incomplete": "true",
     }
     assert all("@main" not in step.get("uses", "") for step in example_steps)
+
+
+def test_hosted_validation_only_runs_trusted_fixtures_with_scoped_permissions() -> None:
+    workflow = yaml.load(HOSTED_WORKFLOW.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+    assert set(workflow["on"]) == {"workflow_dispatch"}
+    assert workflow["permissions"] == {}
+    jobs = workflow["jobs"]
+    assert jobs["contract"]["permissions"] == {"contents": "read"}
+    assert jobs["code-scanning"]["permissions"] == {
+        "contents": "read",
+        "security-events": "write",
+    }
+    for job in jobs.values():
+        assert job["runs-on"] == "ubuntu-24.04"
+        steps = job["steps"]
+        assert re.fullmatch(r"actions/checkout@[0-9a-f]{40}", steps[0]["uses"])
+        assert steps[0]["with"]["persist-credentials"] == "false"
+        assert all("@main" not in step.get("uses", "") for step in steps)
+        assert all("|| true" not in step.get("run", "") for step in steps)
+    contract_steps = jobs["contract"]["steps"]
+    cases = {step["id"]: step for step in contract_steps if "id" in step}
+    assert set(cases) == {"clean", "policy", "invalid"}
+    assert cases["clean"]["with"]["target"] == (
+        "benchmarks/corpus/benign-credential-guide/AGENTS.md"
+    )
+    assert cases["policy"]["with"]["fail-on"] == "high"
+    assert cases["policy"]["continue-on-error"] == "true"
+    assert cases["invalid"]["continue-on-error"] == "true"
+    assert all(case["uses"] == "./" for case in cases.values())
+    for case, code in (("policy", "1"), ("invalid", "3")):
+        expected_output = "${{ steps." + case + ".outputs.exit-code }}"
+        check = next(
+            step
+            for step in contract_steps
+            if step.get("env", {}).get("SCAN_CODE") == expected_output
+        )
+        assert f"SCAN_CODE'] == '{code}'" in check["run"]
+        assert "SCAN_OUTCOME'] == 'failure'" in check["run"]
+    upload_steps = jobs["code-scanning"]["steps"]
+    assert upload_steps[1]["uses"] == "./"
+    assert upload_steps[1]["with"]["target"] == cases["policy"]["with"]["target"]
+    upload = upload_steps[-1]
+    assert re.fullmatch(r"github/codeql-action/upload-sarif@[0-9a-f]{40}", upload["uses"])
+    assert upload["with"] == {
+        "sarif_file": "hosted-validation.sarif",
+        "category": "dragons-hosted-validation",
+    }
+    assert "DRAGON-PI-002" in upload_steps[-2]["run"]
 
 
 def _scan(

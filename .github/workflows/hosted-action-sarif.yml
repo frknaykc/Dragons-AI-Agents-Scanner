@@ -1,0 +1,125 @@
+name: Hosted Dragons Action and SARIF validation
+on:
+  workflow_dispatch:
+permissions: {}
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Clean fixture
+        id: clean
+        uses: ./
+        with:
+          target: benchmarks/corpus/benign-credential-guide/AGENTS.md
+      - name: Verify clean SARIF and exit status
+        env:
+          SCAN_CODE: ${{ steps.clean.outputs.exit-code }}
+          SARIF: ${{ steps.clean.outputs.sarif-path }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          assert os.environ['SCAN_CODE'] == '0'
+          report = json.loads(Path(os.environ['SARIF']).read_text())
+          assert report['version'] == '2.1.0'
+          assert report['runs'][0]['results'] == []
+          PY
+      - name: Expected policy violation
+        id: policy
+        uses: ./
+        continue-on-error: true
+        with:
+          target: benchmarks/corpus/quality-instruction-safety-bypass/SKILL.md
+          fail-on: high
+      - name: Verify policy exit is not a passing scan
+        env:
+          SCAN_CODE: ${{ steps.policy.outputs.exit-code }}
+          SCAN_OUTCOME: ${{ steps.policy.outcome }}
+          SARIF: ${{ steps.policy.outputs.sarif-path }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          assert os.environ['SCAN_OUTCOME'] == 'failure'
+          assert os.environ['SCAN_CODE'] == '1'
+          results = json.loads(Path(os.environ['SARIF']).read_text())['runs'][0]['results']
+          assert [(item['ruleId'], item['level']) for item in results] == [('DRAGON-PI-002', 'error')]
+          PY
+      - name: Invalid target
+        id: invalid
+        uses: ./
+        continue-on-error: true
+        with:
+          target: benchmarks/corpus/no-such-artifact/SKILL.md
+      - name: Verify operational failure is not a passing scan
+        env:
+          SCAN_CODE: ${{ steps.invalid.outputs.exit-code }}
+          SCAN_OUTCOME: ${{ steps.invalid.outcome }}
+          SARIF: ${{ steps.invalid.outputs.sarif-path }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          assert os.environ['SCAN_OUTCOME'] == 'failure'
+          assert os.environ['SCAN_CODE'] == '3'
+          report = json.loads(Path(os.environ['SARIF']).read_text())
+          assert report['runs'][0]['results'] == []
+          PY
+  code-scanning:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Synthetic finding
+        id: finding
+        uses: ./
+        with:
+          target: benchmarks/corpus/quality-instruction-safety-bypass/SKILL.md
+      - name: Verify SARIF before upload
+        env:
+          SCAN_CODE: ${{ steps.finding.outputs.exit-code }}
+          SARIF: ${{ steps.finding.outputs.sarif-path }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          assert os.environ['SCAN_CODE'] == '0'
+          path = Path(os.environ['SARIF'])
+          assert path.is_file() and path.stat().st_size < 1_000_000
+          report = json.loads(path.read_text())
+          assert report['version'] == '2.1.0'
+          run = report['runs'][0]
+          assert run['tool']['driver']['name'] == 'Dragons AI Agent Scanner'
+          assert [rule['id'] for rule in run['tool']['driver']['rules']] == ['DRAGON-PI-002']
+          assert len(run['results']) == 1
+          result = run['results'][0]
+          assert result['ruleId'] == 'DRAGON-PI-002' and result['level'] == 'error'
+          assert result['properties']['severity'] == 'high'
+          location = result['locations'][0]['physicalLocation']
+          assert location['artifactLocation']['uri'] == 'benchmarks/corpus/quality-instruction-safety-bypass/SKILL.md'
+          assert location['region']['startLine'] == 3
+          assert len(result['message']['text']) <= 920
+          Path('hosted-validation.sarif').write_bytes(path.read_bytes())
+          PY
+      - name: Upload verified SARIF to Code Scanning
+        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
+        with:
+          sarif_file: hosted-validation.sarif
+          category: dragons-hosted-validation
