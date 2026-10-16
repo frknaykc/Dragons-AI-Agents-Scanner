@@ -20,6 +20,7 @@ sys.path.insert(0, str(ROOT))
 build_module = importlib.import_module("scripts.build_standalone")
 checksum_module = importlib.import_module("scripts.checksums")
 stage_module = importlib.import_module("scripts.stage_standalone")
+smoke_module = importlib.import_module("scripts.smoke_standalone")
 ARCHITECTURES = build_module.ARCHITECTURES
 artifact_name = build_module.artifact_name
 validate_tag = build_module.validate_tag
@@ -159,6 +160,54 @@ def test_artifact_names(system: str, machine: str, suffix: str) -> None:
 def test_unsupported_host_fails_closed() -> None:
     with pytest.raises(ValueError, match="unsupported"):
         artifact_name("linux", "aarch64", VERSION)
+
+
+def test_native_binary_header_rejects_wrong_architecture(tmp_path: Path) -> None:
+    binary = tmp_path / "native"
+    elf = bytearray(64)
+    elf[:6] = b"\x7fELF\x02\x01"
+    elf[18:20] = (62).to_bytes(2, "little")
+    binary.write_bytes(elf)
+    smoke_module.check_native_binary(binary, "linux-x86_64")
+    with pytest.raises(ValueError, match="native executable"):
+        smoke_module.check_native_binary(binary, "windows-x86_64")
+    with pytest.raises(ValueError, match="native executable"):
+        smoke_module.check_native_binary(binary, "macos-arm64")
+    macho = b"\xcf\xfa\xed\xfe" + (0x0100000C).to_bytes(4, "little")
+    binary.write_bytes(macho)
+    smoke_module.check_native_binary(binary, "macos-arm64")
+    with pytest.raises(ValueError, match="native executable"):
+        smoke_module.check_native_binary(binary, "macos-x86_64")
+    windows = bytearray(256)
+    windows[:2] = b"MZ"
+    windows[60:64] = (128).to_bytes(4, "little")
+    windows[128:132] = b"PE\0\0"
+    windows[132:134] = (0x8664).to_bytes(2, "little")
+    windows[152:154] = (0x20B).to_bytes(2, "little")
+    binary.write_bytes(windows)
+    smoke_module.check_native_binary(binary, "windows-x86_64")
+    with pytest.raises(ValueError, match="native executable"):
+        smoke_module.check_native_binary(binary, "linux-x86_64")
+
+
+def test_isolated_smoke_environment_excludes_python_and_project_paths() -> None:
+    env = smoke_module.runtime_environment(
+        {
+            "PYTHONPATH": "/checkout",
+            "VIRTUAL_ENV": "/checkout/.venv",
+            "UV_PROJECT_ENVIRONMENT": "/checkout/.venv",
+            "PATH": "/checkout/.venv/bin:/usr/bin",
+            "SYSTEMROOT": "C:\\Windows",
+        },
+        "linux",
+    )
+    assert env["PATH"] == "/usr/bin:/bin"
+    assert "PYTHONPATH" not in env
+    assert "VIRTUAL_ENV" not in env
+    assert "UV_PROJECT_ENVIRONMENT" not in env
+    win = smoke_module.runtime_environment({"SYSTEMROOT": "C:\\Windows"}, "win32")
+    assert win["PATH"].startswith("C:\\Windows")
+    assert "PYTHONPATH" not in win
 
 
 def test_tag_must_match_package_version() -> None:
