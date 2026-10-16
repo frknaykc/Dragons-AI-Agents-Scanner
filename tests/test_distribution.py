@@ -213,6 +213,9 @@ def test_isolated_smoke_environment_excludes_python_and_project_paths() -> None:
 def test_standalone_sarif_location_checks_full_windows_path(tmp_path: Path) -> None:
     fixture = tmp_path / "SKILL.md"
     assert smoke_module.matches_sarif_location("SKILL.md", fixture, "win32")
+    if os.name == "nt":
+        fixture.write_text("inert fixture", encoding="utf-8")
+        assert smoke_module.matches_sarif_location(fixture.as_uri(), fixture, "win32")
     assert not smoke_module.matches_sarif_location("other/SKILL.md", fixture, "win32")
     assert not smoke_module.matches_sarif_location("file:///C:/wrong/SKILL.md", fixture, "win32")
     assert not smoke_module.matches_sarif_location("file:///C:/wrong/SKILL.md", fixture, "darwin")

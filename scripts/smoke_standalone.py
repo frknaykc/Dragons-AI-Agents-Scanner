@@ -3,7 +3,6 @@
 import hashlib
 import importlib.metadata
 import json
-import ntpath
 import os
 import platform
 import shutil
@@ -66,14 +65,10 @@ def matches_sarif_location(uri: str, fixture: Path, system: str) -> bool:
     if system != "win32":
         return False
     parsed = urlsplit(uri)
-    return (
-        parsed.scheme == "file"
-        and not parsed.netloc
-        and not parsed.query
-        and not parsed.fragment
-        and ntpath.normcase(unquote(parsed.path).lstrip("/"))
-        == ntpath.normcase(str(fixture.resolve()))
-    )
+    if parsed.scheme != "file" or parsed.netloc or parsed.query or parsed.fragment:
+        return False
+    candidate = Path(unquote(parsed.path).lstrip("/"))
+    return candidate.is_file() and candidate.samefile(fixture)
 
 
 def main() -> None:
