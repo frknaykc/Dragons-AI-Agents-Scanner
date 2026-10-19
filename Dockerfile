@@ -2,7 +2,7 @@
 FROM python:3.12.12-slim-bookworm@sha256:593bd06efe90efa80dc4eee3948be7c0fde4134606dd40d8dd8dbcade98e669c AS builder
 WORKDIR /app
 RUN python -m pip install --no-cache-dir uv==0.11.7
-COPY pyproject.toml uv.lock README.md ./
+COPY pyproject.toml uv.lock README.md LICENSE ./
 COPY src/ ./src/
 ENV UV_PROJECT_ENVIRONMENT=/opt/dragons
 RUN uv sync --locked --no-dev --no-editable --no-config --python /usr/local/bin/python

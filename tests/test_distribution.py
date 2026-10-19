@@ -8,6 +8,7 @@ import platform
 import re
 import subprocess
 import sys
+import tarfile
 import tomllib
 import zipfile
 from pathlib import Path
@@ -35,12 +36,55 @@ def test_package_metadata_and_build_group() -> None:
     assert project["name"] == "dragons-ai-agent-scanner"
     assert project["requires-python"] == ">=3.12"
     assert project["scripts"]["dragonscan"] == "dragonscan.cli:main"
+    assert project["license"] == "MIT"
+    assert project["license-files"] == ["LICENSE"]
+    assert project["urls"]["Source"] == "https://github.com/frknaykc/Dragons-AI-Agents-Scanner"
+    assert "LICENSE" in METADATA["tool"]["hatch"]["build"]["targets"]["sdist"]["only-include"]
+    assert "Copyright (c) 2026 Furkan ‘NaxoziwuS’ Aykaç" in (ROOT / "LICENSE").read_text(
+        encoding="utf-8"
+    )
     assert {"click", "markdown-it-py", "PyYAML"} == {
         re.split(r"[<>=]", dependency)[0] for dependency in project["dependencies"]
     }
     assert METADATA["dependency-groups"]["standalone"] == ["pyinstaller==6.16.0"]
     assert "pyinstaller" not in str(project["dependencies"]).lower()
     assert "pyinstaller" in (ROOT / "uv.lock").read_text(encoding="utf-8")
+
+
+def test_offline_sdist_contents(tmp_path: Path) -> None:
+    subprocess.run(
+        ["uv", "build", "--offline", "--sdist", "--out-dir", str(tmp_path)],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    (sdist,) = tmp_path.glob("*.tar.gz")
+    with tarfile.open(sdist, "r:gz") as archive:
+        names = archive.getnames()
+        prefix = f"dragons_ai_agent_scanner-{VERSION}/"
+        assert {prefix + "LICENSE", prefix + "README.md", prefix + "pyproject.toml"} <= set(names)
+        assert {
+            prefix + "src/" + str(path.relative_to(ROOT / "src"))
+            for path in (ROOT / "src" / "dragonscan").glob("*.py")
+        } <= set(names)
+        assert not any(
+            marker in name.lower()
+            for name in names
+            for marker in (
+                "benchmarks/",
+                "tests/",
+                "semantic/results/",
+                ".env",
+                "__pycache__",
+                "credentials",
+                "dist/",
+                "build/",
+            )
+        )
+        metadata = archive.extractfile(prefix + "PKG-INFO")
+        assert metadata is not None
+        assert b"License-Expression: MIT" in metadata.read()
 
 
 def test_offline_installed_wheel_cli(tmp_path: Path) -> None:
@@ -81,8 +125,11 @@ def test_offline_installed_wheel_cli(tmp_path: Path) -> None:
             )
         )
         assert any(name.endswith("/entry_points.txt") for name in names)
+        assert any(name.endswith(".dist-info/licenses/LICENSE") for name in names)
         metadata_name = next(name for name in names if name.endswith("/METADATA"))
         metadata = archive.read(metadata_name).decode("utf-8")
+        assert "License-Expression: MIT" in metadata
+        assert "License-File: LICENSE" in metadata
         assert "requires-dist: pyinstaller" not in metadata.lower()
     venv = tmp_path / "venv"
     # A clean runner's uv cache may contain locked archives but not the registry
@@ -275,6 +322,7 @@ def test_docker_build_context_and_runtime_policy() -> None:
     ignore = (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
     assert "USER 65532:65532" in dockerfile
     assert "COPY src/ ./src/" in dockerfile
+    assert "COPY pyproject.toml uv.lock README.md LICENSE ./" in dockerfile
     assert "COPY . " not in dockerfile
     assert "uv sync --locked --no-dev --no-editable --no-config" in dockerfile
     assert re.search(r"FROM python:3\.12\.12-slim-bookworm@sha256:[0-9a-f]{64}", dockerfile)
@@ -284,6 +332,7 @@ def test_docker_build_context_and_runtime_policy() -> None:
         "!pyproject.toml",
         "!uv.lock",
         "!README.md",
+        "!LICENSE",
         "!src/",
         "!src/dragonscan/",
         "!src/dragonscan/*.py",

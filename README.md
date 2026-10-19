@@ -1,8 +1,8 @@
-![Dragons AI Agents Scanner original banner](assets/branding/banner.png)
+![Dragons AI Agents Scanner original banner](https://raw.githubusercontent.com/frknaykc/Dragons-AI-Agents-Scanner/main/assets/branding/banner.png)
 
 # Dragons AI Agent Security Scanner
 
-[![Python 3.12+](https://img.shields.io/badge/Python-3.12%2B-24546a)](docs/INSTALLATION.md) [![Offline quality and security regression](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/actions/workflows/quality.yml/badge.svg?branch=main)](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/actions/workflows/quality.yml) [![GitHub stars](https://img.shields.io/github/stars/frknaykc/Dragons-AI-Agents-Scanner?style=flat&label=Stars)](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/stargazers)
+[![Python 3.12+](https://img.shields.io/badge/Python-3.12%2B-24546a)](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/blob/main/docs/INSTALLATION.md) [![Offline quality and security regression](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/actions/workflows/quality.yml/badge.svg?branch=main)](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/actions/workflows/quality.yml) [![GitHub stars](https://img.shields.io/github/stars/frknaykc/Dragons-AI-Agents-Scanner?style=flat&label=Stars)](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/stargazers)
 
 **Inspect AI agent components before you trust them.** Dragons statically scans agent instructions, skills, MCP configurations and related dependency metadata. Findings include the affected location, bounded evidence, severity and confidence. You can investigate suspicious behavior without executing the inspected component. A finding warrants review; it does not prove compromise.
 
@@ -32,25 +32,25 @@ The bundled file is an inert test artifact. Its scan produces:
 
 Replace the example path with a supported file or directory of your own. The first `uv sync` may download this project's locked dependencies. **Scanning a target does not install that target's dependencies.**
 
-[Installation options](docs/INSTALLATION.md) · [CLI commands](docs/CLI_GUIDE.md)
+[Installation options](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/blob/main/docs/INSTALLATION.md) · [CLI commands](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/blob/main/docs/CLI_GUIDE.md)
 
 ## See the scanner
 
-The images below capture real macOS Terminal sessions using inert test fixtures. They are not simulated terminal interfaces, and no malicious payload was executed. The [screenshot verification log](assets/screenshots/README.md) records the command, fixture, exit code and capture method for each image. Tap an image to enlarge it on mobile.
+The images below capture real macOS Terminal sessions using inert test fixtures. They are not simulated terminal interfaces, and no malicious payload was executed. The [screenshot verification log](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/blob/main/assets/screenshots/README.md) records the command, fixture, exit code and capture method for each image. Tap an image to enlarge it on mobile.
 
 ### Clean scan
 
 One supported document, no security findings.
 
-![Terminal showing Dragons scanning a bundled inert AGENTS.md file with COMPLETE status, zero findings and PASS policy](assets/screenshots/dragons-clean-scan.png)
+![Terminal showing Dragons scanning a bundled inert AGENTS.md file with COMPLETE status, zero findings and PASS policy](https://raw.githubusercontent.com/frknaykc/Dragons-AI-Agents-Scanner/main/assets/screenshots/dragons-clean-scan.png)
 
 ### Security finding
 
 A synthetic instruction-override fixture produces a finding without executing the fixture's instructions.
 
-![Terminal showing a DRAGON-PI-001 high-severity finding in an inert synthetic SKILL.md](assets/screenshots/dragons-security-finding.png)
+![Terminal showing a DRAGON-PI-001 high-severity finding in an inert synthetic SKILL.md](https://raw.githubusercontent.com/frknaykc/Dragons-AI-Agents-Scanner/main/assets/screenshots/dragons-security-finding.png)
 
-[Main help screenshot](assets/screenshots/dragons-help.png) · [Severity gate screenshot (exit 1)](assets/screenshots/dragons-severity-policy.png) · [All commands and reports](docs/CLI_GUIDE.md)
+[Main help screenshot](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/blob/main/assets/screenshots/dragons-help.png) · [Severity gate screenshot (exit 1)](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/blob/main/assets/screenshots/dragons-severity-policy.png) · [All commands and reports](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/blob/main/docs/CLI_GUIDE.md)
 
 ## What Dragons detects
 
@@ -68,14 +68,14 @@ Dragons looks for security indicators in supported AI agent artifacts using stat
 
 No detector covers every attack. Static evidence cannot establish whether a target was executed, contacted a server or exfiltrated data. Findings require review in context; false positives and false negatives remain possible.
 
-[Finding interpretation](docs/FINDINGS_AND_REPORTS.md) · [Technical scope](docs/REFERENCE.md)
+[Finding interpretation](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/blob/main/docs/FINDINGS_AND_REPORTS.md) · [Technical scope](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/blob/main/docs/REFERENCE.md)
 
 ## Agent coverage
 
 Dragons recognizes selected file and configuration formats associated with Claude Code, Codex, Cursor, Cline, Hermes Agent, Kilo Code, Zed Agent and Goose.
 
 > [!IMPORTANT]
-> **Partial platform support.** These are supported artifact subsets, not full integrations. Coverage varies by file format and platform; some locations have only synthetic-fixture validation. Antigravity has no agent-specific adapter. See the [coverage table and gaps](docs/SUPPORTED_AGENTS.md) before treating a platform as supported for your particular setup.
+> **Partial platform support.** These are supported artifact subsets, not full integrations. Coverage varies by file format and platform; some locations have only synthetic-fixture validation. Antigravity has no agent-specific adapter. See the [coverage table and gaps](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/blob/main/docs/SUPPORTED_AGENTS.md) before treating a platform as supported for your particular setup.
 
 Scanning a path does not search your installed agents. To inspect known local agent roots, opt in separately:
 
@@ -83,7 +83,7 @@ Scanning a path does not search your installed agents. To inspect known local ag
 uv run dragonscan scan --installed-agents
 ```
 
-This option reads known local locations; it does not prove an agent is installed or active. [Installed-agent details](docs/SUPPORTED_AGENTS.md)
+This option reads known local locations; it does not prove an agent is installed or active. [Installed-agent details](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/blob/main/docs/SUPPORTED_AGENTS.md)
 
 ## How it works
 
@@ -98,7 +98,7 @@ This option reads known local locations; it does not prove an agent is installed
 | Risk | Assign finding severity; the highest finding severity sets the overall risk level. |
 | Report | Present findings with locations and bounded supporting evidence. |
 
-Missing source, sink or flow information means Dragons could not establish that relationship; it does not prove the relationship is impossible. [Reports explained](docs/FINDINGS_AND_REPORTS.md)
+Missing source, sink or flow information means Dragons could not establish that relationship; it does not prove the relationship is impossible. [Reports explained](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/blob/main/docs/FINDINGS_AND_REPORTS.md)
 
 ## Terminal, JSON and SARIF
 
@@ -119,7 +119,7 @@ uv run dragonscan scan ./agent-directory --format sarif --output scan.sarif --fa
 | `2` | Invalid CLI usage or option. |
 | `3` | Analysis was incomplete or failed. |
 
-Generating SARIF does **not** upload a report to GitHub. Acceptance by GitHub's hosted Code Scanning service has not been validated. [Exit codes and policy](docs/CLI_GUIDE.md#exit-status-and-policy) · [CI integration](docs/CI_INTEGRATION.md)
+Generating SARIF does **not** upload a report to GitHub. A separate [hosted CI validation](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/blob/main/docs/CI_INTEGRATION.md#sarif-artifacts-and-code-scanning) confirmed ingestion of a trusted synthetic finding; uploads from external repositories are not validated. [Exit codes and policy](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/blob/main/docs/CLI_GUIDE.md#exit-status-and-policy) · [CI integration](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/blob/main/docs/CI_INTEGRATION.md)
 
 ## Security boundaries
 
@@ -137,7 +137,7 @@ The following operations require separate opt-in:
 > [!CAUTION]
 > **Dynamic MCP execution is not sandboxed by the operating system when uncontained execution is authorized.** Do not authorize untrusted binaries. This mode is separate from the default static scan.
 
-Static analysis cannot certify that an artifact is safe. Review findings, paths and report contents before sharing them. [Security model and limitations](docs/SECURITY_MODEL.md)
+Static analysis cannot certify that an artifact is safe. Review findings, paths and report contents before sharing them. [Security model and limitations](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/blob/main/docs/SECURITY_MODEL.md)
 
 ## Offline scanning with Docker
 
@@ -148,25 +148,25 @@ docker build -t dragonscan:local .
 docker run --rm --network none -v "$PWD:/target:ro" dragonscan:local scan /target
 ```
 
-`--network none` disables container networking and `-v "$PWD:/target:ro"` mounts the current directory read-only at `/target`. Image creation may download this project's dependencies unless cached. **This Docker example has not been validated during this documentation review.** Do not treat this container setup as a sandbox for separately authorized dynamic MCP execution.
+`--network none` disables container networking and `-v "$PWD:/target:ro"` mounts the current directory read-only at `/target`. Image creation may download this project's dependencies unless cached. Do not treat this container setup as a sandbox for separately authorized dynamic MCP execution.
 
 ## Documentation
 
 | Get started | Understand results | Operate safely |
 | --- | --- | --- |
-| [Installation](docs/INSTALLATION.md) | [Findings and reports](docs/FINDINGS_AND_REPORTS.md) | [Security model](docs/SECURITY_MODEL.md) |
-| [CLI guide](docs/CLI_GUIDE.md) | [Supported agents](docs/SUPPORTED_AGENTS.md) | [CI integration](docs/CI_INTEGRATION.md) |
+| [Installation](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/blob/main/docs/INSTALLATION.md) | [Findings and reports](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/blob/main/docs/FINDINGS_AND_REPORTS.md) | [Security model](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/blob/main/docs/SECURITY_MODEL.md) |
+| [CLI guide](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/blob/main/docs/CLI_GUIDE.md) | [Supported agents](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/blob/main/docs/SUPPORTED_AGENTS.md) | [CI integration](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/blob/main/docs/CI_INTEGRATION.md) |
 
-[Technical reference](docs/REFERENCE.md) · [Benchmark methodology](benchmarks/README.md) · [Agent coverage evidence](docs/AGENT_COVERAGE_REVIEW.md) · [Product vision (proposals, not features)](IDEA.md)
+[Technical reference](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/blob/main/docs/REFERENCE.md) · [Benchmark methodology](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/blob/main/benchmarks/README.md) · [Agent coverage evidence](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/blob/main/docs/AGENT_COVERAGE_REVIEW.md) · [Product vision (proposals, not features)](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/blob/main/IDEA.md)
 
 ## Release and license status
 
 Dragons remains under development. There is no published PyPI package, standalone executable, official container image or GitHub Release.
 
 > [!IMPORTANT]
-> **License notice.** No project-level `LICENSE` has been selected. Do not assume permission to redistribute, modify or commercially distribute the scanner. Third-party benchmark licenses apply to their respective artifacts, not to Dragons itself.
+> **License notice.** Dragons' own source code is licensed under [MIT](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/blob/main/LICENSE). Third-party benchmark artifacts retain their own licenses and attribution; the MIT grant for Dragons does not replace their redistribution terms.
 
-See [installation](docs/INSTALLATION.md) for verified local usage.
+See [installation](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/blob/main/docs/INSTALLATION.md) for verified local usage.
 
 ## Contributions and feedback
 
