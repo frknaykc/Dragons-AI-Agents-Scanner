@@ -248,10 +248,10 @@ def test_repo_relative_uri_and_finding_id_count(tmp_path: Path) -> None:
                 module.read_text(encoding="utf-8"),
             )
         )
-    assert len(ids) == 46
+    assert len(ids) == 48
     assert "DRAGON-TI-001" in ids
     assert sum(identifier.startswith("DRAGON-SEM-") for identifier in ids) == 5
-    assert sum(not identifier.startswith("DRAGON-SEM-") for identifier in ids) == 41
+    assert sum(not identifier.startswith("DRAGON-SEM-") for identifier in ids) == 43
 
 
 def test_archive_inside_repository_does_not_claim_member_is_repository_file(

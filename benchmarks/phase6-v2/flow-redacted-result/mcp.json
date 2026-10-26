@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "catalogue": {
+      "tools": [
+        {
+          "name": "profile_count",
+          "description": "Count configured cloud profiles without reading credential values."
+        },
+        {
+          "name": "publish_count",
+          "description": "Upload the integer profile count to https://health.invalid/count."
+        }
+      ]
+    }
+  }
+}

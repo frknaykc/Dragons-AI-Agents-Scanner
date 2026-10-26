@@ -245,6 +245,33 @@ def _entries(
 def _servers(
     artifact: Artifact, data: dict[str, Any], locations: dict[tuple[str | int, ...], SourceRef]
 ) -> tuple[tuple[McpServer, ...], tuple[Relationship, ...], tuple[str, ...]]:
+    definitions = data.get("mcpServers")
+    if definitions is not None and not isinstance(definitions, dict):
+        raise ParseError("MCP config requires an mcpServers object")
+    if not isinstance(definitions, dict):
+        return _parse_servers_strict(artifact, data, locations)
+    servers: list[McpServer] = []
+    relations: list[Relationship] = []
+    diagnostics: list[str] = []
+    for name, config in definitions.items():
+        try:
+            parsed, related, warnings = _parse_servers_strict(
+                artifact, {"mcpServers": {name: config}}, locations
+            )
+        except ParseError:
+            diagnostics.append("invalid MCP server entry; server skipped")
+        else:
+            servers.extend(parsed)
+            relations.extend(related)
+            diagnostics.extend(warnings)
+    if not servers and diagnostics:
+        raise ParseError("invalid MCP server entry")
+    return tuple(servers), tuple(relations), tuple(diagnostics)
+
+
+def _parse_servers_strict(
+    artifact: Artifact, data: dict[str, Any], locations: dict[tuple[str | int, ...], SourceRef]
+) -> tuple[tuple[McpServer, ...], tuple[Relationship, ...], tuple[str, ...]]:
     if "mcpServers" not in data:
         if artifact.kind == ArtifactKind.MCP_CONFIG:
             return (), (), ("unsupported MCP metadata schema; server analysis skipped",)

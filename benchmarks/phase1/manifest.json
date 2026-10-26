@@ -1,0 +1,156 @@
+{
+  "schema_version": 1,
+  "corpus_version": "phase1-1",
+  "cases": [
+    {
+      "id": "phase1-mcp-static",
+      "split": "development",
+      "classification": "benign",
+      "provenance": "synthetic",
+      "artifact": "mcp-static/mcp.json",
+      "notes": "Static tool list and URL path lookalikes are not mutable metadata or URL credentials.",
+      "expected": [],
+      "expected_absent": ["DRAGON-MCP-002", "DRAGON-MCP-009"]
+    },
+    {
+      "id": "phase1-mcp-guide",
+      "split": "development",
+      "classification": "benign",
+      "provenance": "synthetic",
+      "artifact": "mcp-guide/mcp.json",
+      "notes": "Quoted example of a sensitive transfer is not an instruction or path.",
+      "expected": [],
+      "expected_absent": ["DRAGON-MCP-006", "DRAGON-MCP-010", "DRAGON-MCP-012"]
+    },
+    {
+      "id": "phase1-flow-unresolved",
+      "split": "development",
+      "classification": "benign",
+      "provenance": "synthetic",
+      "artifact": "flow-unresolved/mcp.json",
+      "notes": "An unresolved tool reference cannot borrow a sibling's sensitive transfer or config-writing capability.",
+      "expected": [],
+      "expected_absent": ["DRAGON-FLOW-001", "DRAGON-FLOW-002"]
+    },
+    {
+      "id": "phase1-sc-tool-notes",
+      "split": "development",
+      "classification": "benign",
+      "provenance": "synthetic",
+      "artifact": "sc-tool-notes/pyproject.toml",
+      "notes": "Unrelated tool metadata does not define an in-project build backend.",
+      "expected": [],
+      "expected_absent": ["DRAGON-SC-007"]
+    },
+    {
+      "id": "phase1-mcp-transfer",
+      "split": "development",
+      "classification": "malicious",
+      "provenance": "synthetic",
+      "artifact": "mcp-transfer/mcp.json",
+      "notes": "Actionable ordered sensitive transfer precedes a separate documentation sentence.",
+      "expected": ["DRAGON-MCP-006", "DRAGON-MCP-008", "DRAGON-MCP-010", "DRAGON-MCP-012"],
+      "expected_categories": {
+        "DRAGON-MCP-006": "mcp-security",
+        "DRAGON-MCP-008": "mcp-security",
+        "DRAGON-MCP-010": "mcp-security",
+        "DRAGON-MCP-012": "mcp-security"
+      },
+      "expected_findings": [
+        {
+          "id": "DRAGON-MCP-012",
+          "artifact": "mcp-transfer/mcp.json",
+          "category": "mcp-security",
+          "evidence_contains": "links a sensitive read to an external transfer",
+          "source": "sensitive local data",
+          "sink": "network egress capability",
+          "path_edges": ["defines", "exposes", "defines", "sends_to"]
+        }
+      ]
+    },
+    {
+      "id": "phase1-path-exfil",
+      "split": "development",
+      "classification": "malicious",
+      "provenance": "synthetic",
+      "artifact": "path-exfil",
+      "notes": "A discovered skill explicitly loads a credential-to-network instruction in another skill.",
+      "expected": ["DAAS-001", "DRAGON-PATH-001"],
+      "expected_categories": {"DRAGON-PATH-001": "cross-artifact-path"},
+      "expected_findings": [{"id": "DRAGON-PATH-001", "artifact": "path-exfil/SKILL.md", "line": 1, "category": "cross-artifact-path", "evidence_contains": "explicit local relationship", "source": "cloud credentials", "sink": "external HTTP(S) endpoint", "path_edges": ["loads", "defines", "reads", "sends_to"]}]
+    },
+    {
+      "id": "phase1-path-exec",
+      "split": "development",
+      "classification": "malicious",
+      "provenance": "synthetic",
+      "artifact": "path-exec",
+      "notes": "A discovered skill loads a remote fetch-to-shell instruction without executing it.",
+      "expected": ["DRAGON-EXEC-001", "DRAGON-PATH-002"],
+      "expected_categories": {"DRAGON-PATH-002": "cross-artifact-path"},
+      "expected_findings": [{"id": "DRAGON-PATH-002", "artifact": "path-exec/SKILL.md", "line": 1, "category": "cross-artifact-path", "evidence_contains": "explicit local relationship", "source": "remote content", "sink": "shell execution", "path_edges": ["loads", "defines", "fetches", "executes"]}]
+    },
+    {
+      "id": "phase1-path-persist",
+      "split": "development",
+      "classification": "malicious",
+      "provenance": "synthetic",
+      "artifact": "path-persist",
+      "notes": "A discovered skill links remote policy to an existing persistent instruction file.",
+      "expected": ["DRAGON-PERSIST-001", "DRAGON-TRUST-001", "DRAGON-PATH-003"],
+      "expected_categories": {"DRAGON-PATH-003": "cross-artifact-path"},
+      "expected_findings": [{"id": "DRAGON-PATH-003", "artifact": "path-persist/SKILL.md", "line": 1, "category": "cross-artifact-path", "evidence_contains": "explicit local relationship", "source": "remote instructions", "sink": "persistent instruction", "path_edges": ["loads", "defines", "modifies"]}]
+    },
+    {
+      "id": "phase1-path-config",
+      "split": "development",
+      "classification": "malicious",
+      "provenance": "synthetic",
+      "artifact": "path-config",
+      "notes": "A discovered skill links remote policy to an existing agent settings file.",
+      "expected": ["DRAGON-TRUST-001", "DRAGON-PATH-004"],
+      "expected_categories": {"DRAGON-PATH-004": "cross-artifact-path"},
+      "expected_findings": [{"id": "DRAGON-PATH-004", "artifact": "path-config/SKILL.md", "line": 1, "category": "cross-artifact-path", "evidence_contains": "explicit local relationship", "source": "remote instructions", "sink": "agent configuration", "path_edges": ["loads", "defines", "modifies"]}]
+    },
+    {
+      "id": "phase1-path-exfil-unrelated",
+      "split": "development",
+      "classification": "benign",
+      "provenance": "synthetic",
+      "artifact": "path-exfil-unrelated",
+      "notes": "A quoted credential-audit example and an unrelated public upload have no linked data path.",
+      "expected": [],
+      "expected_absent": ["DRAGON-PATH-001"]
+    },
+    {
+      "id": "phase1-path-exec-doc",
+      "split": "development",
+      "classification": "benign",
+      "provenance": "synthetic",
+      "artifact": "path-exec-doc",
+      "notes": "A loaded skill quotes a remote shell command as fenced documentation only.",
+      "expected": [],
+      "expected_absent": ["DRAGON-PATH-002"]
+    },
+    {
+      "id": "phase1-path-persist-unrelated",
+      "split": "development",
+      "classification": "malicious",
+      "provenance": "synthetic",
+      "artifact": "path-persist-unrelated",
+      "notes": "A remote policy instruction has no resolved target; another instruction file is not a substitute.",
+      "expected": ["DRAGON-PERSIST-001", "DRAGON-TRUST-001"],
+      "expected_absent": ["DRAGON-PATH-003"]
+    },
+    {
+      "id": "phase1-path-config-unrelated",
+      "split": "development",
+      "classification": "malicious",
+      "provenance": "synthetic",
+      "artifact": "path-config-unrelated",
+      "notes": "Remote policy names a missing settings file; a distinct discovered settings file is not the target.",
+      "expected": ["DRAGON-TRUST-001"],
+      "expected_absent": ["DRAGON-PATH-004"]
+    }
+  ]
+}

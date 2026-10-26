@@ -73,6 +73,28 @@ def test_default_scan_unchanged_and_explicit_cli(
     assert data["installed_agents"]["artifacts"]
 
 
+def test_command_code_provider_credentials_are_not_discovered_or_reported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / ".commandcode"
+    root.mkdir()
+    (root / "config.json").write_text("{}")
+    marker = "fixture-private-provider-value-not-for-reports"
+    private = root / "providers.json"
+    private.write_text(json.dumps({"provider": {"apiKey": marker}}))
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    discovered = discover_installed(home=tmp_path, agent="Command Code")
+    assert all(item.path != private for item in discovered.artifacts)
+    for fmt in ("terminal", "json", "sarif"):
+        args = ["scan", "--installed-agents", "--agent", "Command Code"]
+        if fmt != "terminal":
+            args.extend(("--format", fmt))
+        result = CliRunner().invoke(main, args)
+        assert result.exit_code == 0, result.output
+        assert marker not in result.output
+        assert "providers.json" not in result.output
+
+
 def test_default_scan_does_not_call_installed_discovery(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -326,6 +348,43 @@ def test_entry_budget_failure_is_diagnostic_not_partial_scan(tmp_path: Path) -> 
     assert report.installed_environments[0].status == "discovered"
     assert report.installed_environments[0].resolution == "partial"
     assert report.findings == ()
+
+
+def test_installed_budget_override_recovers_artifacts_beyond_default(tmp_path: Path) -> None:
+    root = tmp_path / ".claude"
+    root.mkdir()
+    (root / "settings.json").write_text("{}")
+    for number in range(MAX_ENTRIES_PER_ROOT):
+        (root / f"ignored-{number}").touch()
+    skill = root / "skills" / "demo" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("ordinary guidance")
+    limited = Scanner().scan_installed(home=tmp_path)
+    complete = Scanner().scan_installed(home=tmp_path, max_entries_per_root=4096)
+    assert all(item.path != skill for item in limited.artifacts)
+    assert any(item.path == skill for item in complete.artifacts)
+    assert complete.installed_environments[0].resolution == "complete"
+
+
+def test_agent_selection_limits_discovery_to_selected_known_agent(tmp_path: Path) -> None:
+    for name, config in ((".claude", "settings.json"), (".codex", "config.toml")):
+        root = tmp_path / name
+        root.mkdir()
+        (root / config).write_text("{}")
+    result = discover_installed(home=tmp_path, agent="Codex")
+    assert result.artifacts
+    assert {item.agent for item in result.environments} == {"Codex"}
+    assert all(item.path.is_relative_to(tmp_path / ".codex") for item in result.artifacts)
+
+
+def test_all_known_roots_include_standalone_claude_mcp_file(tmp_path: Path) -> None:
+    config = tmp_path / ".claude.json"
+    config.write_text('{"mcpServers": {}}')
+    result = discover_installed(home=tmp_path)
+    assert any(item.path == config for item in result.artifacts)
+    assert (
+        next(item for item in result.environments if item.root == config).resolution == "complete"
+    )
 
 
 def test_artifact_budget_failure_isolated_to_one_root(

@@ -1,0 +1,4 @@
+[build-system]
+requires = []
+build-backend = "build_local"
+backend-path = ["build-code"]

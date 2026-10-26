@@ -16,7 +16,7 @@ def baseline() -> dict[str, object]:
         "status": "completed",
         "summary": {"evaluated_cases": 48, "failed_cases": 0, "tp": 50, "fp": 0, "fn": 0},
         "correctness": {"failed": 0},
-        "coverage": {"total_rules": 46},
+        "coverage": {"total_rules": 48},
     }
 
 
@@ -29,6 +29,7 @@ def test_baseline_and_regressions(baseline: dict[str, object]) -> None:
     changed = json.loads(json.dumps(baseline))
     changed["correctness"]["failed"] = 1
     assert not check(changed)
+    changed = json.loads(json.dumps(baseline))
     changed["coverage"]["total_rules"] = 47
     assert not check(changed)
 

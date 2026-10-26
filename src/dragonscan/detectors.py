@@ -18,6 +18,7 @@ _OBSERVATION_KINDS = frozenset(
         "override",
         "bypass",
         "remote_execution",
+        "remote_python_execution",
         "persistence",
         "remote_trust",
         "sensitive_access",
@@ -117,6 +118,29 @@ class BehavioralDetector:
 
 
 @dataclass(frozen=True)
+class EncodedExecutionDetector:
+    metadata: DetectionMetadata
+
+    def detect(self, context: DetectionContext) -> tuple[Finding, ...]:
+        if context.document.artifact.kind not in self.metadata.artifact_types:
+            return ()
+        return tuple(
+            finding(
+                self.metadata,
+                context.document,
+                observation.location,
+                "literal encoded input is decoded and piped to an interpreter",
+                "behavioral",
+                observation.capabilities,
+                "literal encoded input",
+                observation.label,
+            )
+            for observation in context.observations
+            if observation.kind == "literal_encoded_execution"
+        )
+
+
+@dataclass(frozen=True)
 class SourceSinkDetector:
     metadata: DetectionMetadata
     access_metadata: DetectionMetadata
@@ -162,7 +186,9 @@ class SourceSinkDetector:
                         sink.label,
                     )
                 )
-            else:
+            elif source.label != "agent memory":
+                # Memory remains a transfer source, but its name alone is not
+                # evidence of credentials. Explicit secret sources still match.
                 results.append(
                     finding(
                         self.access_metadata,
@@ -376,6 +402,38 @@ BUILTIN_DETECTORS: tuple[EngineDetector, ...] = (
         "instruction directs a remote download piped to a shell",
         "remote content",
         "shell execution",
+    ),
+    BehavioralDetector(
+        _meta(
+            "DRAGON-EXEC-002",
+            "Remote download directed to Python interpreter",
+            "dangerous-execution",
+            S.HIGH,
+            F.HIGH,
+            C.RISKY,
+            _MARKDOWN,
+            "An instruction links an HTTP(S) download to Python stdin; "
+            "no remote code was executed by the scanner.",
+            "Do not run downloaded code; inspect and verify it offline first.",
+        ),
+        "remote_python_execution",
+        "instruction directs an HTTP(S) download piped to Python stdin",
+        "remote HTTP(S) code source",
+        "Python interpreter execution",
+    ),
+    EncodedExecutionDetector(
+        _meta(
+            "DRAGON-EXEC-003",
+            "Literal encoded input decoded into an interpreter",
+            "dangerous-execution",
+            S.HIGH,
+            F.HIGH,
+            C.RISKY,
+            _MARKDOWN,
+            "An active instruction links literal encoded input through a decoder to shell or "
+            "Python stdin; the scanner does not run or retain the decoded content.",
+            "Inspect the encoded source and remove the decode-to-interpreter pipeline.",
+        ),
     ),
     BehavioralDetector(
         _meta(

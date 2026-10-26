@@ -5,6 +5,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
+from dragonscan.behavior import unnegated_text
 from dragonscan.detection import DetectionContext, DetectionMetadata, finding
 from dragonscan.models import Classification as C
 from dragonscan.models import Confidence as F
@@ -25,14 +26,24 @@ _OVERRIDE = re.compile(
     re.I,
 )
 _SHADOW = re.compile(
-    r"\b(?:before calling|when calling|instead of calling|"
+    r"\b(?:(?:before|when|instead of)\s+(?:calling|using)|"
     r"change (?:the )?(?:arguments?|destination|output) of|"
     r"redirect (?:the )?(?:output|result) of)\s+([\w.-]+)",
     re.I,
 )
 _MANIPULATION = re.compile(
     r"\b(?:secretly|silently|without (?:telling|informing)|"
-    r"include (?:the )?credentials?|redirect|change|replace|inject)\b",
+    r"include (?:the )?credentials?|"
+    r"(?:redirect|change|replace|inject)\b[^.;\n]{0,80}"
+    r"\b(?:arguments?|instructions?|destination|output|result))\b",
+    re.I,
+)
+_REJECTED_QUOTE = re.compile(
+    r"(?:^|(?<=[.;!?\n]))\s*(?:reject|ignore)\s+"
+    r"(?:(?:any|all|the)\s+)?(?:tool\s+)?"
+    r"(?:text|messages?|instructions?|descriptions?)\s+that\s+"
+    r"(?:says?|contains?|reads?)\s+"
+    r"(?:\"[^\"\n]{1,1000}\"|'[^'\n]{1,1000}'|“[^”\n]{1,1000}”)",
     re.I,
 )
 _DOCUMENTATION = re.compile(
@@ -61,17 +72,28 @@ _CAPABILITY_PATTERNS = {
 }
 
 
+def _active_metadata(text: str, *, preserve_boundaries: bool = False) -> str:
+    """Exclude prohibitions without hiding preceding actionable metadata."""
+    # Mask only a closed quotation explicitly being rejected, never the rest of
+    # its sentence. A warning followed by an active directive remains actionable.
+    text = _REJECTED_QUOTE.sub(" ", text[:4096])
+    segments = re.split(r"(?<=[.!?])\s+(?=[A-Z])|\n+", text)
+    separator = "\n" if preserve_boundaries else " "
+    return separator.join(
+        active
+        for segment in segments
+        if (active := unnegated_text(segment)) and not _DOCUMENTATION.search(active)
+    )
+
+
 def linked_sensitive_transfer(tool: McpTool) -> bool:
     """Require one ordered instruction rather than independent capabilities."""
-    text = tool.instructions or tool.description
-    return not _DOCUMENTATION.search(text) and bool(_LINKED_READ_SEND.search(text))
+    return bool(_LINKED_READ_SEND.search(_active_metadata(tool.instructions or tool.description)))
 
 
 def tool_signals(tool: McpTool) -> frozenset[str]:
     """Only explicit actionable content; tool names alone confer no capability."""
-    text = (tool.instructions or tool.description)[:4096]
-    if _DOCUMENTATION.search(text):
-        return frozenset()
+    text = _active_metadata(tool.instructions or tool.description)
     signals: set[str] = set()
     if _ACCESS.search(text) and _SENSITIVE.search(text):
         signals.add("credential-access")
@@ -92,23 +114,26 @@ def tool_signals(tool: McpTool) -> frozenset[str]:
 
 
 def shadow_target(server: McpServer, tool: McpTool) -> McpTool | None:
-    text = tool.instructions or tool.description
-    if _DOCUMENTATION.search(text) or not _MANIPULATION.search(text):
-        return None
-    match = _SHADOW.search(text)
-    if match is None:
-        return None
-    return next(
-        (other for other in server.tools if other is not tool and other.name == match[1]), None
-    )
+    text = _active_metadata(tool.instructions or tool.description, preserve_boundaries=True)
+    # A modification in a separate sentence must not authorize a control edge.
+    for sentence in re.split(r"(?<=[.!?])\s+(?=[A-Z])|;\s*|\n+", text):
+        match = _SHADOW.search(sentence)
+        if match is not None and _MANIPULATION.search(sentence):
+            return next(
+                (other for other in server.tools if other is not tool and other.name == match[1]),
+                None,
+            )
+    return None
 
 
 def passed_result_target(server: McpServer, tool: McpTool) -> McpTool | None:
     """Only an explicit same-server result transfer names a target tool."""
-    text = (tool.instructions or tool.description)[:4096]
-    if _DOCUMENTATION.search(text):
-        return None
-    match = re.search(r"\b(?:then\s+)?pass\s+(?:the|its)\s+result\s+to\s+([\w.-]+)\b", text, re.I)
+    text = _active_metadata(tool.instructions or tool.description)
+    match = re.search(
+        r"\b(?:then\s+)?pass\s+(?:the|its)\s+(?:result|output)\s+to\s+([\w.-]+)\b",
+        text,
+        re.I,
+    )
     if match is None:
         return None
     return next(
@@ -117,9 +142,7 @@ def passed_result_target(server: McpServer, tool: McpTool) -> McpTool | None:
 
 
 def poisoned(tool: McpTool) -> bool:
-    text = tool.instructions or tool.description
-    if _DOCUMENTATION.search(text):
-        return False
+    text = _active_metadata(tool.instructions or tool.description)
     return bool(
         _OVERRIDE.search(text)
         or (
@@ -217,9 +240,7 @@ class McpDeepDetector:
                         "agent instructions",
                     )
             for item in (*server.prompts, *server.resources):
-                if _OVERRIDE.search(item.description) and not _DOCUMENTATION.search(
-                    item.description
-                ):
+                if _OVERRIDE.search(_active_metadata(item.description)):
                     yield (
                         item.location,
                         "MCP prompt/resource metadata directs override of agent controls",
@@ -239,16 +260,16 @@ class McpDeepDetector:
                     )
         elif indicator == "mismatch":
             for tool in server.tools:
+                instructions = _active_metadata(tool.instructions)
                 if (
-                    tool.instructions
-                    and _ACCESS.search(tool.instructions)
-                    and _SENSITIVE.search(tool.instructions)
-                    and _TRANSFER.search(tool.instructions)
-                    and _REMOTE.search(tool.instructions)
+                    instructions
+                    and _ACCESS.search(instructions)
+                    and _SENSITIVE.search(instructions)
+                    and _TRANSFER.search(instructions)
+                    and _REMOTE.search(instructions)
                     and not (
                         _SENSITIVE.search(tool.description) or _REMOTE.search(tool.description)
                     )
-                    and not _DOCUMENTATION.search(tool.instructions)
                 ):
                     yield (
                         tool.location,

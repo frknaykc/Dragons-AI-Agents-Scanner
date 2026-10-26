@@ -11,8 +11,9 @@ import click
 
 from dragonscan.discovery import DiscoveryError
 from dragonscan.dynamic_mcp import DynamicPolicy
+from dragonscan.installed_agents import SPECS
 from dragonscan.models import ScanReport, Severity, Target
-from dragonscan.policy import evaluate
+from dragonscan.policy import PolicyResult, evaluate
 from dragonscan.reporting import json_report, sarif_report, terminal_report
 from dragonscan.scanner import Scanner
 from dragonscan.scanner import scan as scan_target
@@ -23,9 +24,55 @@ from dragonscan.threat_intel import FeedError, update_feed
 _NVIDIA_NIM_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
 
 
-@click.group()
-def main() -> None:
-    """Scan local AI agent artifacts; execution requires separate MCP consent."""
+class ScanGroup(click.Group):
+    """Accept scan targets and scan options at the root while retaining subcommands."""
+
+    def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+        if args and args[0] not in ("scan", "intel", "-tui", "--help"):
+            args = ["scan", *args]
+        return super().parse_args(ctx, args)
+
+
+def _interactive_terminal() -> bool:
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def _run_cli_interface() -> None:
+    if not _interactive_terminal():
+        raise click.UsageError(
+            "An interactive terminal is required; use scan PATH or scan --installed-agents"
+        )
+    from dragonscan.cli_interface import choose_target
+
+    selected = choose_target(color=_terminal_color_enabled())
+    if selected is not None:
+        path, installed_agents, agent = selected
+        click.get_current_context().invoke(
+            scan, path=path, installed_agents=installed_agents, agent=agent
+        )
+
+
+@click.group(cls=ScanGroup, invoke_without_command=True)
+@click.option("-tui", "tui", is_flag=True, help="Open the full-screen Textual interface.")
+@click.pass_context
+def main(ctx: click.Context, tui: bool) -> None:
+    """Scan AI agent artifacts; choose a target or pass scan options directly.
+
+    Run without arguments for the CLI menu, or use -tui for the full-screen view.
+    One-shot examples: dragonscan ./SKILL.md --format json;
+    dragonscan --installed-agents --agent Codex. All scan options are listed
+    under 'dragonscan scan --help'; the 'scan' word is optional for one-shot scans.
+    """
+    if tui:
+        if ctx.invoked_subcommand is not None:
+            raise click.UsageError("-tui cannot be combined with a scan command")
+        if not _interactive_terminal():
+            raise click.UsageError("-tui requires an interactive terminal")
+        from dragonscan.tui import run_tui
+
+        run_tui()
+    elif ctx.invoked_subcommand is None:
+        _run_cli_interface()
 
 
 @main.group()
@@ -55,7 +102,13 @@ class GroupedScanCommand(click.Command):
 
     def format_options(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
         sections = {
-            "Target": {"remote", "git_target", "installed_agents"},
+            "Target": {"remote", "git_target", "installed_agents", "agent"},
+            "Discovery budgets": {
+                "max_entries_per_root",
+                "max_artifacts",
+                "max_artifacts_per_root",
+                "max_depth",
+            },
             "Policy": {"fail_on", "fail_on_incomplete"},
             "Output": {"output_format", "output"},
             "Optional analysis": {
@@ -99,6 +152,21 @@ def _terminal_color_enabled() -> bool:
     return "NO_COLOR" not in os.environ and sys.stdout.isatty()
 
 
+def _save_installed_report(report: ScanReport, policy: PolicyResult) -> Path:
+    """Keep detailed local results in a new private directory, never in the scan target."""
+    directory = Path(tempfile.mkdtemp(prefix="dragonscan-", dir=Path.home()))
+    destination = directory / "scan.json"
+    try:
+        descriptor = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(json_report(report, policy) + "\n")
+        return destination
+    except BaseException:
+        destination.unlink(missing_ok=True)
+        directory.rmdir()
+        raise
+
+
 @main.command(cls=GroupedScanCommand)
 @click.argument("path", required=False)
 @click.option(
@@ -110,9 +178,22 @@ def _terminal_color_enabled() -> bool:
     is_flag=True,
     help="Scan a local Git working tree; remote Git is unavailable.",
 )
+@click.option("--installed-agents", is_flag=True, help="Scan known local agent environments")
 @click.option(
-    "--installed-agents", is_flag=True, help="Scan bounded known local agent environments"
+    "--agent",
+    type=click.Choice([spec.kind for spec in SPECS]),
+    help="Only discover this known agent (requires --installed-agents).",
 )
+@click.option("--max-entries-per-root", type=click.IntRange(min=1), help="Per-root entry budget.")
+@click.option(
+    "--max-artifacts",
+    type=click.IntRange(min=1),
+    help="Installed total or local directory artifact budget.",
+)
+@click.option(
+    "--max-artifacts-per-root", type=click.IntRange(min=1), help="Per-root artifact budget."
+)
+@click.option("--max-depth", type=click.IntRange(min=1), help="Installed discovery depth budget.")
 @click.option(
     "--format",
     "output_format",
@@ -198,6 +279,11 @@ def scan(
     remote: bool,
     git_target: bool,
     installed_agents: bool,
+    agent: str | None,
+    max_entries_per_root: int | None,
+    max_artifacts: int | None,
+    max_artifacts_per_root: int | None,
+    max_depth: int | None,
     output_format: str,
     fail_on: str | None,
     fail_on_incomplete: bool,
@@ -216,8 +302,28 @@ def scan(
     dynamic_mcp_executable: Path | None,
 ) -> None:
     """Scan a local file, directory, or archive; remote access requires --remote."""
+    configured = any(
+        value is not None
+        for value in (agent, max_entries_per_root, max_artifacts, max_artifacts_per_root, max_depth)
+    )
+    if not installed_agents and any(
+        value is not None
+        for value in (agent, max_entries_per_root, max_artifacts_per_root, max_depth)
+    ):
+        raise click.UsageError("--agent and per-root discovery budgets require --installed-agents")
     if path is None and not installed_agents:
-        raise click.UsageError("PATH is required unless --installed-agents is set")
+        ctx = click.get_current_context()
+        if (
+            any(
+                ctx.get_parameter_source(param.name) != click.core.ParameterSource.DEFAULT
+                for param in ctx.command.params
+                if param.name is not None
+            )
+            or not _interactive_terminal()
+        ):
+            raise click.UsageError("PATH is required unless --installed-agents is set")
+        _run_cli_interface()
+        return
     if installed_agents and dynamic_mcp:
         raise click.UsageError("--dynamic-mcp cannot be combined with --installed-agents")
     if installed_agents and (vuln_check or semantic):
@@ -235,6 +341,14 @@ def scan(
     if remote and path is not None and not path.startswith("https://"):
         raise click.UsageError("--remote supports HTTPS targets only")
     local_path = Path(path) if path is not None else None
+    if (
+        not installed_agents
+        and max_artifacts is not None
+        and (remote or git_target or local_path is None or not local_path.is_dir())
+    ):
+        raise click.UsageError(
+            "--max-artifacts without --installed-agents requires a local directory"
+        )
     provider = None
     if not dynamic_mcp and (allow_uncontained_mcp or dynamic_mcp_server or dynamic_mcp_executable):
         raise click.UsageError("--dynamic-mcp is required for dynamic execution options")
@@ -296,7 +410,19 @@ def scan(
                 intel_store=intel_store,
             )
         if installed_agents:
-            report = scanner.scan_installed(Target(local_path) if local_path is not None else None)
+            target = Target(local_path) if local_path is not None else None
+            report = (
+                scanner.scan_installed(
+                    target,
+                    agent=agent,
+                    max_entries_per_root=max_entries_per_root,
+                    max_artifacts=max_artifacts,
+                    max_artifacts_per_root=max_artifacts_per_root,
+                    max_depth=max_depth,
+                )
+                if configured
+                else scanner.scan_installed(target)
+            )
         else:
             assert path is not None
             assert local_path is not None
@@ -313,13 +439,14 @@ def scan(
             else:
                 report = (
                     scan_target(Target(local_path))
-                    if signature_pack is None
+                    if max_artifacts is None
+                    and signature_pack is None
                     and provider is None
                     and not dynamic_mcp
                     and not vuln_check
                     and not intel_feeds
                     and intel_store is None
-                    else scanner.scan(Target(local_path))
+                    else scanner.scan(Target(local_path), max_artifacts=max_artifacts)
                 )
     except AcquisitionCleanupError:
         if report is None:
@@ -337,7 +464,7 @@ def scan(
                 acquisition_diagnostics=report.acquisition_diagnostics
                 + ("acquisition workspace cleanup failed",),
             )
-    except DiscoveryError as exc:
+    except (DiscoveryError, ValueError) as exc:
         report = ScanReport(local_path or Path.home(), (), (), (str(exc),))
     except Exception:
         # A scanner/provider bug must not look like a finding-policy failure or clean scan.
@@ -348,13 +475,27 @@ def scan(
         Severity(fail_on) if fail_on is not None else None,
         fail_on_incomplete=fail_on_incomplete,
     )
+    saved_report: Path | None = None
+    if installed_agents and output_format == "terminal" and output is None:
+        try:
+            saved_report = _save_installed_report(report, policy)
+        except OSError:
+            click.echo("Private report output failed", err=True)
+            raise SystemExit(3) from None
     use_color = output_format == "terminal" and output is None and _terminal_color_enabled()
     text = (
         json_report(report, policy)
         if output_format == "json"
         else sarif_report(report, policy)
         if output_format == "sarif"
-        else terminal_report(report, policy, color=use_color)
+        else terminal_report(
+            report,
+            policy,
+            color=use_color,
+            installed_scan=installed_agents,
+            report_path=saved_report if output is None else output.absolute(),
+            json_saved=saved_report is not None,
+        )
     )
     if output is None:
         click.echo(text, color=use_color if output_format == "terminal" else False)

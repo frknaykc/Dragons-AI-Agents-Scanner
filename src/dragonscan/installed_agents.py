@@ -16,8 +16,7 @@ from dragonscan.models import (
     Target,
 )
 
-# Fixed known roots only; per-root and global artifact budgets stay unchanged.
-MAX_ENVIRONMENTS = 32
+# Fixed known roots only; callers may raise discovery budgets per run.
 MAX_ARTIFACTS = 256
 MAX_ENTRIES_PER_ROOT = 2048
 MAX_DEPTH = 4
@@ -312,11 +311,10 @@ SPECS = (
         (
             Location(
                 ".commandcode",
-                ("config.json", "settings.json", "mcp.json", "providers.json", "cron", "skills"),
+                ("config.json", "settings.json", "mcp.json", "cron", "skills"),
                 (
                     ("config.json", ArtifactKind.AGENT_CONFIG, SourceFormat.JSON),
                     ("settings.json", ArtifactKind.AGENT_CONFIG, SourceFormat.JSON),
-                    ("providers.json", ArtifactKind.AGENT_CONFIG, SourceFormat.JSON),
                     ("cron/jobs.json", ArtifactKind.AGENT_CONFIG, SourceFormat.JSON),
                 ),
                 project=False,
@@ -686,8 +684,21 @@ def _safe_mode(path: Path, home: Path) -> int | None:
 
 
 def discover_installed(
-    *, home: Path | None = None, platform: str | None = None
+    *,
+    home: Path | None = None,
+    platform: str | None = None,
+    agent: str | None = None,
+    max_entries_per_root: int | None = None,
+    max_artifacts: int | None = None,
+    max_artifacts_per_root: int | None = None,
+    max_depth: int | None = None,
 ) -> InstalledDiscovery:
+    for value in (max_entries_per_root, max_artifacts, max_artifacts_per_root, max_depth):
+        if value is not None and value < 1:
+            raise ValueError("discovery budgets must be positive")
+    if agent is not None and agent not in {spec.kind for spec in SPECS}:
+        raise ValueError("unknown agent")
+    artifact_budget = max_artifacts if max_artifacts is not None else MAX_ARTIFACTS
     base = (home or Path.home()).absolute()
     system = platform or sys.platform
     environments: list[InstalledEnvironment] = []
@@ -695,11 +706,11 @@ def discover_installed(
     origins: list[ArtifactOrigin] = []
     counted_paths: set[Path] = set()
     for spec in SPECS:
+        if agent is not None and spec.kind != agent:
+            continue
         for location in (*spec.locations, *PLATFORM_LOCATIONS.get(system, {}).get(spec.kind, ())):
             if not location.user or (location.platforms and system not in location.platforms):
                 continue
-            if len(environments) >= MAX_ENVIRONMENTS:
-                raise DiscoveryError("agent environment limit exceeded")
             root = base / location.relative
             source = f"known-home-location:{location.relative}"
             status, diagnostic = "not_found", None
@@ -716,10 +727,17 @@ def discover_installed(
                     ):
                         found, diagnostic = discover_installed_bounded(
                             Target(root),
-                            max_depth=location.max_depth,
-                            max_entries=MAX_ENTRIES_PER_ROOT,
+                            max_depth=max_depth if max_depth is not None else location.max_depth,
+                            max_entries=(
+                                max_entries_per_root
+                                if max_entries_per_root is not None
+                                else MAX_ENTRIES_PER_ROOT
+                            ),
                             max_artifacts=min(
-                                location.max_artifacts, MAX_ARTIFACTS - len(counted_paths)
+                                max_artifacts_per_root
+                                if max_artifacts_per_root is not None
+                                else location.max_artifacts,
+                                artifact_budget - len(counted_paths),
                             ),
                             known_artifact=partial(
                                 _spec_artifact, root=root, spec=spec, location=location
@@ -738,7 +756,7 @@ def discover_installed(
                                 extras.append(Artifact(root / name, kind, source_format, spec.kind))
                         paths = {artifact.path for artifact in found}
                         found = (*found, *(item for item in extras if item.path not in paths))
-                        available = MAX_ARTIFACTS - len(counted_paths)
+                        available = artifact_budget - len(counted_paths)
                         if len(found) > available:
                             found = found[:available]
                             diagnostic = "agent discovery artifact limit exceeded"
@@ -792,9 +810,9 @@ def discover_installed(
     # Claude Code stores user-scope MCP servers beside, not inside, ~/.claude/.
     claude_file = base / ".claude.json"
     try:
-        mode = _safe_mode(claude_file, base)
+        mode = _safe_mode(claude_file, base) if agent in (None, "Claude Code") else None
         if mode is not None and stat.S_ISREG(mode):
-            if len(artifacts) >= MAX_ARTIFACTS or len(environments) >= MAX_ENVIRONMENTS:
+            if len(artifacts) >= artifact_budget:
                 raise DiscoveryError("agent discovery limit exceeded")
             artifact = Artifact(
                 claude_file, ArtifactKind.MCP_CONFIG, SourceFormat.JSON, "Claude Code"

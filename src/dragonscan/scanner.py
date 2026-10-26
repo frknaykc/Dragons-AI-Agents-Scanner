@@ -112,6 +112,7 @@ class Scanner:
         target: Target,
         *,
         artifacts: tuple[Artifact, ...] | None = None,
+        max_artifacts: int | None = None,
         boundaries: dict[Path, Path] | None = None,
         reference_boundaries: dict[Path, Path] | None = None,
         claude_project: Path | None = None,
@@ -121,8 +122,11 @@ class Scanner:
             load_feeds(self.intel_paths) if self.intel_requested else ((), ())
         )
         intel_matcher = Matcher(intel_feeds) if self.intel_requested else None
+        discovery_messages: list[str] = []
         if artifacts is None:
-            artifacts = discover(target)
+            artifacts = discover(
+                target, max_artifacts=max_artifacts, limit_diagnostics=discovery_messages
+            )
 
         def boundary_for(path: Path) -> Target:
             return Target(boundaries[path]) if boundaries is not None else target
@@ -134,7 +138,9 @@ class Scanner:
         findings: list[Finding] = []
         graph = None
         errors: list[str] = list(self.pack_diagnostics)
-        diagnostics: list[Diagnostic] = []
+        diagnostics: list[Diagnostic] = [
+            Diagnostic("coverage", message) for message in discovery_messages
+        ]
         skipped_parse = 0
         for artifact in artifacts:
             try:
@@ -476,7 +482,16 @@ class Scanner:
         return report
 
     def scan_installed(
-        self, target: Target | None = None, *, home: Path | None = None, platform: str | None = None
+        self,
+        target: Target | None = None,
+        *,
+        home: Path | None = None,
+        platform: str | None = None,
+        agent: str | None = None,
+        max_entries_per_root: int | None = None,
+        max_artifacts: int | None = None,
+        max_artifacts_per_root: int | None = None,
+        max_depth: int | None = None,
     ) -> ScanReport:
         if self.dynamic_policy.requested:
             raise DiscoveryError("dynamic MCP is unavailable during installed-agent discovery")
@@ -484,7 +499,15 @@ class Scanner:
             raise DiscoveryError(
                 "network enrichment is unavailable during installed-agent discovery"
             )
-        discovered = discover_installed(home=home, platform=platform)
+        discovered = discover_installed(
+            home=home,
+            platform=platform,
+            agent=agent,
+            max_entries_per_root=max_entries_per_root,
+            max_artifacts=max_artifacts,
+            max_artifacts_per_root=max_artifacts_per_root,
+            max_depth=max_depth,
+        )
         project_diagnostics: tuple[InstalledEnvironment, ...] = ()
         try:
             explicit = (

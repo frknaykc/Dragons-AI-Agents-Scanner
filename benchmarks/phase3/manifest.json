@@ -1,0 +1,287 @@
+{
+  "schema_version": 1,
+  "corpus_version": "phase3-1",
+  "cases": [
+    {
+      "id": "phase3-nested-shell",
+      "split": "development",
+      "classification": "malicious",
+      "provenance": "synthetic",
+      "artifact": "nested-shell/SKILL.md",
+      "notes": "Nested Base64 reveals literal shell pipeline.",
+      "expected": [
+        "DRAGON-EXEC-001"
+      ],
+      "expected_findings": [
+        {
+          "id": "DRAGON-EXEC-001",
+          "artifact": "nested-shell/SKILL.md",
+          "line": 1,
+          "severity": "high",
+          "source": "remote content",
+          "sink": "shell execution"
+        }
+      ]
+    },
+    {
+      "id": "phase3-nested-python",
+      "split": "development",
+      "classification": "malicious",
+      "provenance": "synthetic",
+      "artifact": "nested-python/SKILL.md",
+      "notes": "Nested Base64 reveals literal Python stdin pipeline.",
+      "expected": [
+        "DRAGON-EXEC-002"
+      ],
+      "expected_findings": [
+        {
+          "id": "DRAGON-EXEC-002",
+          "artifact": "nested-python/SKILL.md",
+          "line": 1,
+          "severity": "high",
+          "source": "remote HTTP(S) code source",
+          "sink": "Python interpreter execution"
+        }
+      ]
+    },
+    {
+      "id": "phase3-hex-python",
+      "split": "development",
+      "classification": "malicious",
+      "provenance": "synthetic",
+      "artifact": "hex-python/SKILL.md",
+      "notes": "Hex then Base64 reveals literal Python stdin pipeline.",
+      "expected": [
+        "DRAGON-EXEC-002"
+      ],
+      "expected_findings": [
+        {
+          "id": "DRAGON-EXEC-002",
+          "artifact": "hex-python/SKILL.md",
+          "line": 1,
+          "severity": "high",
+          "source": "remote HTTP(S) code source",
+          "sink": "Python interpreter execution"
+        }
+      ]
+    },
+    {
+      "id": "phase3-unicode-python",
+      "split": "development",
+      "classification": "malicious",
+      "provenance": "synthetic",
+      "artifact": "unicode-python/SKILL.md",
+      "notes": "Unicode escapes then Base64 reveal literal Python stdin pipeline.",
+      "expected": [
+        "DRAGON-EXEC-002"
+      ],
+      "expected_findings": [
+        {
+          "id": "DRAGON-EXEC-002",
+          "artifact": "unicode-python/SKILL.md",
+          "line": 1,
+          "severity": "high",
+          "source": "remote HTTP(S) code source",
+          "sink": "Python interpreter execution"
+        }
+      ]
+    },
+    {
+      "id": "phase3-invisible-python",
+      "split": "development",
+      "classification": "malicious",
+      "provenance": "synthetic",
+      "artifact": "invisible-python/SKILL.md",
+      "notes": "Zero-width control hides direct Python pipeline.",
+      "expected": [
+        "DRAGON-EXEC-002"
+      ],
+      "expected_findings": [
+        {
+          "id": "DRAGON-EXEC-002",
+          "artifact": "invisible-python/SKILL.md",
+          "line": 1,
+          "severity": "high",
+          "source": "remote HTTP(S) code source",
+          "sink": "Python interpreter execution"
+        }
+      ]
+    },
+    {
+      "id": "phase3-mcp-encoded-shell",
+      "split": "development",
+      "classification": "malicious",
+      "provenance": "synthetic",
+      "artifact": "mcp-encoded-shell/mcp.json",
+      "notes": "Declared executable shell pipeline decodes bytes into shell.",
+      "expected": [
+        "DRAGON-MCP-004",
+        "DRAGON-OBF-002"
+      ]
+    },
+    {
+      "id": "phase3-mcp-powershell",
+      "split": "development",
+      "classification": "malicious",
+      "provenance": "synthetic",
+      "artifact": "mcp-powershell/mcp.json",
+      "notes": "Declared PowerShell EncodedCommand invocation.",
+      "expected": [
+        "DRAGON-MCP-004",
+        "DRAGON-SIG-001"
+      ]
+    },
+    {
+      "id": "phase3-bidi-shell",
+      "split": "development",
+      "classification": "malicious",
+      "provenance": "synthetic",
+      "artifact": "bidi-shell/SKILL.md",
+      "notes": "Bidirectional control obscures an explicit remote shell pipeline.",
+      "expected": [
+        "DRAGON-EXEC-001",
+        "DRAGON-OBF-001"
+      ]
+    },
+    {
+      "id": "phase3-printed-base64",
+      "split": "development",
+      "classification": "benign",
+      "provenance": "synthetic",
+      "artifact": "printed-base64/SKILL.md",
+      "notes": "Printed encoded blob is inert data.",
+      "expected": []
+    },
+    {
+      "id": "phase3-printed-hex",
+      "split": "development",
+      "classification": "benign",
+      "provenance": "synthetic",
+      "artifact": "printed-hex/SKILL.md",
+      "notes": "Printed hex blob is inert data.",
+      "expected": []
+    },
+    {
+      "id": "phase3-passive-guide",
+      "split": "development",
+      "classification": "benign",
+      "provenance": "synthetic",
+      "artifact": "passive-guide/SKILL.md",
+      "notes": "Passive security note is not an instruction.",
+      "expected": []
+    },
+    {
+      "id": "phase3-quoted-example",
+      "split": "development",
+      "classification": "benign",
+      "provenance": "synthetic",
+      "artifact": "quoted-example/SKILL.md",
+      "notes": "Quoted example is not actionable.",
+      "expected": []
+    },
+    {
+      "id": "phase3-isolated-blob",
+      "split": "development",
+      "classification": "benign",
+      "provenance": "synthetic",
+      "artifact": "isolated-blob/SKILL.md",
+      "notes": "Unlinked encoded blob is not execution.",
+      "expected": []
+    },
+    {
+      "id": "phase3-benign-base64",
+      "split": "development",
+      "classification": "benign",
+      "provenance": "synthetic",
+      "artifact": "benign-base64/SKILL.md",
+      "notes": "Benign Base64 is not malicious.",
+      "expected": []
+    },
+    {
+      "id": "phase3-benign-hex",
+      "split": "development",
+      "classification": "benign",
+      "provenance": "synthetic",
+      "artifact": "benign-hex/SKILL.md",
+      "notes": "Benign hex is not malicious.",
+      "expected": []
+    },
+    {
+      "id": "phase3-unlinked-interpreter",
+      "split": "development",
+      "classification": "benign",
+      "provenance": "synthetic",
+      "artifact": "unlinked-interpreter/SKILL.md",
+      "notes": "Decoder and interpreter are not connected.",
+      "expected": []
+    },
+    {
+      "id": "phase3-malformed-encoding",
+      "split": "development",
+      "classification": "benign",
+      "provenance": "synthetic",
+      "artifact": "malformed-encoding/SKILL.md",
+      "notes": "Malformed escape must not become a security finding.",
+      "expected": []
+    },
+    {
+      "id": "phase3-unicode-prose",
+      "split": "development",
+      "classification": "benign",
+      "provenance": "synthetic",
+      "artifact": "unicode-prose/SKILL.md",
+      "notes": "Ordinary Unicode script is not evasion.",
+      "expected": []
+    },
+    {
+      "id": "phase3-encoded-stdin-shell",
+      "split": "development",
+      "classification": "malicious",
+      "provenance": "synthetic",
+      "artifact": "encoded-stdin-shell/SKILL.md",
+      "notes": "Explicit literal Base64 decode to shell stdin.",
+      "expected": ["DRAGON-EXEC-003"],
+      "expected_findings": [{"id": "DRAGON-EXEC-003", "artifact": "encoded-stdin-shell/SKILL.md", "line": 1, "severity": "high", "source": "literal encoded input", "sink": "shell execution"}]
+    },
+    {
+      "id": "phase3-encoded-stdin-python",
+      "split": "development",
+      "classification": "malicious",
+      "provenance": "synthetic",
+      "artifact": "encoded-stdin-python/SKILL.md",
+      "notes": "Explicit literal Base64 decode to Python stdin.",
+      "expected": ["DRAGON-EXEC-003"],
+      "expected_findings": [{"id": "DRAGON-EXEC-003", "artifact": "encoded-stdin-python/SKILL.md", "line": 1, "severity": "high", "source": "literal encoded input", "sink": "Python interpreter execution"}]
+    },
+    {
+      "id": "phase3-encoded-stdin-hex",
+      "split": "development",
+      "classification": "malicious",
+      "provenance": "synthetic",
+      "artifact": "encoded-stdin-hex/SKILL.md",
+      "notes": "Explicit literal hex decode to shell stdin.",
+      "expected": ["DRAGON-EXEC-003"],
+      "expected_findings": [{"id": "DRAGON-EXEC-003", "artifact": "encoded-stdin-hex/SKILL.md", "line": 1, "severity": "high", "source": "literal encoded input", "sink": "shell execution"}]
+    },
+    {
+      "id": "phase3-encoded-stdin-passive",
+      "split": "development",
+      "classification": "benign",
+      "provenance": "synthetic",
+      "artifact": "encoded-stdin-passive/SKILL.md",
+      "notes": "Quoted warning is not an execution instruction.",
+      "expected": [],
+      "expected_absent": ["DRAGON-EXEC-003"]
+    },
+    {
+      "id": "phase3-encoded-stdin-unlinked",
+      "split": "development",
+      "classification": "benign",
+      "provenance": "synthetic",
+      "artifact": "encoded-stdin-unlinked/SKILL.md",
+      "notes": "Decoded data is not connected to the interpreter.",
+      "expected": [],
+      "expected_absent": ["DRAGON-EXEC-003"]
+    }
+  ]
+}

@@ -12,6 +12,7 @@ INSTRUCTION_NAMES = frozenset({"skill.md", "agents.md", "soul.md", "memory.md", 
 MCP_NAMES = frozenset({"mcp.json", ".mcp.json", "mcp-config.json", "claude_desktop_config.json"})
 SKIP_DIRS = frozenset({".git", ".venv", "node_modules", "__pycache__"})
 MAX_FILES = 10_000
+MAX_ENTRIES = 100_000
 MAX_INSTALLED_PROJECT_ARTIFACTS = 256
 ECOSYSTEM_DIRS = {
     ".claude": "claude-code",
@@ -113,7 +114,15 @@ def discover(
     *,
     installed_project: bool = False,
     known_artifact: Callable[[Path], Artifact | None] | None = None,
+    max_artifacts: int | None = None,
+    max_depth: int | None = None,
+    limit_diagnostics: list[str] | None = None,
 ) -> tuple[Artifact, ...]:
+    if max_artifacts is not None and max_artifacts < 1:
+        raise ValueError("artifact budget must be positive")
+    if max_depth is not None and max_depth < 1:
+        raise ValueError("directory depth must be positive")
+    artifact_limit = max_artifacts if max_artifacts is not None else MAX_FILES
     path = target.path.absolute()
     if path.is_symlink():
         raise DiscoveryError("symlink target is not supported")
@@ -126,6 +135,28 @@ def discover(
         return (artifact,)
     if not path.is_dir():
         raise DiscoveryError("target does not exist or is not a regular file/directory")
+
+    if not installed_project:
+        bounded_artifacts, diagnostic = discover_installed_bounded(
+            target,
+            max_depth=max_depth if max_depth is not None else MAX_ENTRIES,
+            max_entries=MAX_ENTRIES,
+            max_artifacts=artifact_limit,
+            known_artifact=known_artifact,
+        )
+        if diagnostic is not None:
+            if "artifact limit" in diagnostic:
+                raise DiscoveryError("artifact count exceeds limit")
+            message = diagnostic.replace("agent discovery", "project discovery")
+            if limit_diagnostics is None:
+                raise DiscoveryError(message)
+            limit_diagnostics.append(message)
+        return tuple(
+            sorted(
+                bounded_artifacts,
+                key=lambda item: (item.path.parent.relative_to(path).parts, item.path.name),
+            )
+        )
 
     artifacts: list[Artifact] = []
     entries = 0
@@ -141,6 +172,8 @@ def discover(
         dirs[:] = sorted(
             d for d in dirs if d not in SKIP_DIRS and not (Path(root) / d).is_symlink()
         )
+        if max_depth is not None and len(Path(root).relative_to(path).parts) >= max_depth:
+            dirs.clear()
         if installed_project and dirs and len(Path(root).relative_to(path).parts) >= 8:
             raise DiscoveryError("project agent discovery depth limit exceeded")
         for name in sorted(files):
@@ -166,7 +199,7 @@ def discover(
             artifacts.append(artifact)
             if installed_project and len(artifacts) > MAX_INSTALLED_PROJECT_ARTIFACTS:
                 raise DiscoveryError("project agent artifact limit exceeded")
-            if len(artifacts) > MAX_FILES:
+            if len(artifacts) > artifact_limit:
                 raise DiscoveryError("artifact count exceeds limit")
     return tuple(artifacts)
 

@@ -23,7 +23,7 @@ def check(result: dict[str, object]) -> bool:
         and summary["fp"] == 0
         and summary["fn"] == 0
         and correctness["failed"] == 0
-        and coverage["total_rules"] == 46
+        and coverage["total_rules"] == 48
     )
 
 

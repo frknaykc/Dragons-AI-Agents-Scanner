@@ -15,6 +15,7 @@ from typing import Any
 
 from dragonscan.discovery import DiscoveryError, discover
 from dragonscan.models import Target
+from dragonscan.policy import evaluate as evaluate_policy
 from dragonscan.scanner import Scanner
 
 _ID = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*\Z", re.ASCII)
@@ -795,13 +796,7 @@ def run(manifest: Path) -> dict[str, Any]:
             feeds = (root / case["intel_feed"],) if "intel_feed" in case else ()
             # Fresh scanner per case; no installed feeds or opt-in external features.
             report = Scanner(intel_feeds=feeds).scan(Target(target))
-            if (
-                report.errors
-                or report.intelligence_status == "partial"
-                or report.vulnerability_status == "partial"
-                or report.semantic_status == "partial"
-                or report.dynamic_status in ("partial", "failed", "blocked")
-            ):
+            if evaluate_policy(report).scan_status != "complete":
                 raise BenchmarkError("incomplete static scan")
             actual = []
             for finding in report.findings:

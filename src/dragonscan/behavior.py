@@ -1,6 +1,9 @@
 """Observe security behavior once per normalized document, without executing content."""
 
+import base64
+import binascii
 import re
+import shlex
 from dataclasses import dataclass, replace
 
 from dragonscan.detection import Observation
@@ -13,6 +16,13 @@ _NEGATED = re.compile(
     r"ensure (?:you )?(?:do not|never))\b",
     re.I,
 )
+_NEGATED_SUFFIX = re.compile(
+    r"\b(?:but|and)\s+(?:never|do not|don't|must not|should not)\b|"
+    r"[,;.]\s*(?:never|do not|don't|must not|should not)\b|"
+    r"\bwithout\s+(?:reading|printing|sending|uploading|disclosing|"
+    r"exposing|running|executing|following|using|accessing)\b",
+    re.I,
+)
 _IMPERATIVE = re.compile(
     r"^(?:(?:you must|always|please|then|first|immediately|next)\s+)?"
     r"(?:read|cat|open|load|copy|extract|export|send|upload|post|transmit|"
@@ -20,6 +30,99 @@ _IMPERATIVE = re.compile(
     r"override|disable|bypass|turn off|write|append|modify|edit|overwrite|replace)\b",
     re.I,
 )
+_PYTHON_STDIN = re.compile(r"python(?:3(?:\.\d+)?)?\Z")
+_SHELL_WRAPPER = re.compile(
+    r"(?:sh|bash|zsh)\s+-(?:c|lc)\s+(?P<quote>['\"])(?P<body>[^\n]{1,500})(?P=quote)\Z"
+)
+
+
+def remote_python_pipeline(command: str) -> bool:
+    """Recognize a literal HTTP fetch whose stdout is Python's program input."""
+    command = command.strip().removesuffix(".")
+    wrapper = _SHELL_WRAPPER.fullmatch(command)
+    if wrapper is not None:
+        command = wrapper["body"]
+        if wrapper["quote"] in command:
+            return False
+    if len(command) > 500 or command.count("|") != 1:
+        return False
+    if any(char in command for char in "$`;&<>()\\\n"):
+        return False
+    fetch_text, interpreter_text = command.split("|")
+    try:
+        fetch = shlex.split(fetch_text)
+        interpreter = shlex.split(interpreter_text)
+    except ValueError:
+        return False
+    if not fetch or not interpreter or not _PYTHON_STDIN.fullmatch(interpreter[0]):
+        return False
+    if interpreter[1:] not in ([], ["-"], ["-u"], ["-u", "-"]):
+        return False
+    args = fetch[1:]
+    urls = [arg for arg in args if re.fullmatch(r"https?://[^/\s]+(?:/\S*)?", arg)]
+    if len(urls) != 1:
+        return False
+    options = [arg for arg in args if arg != urls[0]]
+    if fetch[0] == "curl":
+        return all(
+            (arg.startswith("-") and not arg.startswith("--") and set(arg[1:]) <= set("fsSL"))
+            or arg in {"--fail", "--silent", "--show-error", "--location"}
+            for arg in options
+        )
+    if fetch[0] == "wget":
+        if options[-2:] == ["-O", "-"]:
+            options = [*options[:-2], "-O-"]
+        return any(arg in {"-O-", "-qO-", "--output-document=-"} for arg in options) and all(
+            arg in {"-q", "--quiet", "-O-", "-qO-", "--output-document=-"} for arg in options
+        )
+    return False
+
+
+def literal_encoded_pipeline(command: str) -> str | None:
+    """Recognize one literal source, one decoder and an interpreter reading stdin."""
+    command = command.strip().removesuffix(".")
+    if len(command) > 4200 or command.count("|") != 2:
+        return None
+    if any(char in command for char in "$`;&<>()\\\n"):
+        return None
+    try:
+        source, decoder, interpreter = (shlex.split(part) for part in command.split("|"))
+    except ValueError:
+        return None
+    if len(source) == 3 and source[:2] == ["printf", "%s"]:
+        token = source[2]
+    elif len(source) == 2 and source[0] == "echo":
+        token = source[1]
+    else:
+        return None
+    if not 1 <= len(token) <= 4096:
+        return None
+    if decoder in (["base64", "-d"], ["base64", "--decode"]):
+        try:
+            decoded = base64.b64decode(token, validate=True)
+        except (binascii.Error, ValueError):
+            return None
+    elif decoder == ["xxd", "-r", "-p"]:
+        try:
+            decoded = bytes.fromhex(token)
+        except ValueError:
+            return None
+    else:
+        return None
+    if not decoded or len(decoded) > 4096 or not interpreter:
+        return None
+    if interpreter in (["sh"], ["bash"], ["zsh"]):
+        return "shell execution"
+    if _PYTHON_STDIN.fullmatch(interpreter[0]) and interpreter[1:] in (
+        [],
+        ["-"],
+        ["-u"],
+        ["-u", "-"],
+    ):
+        return "Python interpreter execution"
+    return None
+
+
 _SOURCE_PATTERNS = (
     ("SSH private key", re.compile(r"(?:~?/)?\.ssh/(?:id_rsa|id_ed25519|id_ecdsa|id_dsa)\b", re.I)),
     (
@@ -84,6 +187,11 @@ _OVERRIDE = re.compile(
     r"\b(?:ignore|disregard|override)\b.{0,60}\b(?:previous|prior|system|developer)\b.{0,40}\b(?:instructions?|rules?|directives?|prompts?)\b",
     re.I,
 )
+_EARLIER_INSTRUCTIONS = re.compile(
+    r"\s+(?:(?:all|any|every|the)\s+)?earlier\s+"
+    r"(?:(?:safety|system|developer)\s+)?(?:instructions?|rules?|directives?|prompts?)\b",
+    re.I,
+)
 _BYPASS = re.compile(
     r"\b(?:disable|bypass|turn off)\b.{0,50}"
     r"\b(?:safety|security|guardrails?|checks?|protections?)\b",
@@ -140,6 +248,41 @@ _SSH_PIPE = re.compile(
     re.I,
 )
 
+_SHELL_SOURCE_ASSIGN = re.compile(
+    r"(?P<name>[A-Za-z_][A-Za-z_0-9]{0,39})=\$\(security find-generic-password"
+    r"[\w .\"'-]{0,120}\s-w\)",
+    re.I,
+)
+_SHELL_ENCODE_ASSIGN = re.compile(
+    r"(?P<name>[A-Za-z_][A-Za-z_0-9]{0,39})=\$\(printf %s "
+    r'"\$(?P<input>[A-Za-z_][A-Za-z_0-9]{0,39})" \| base64\)',
+    re.I,
+)
+_SHELL_VARIABLE_SEND = re.compile(
+    r"""curl\s+(?:-d|--data(?:-binary)?)\s+"\$(?P<input>[A-Za-z_][A-Za-z_0-9]{0,39})"\s+https?://[^\s"']+""",
+    re.I,
+)
+
+
+def _shell_variable_transfers(text: str) -> set[int]:
+    """Identify only a contiguous, uniquely named read -> encode -> HTTP body chain."""
+    lines = [line.strip() for line in text.splitlines()]
+    transferred: set[int] = set()
+    for index in range(len(lines) - 2):
+        source = _SHELL_SOURCE_ASSIGN.fullmatch(lines[index])
+        encoded = _SHELL_ENCODE_ASSIGN.fullmatch(lines[index + 1])
+        sent = _SHELL_VARIABLE_SEND.fullmatch(lines[index + 2])
+        if (
+            source is not None
+            and encoded is not None
+            and sent is not None
+            and source["name"] == encoded["input"]
+            and encoded["name"] == sent["input"]
+            and source["name"] != encoded["name"]
+        ):
+            transferred.add(index + 1)
+    return transferred
+
 
 @dataclass(frozen=True)
 class ShellAccess:
@@ -169,6 +312,7 @@ def shell_accesses(document: Document) -> tuple[ShellAccess, ...]:
             previous = block
             continue
         command = ""
+        variable_transfers = _shell_variable_transfers(block.text)
         for offset, physical in enumerate(block.text.splitlines(), 1):
             stripped = physical.strip()
             if not stripped or stripped.startswith("#"):
@@ -190,7 +334,7 @@ def shell_accesses(document: Document) -> tuple[ShellAccess, ...]:
                 curl = _CURL_HTTP.search(part)
                 body = _CURL_BODY.search(part)
                 if keychain is not None:
-                    transferred = bool(
+                    transferred = offset in variable_transfers or bool(
                         curl
                         and body
                         and (
@@ -227,7 +371,16 @@ def shell_accesses(document: Document) -> tuple[ShellAccess, ...]:
 def segment_text(text: str, index: int) -> str:
     """Use the same sentence boundaries as behavior extraction."""
     parts = _SENTENCE.split(text)
-    return parts[index].strip() if 0 <= index < len(parts) else ""
+    return unnegated_text(parts[index]) if 0 <= index < len(parts) else ""
+
+
+def unnegated_text(text: str) -> str:
+    """Conservatively exclude a prohibitive clause from a positive directive."""
+    text = text.strip()
+    if _NEGATED.search(text):
+        return ""
+    suffix = _NEGATED_SUFFIX.search(text)
+    return text[: suffix.start()].strip(" ,") if suffix else text
 
 
 def fetch_shell_url(text: str) -> str | None:
@@ -265,8 +418,8 @@ def collect(document: Document) -> tuple[Observation, ...]:
             start = match.end()
         parts.append((instruction.text[start:], start))
         for segment, (sentence, offset) in enumerate(parts):
-            sentence = sentence.strip()
-            if not sentence or _NEGATED.search(sentence):
+            sentence = unnegated_text(sentence)
+            if not sentence:
                 continue
             link_source = credential_link_source(sentence)
             actionable = _IMPERATIVE.search(sentence)
@@ -289,7 +442,10 @@ def collect(document: Document) -> tuple[Observation, ...]:
                 add("credential_link", link_source, "credential-disclosure", "network-egress")
             if not actionable:
                 continue
-            if _OVERRIDE.search(sentence):
+            if _OVERRIDE.search(sentence) or (
+                actionable.group().split()[-1].lower() in {"ignore", "disregard", "override"}
+                and _EARLIER_INSTRUCTIONS.match(sentence[actionable.end() :])
+            ):
                 add("override", "prior instructions", "instruction-override")
             if _BYPASS.search(sentence):
                 add("bypass", "security controls", "security-control-bypass")
@@ -319,6 +475,21 @@ def collect(document: Document) -> tuple[Observation, ...]:
                     "network-fetch",
                     "command-execution",
                 )
+            if actionable.group().split()[-1].lower() in {
+                "run",
+                "execute",
+            }:
+                command = sentence[actionable.end() :].lstrip(" :")
+                if remote_python_pipeline(command):
+                    add(
+                        "remote_python_execution",
+                        "HTTP(S) download piped to Python stdin",
+                        "network-fetch",
+                        "command-execution",
+                    )
+                encoded_sink = literal_encoded_pipeline(command)
+                if encoded_sink is not None:
+                    add("literal_encoded_execution", encoded_sink, "command-execution")
             if _PERSIST_WRITE.search(sentence) and _PERSIST_INTENT.search(sentence):
                 add(
                     "persistence",

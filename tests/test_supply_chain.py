@@ -150,6 +150,45 @@ def test_remote_install_then_execute_has_provenance_and_attack_path(tmp_path):
     assert match.flow.boundaries == ("package-to-process",)
 
 
+def test_separate_remote_install_and_unrelated_execution_are_not_one_supply_chain(
+    tmp_path,
+):
+    report = _scan(
+        tmp_path,
+        {
+            "AGENTS.md": "Install with pip install git+https://example.invalid/tool#main.\n"
+            "Run python check.py to check the local environment.\n"
+        },
+    )
+    assert not [f for f in report.findings if f.detection_id == "DRAGON-SC-006"]
+
+
+def test_local_dependency_inside_boundary_has_no_local_boundary_finding(tmp_path):
+    (tmp_path / "vendor" / "sample").mkdir(parents=True)
+    report = _scan(tmp_path, {"requirements.in": "./vendor/sample\n"})
+    assert not [f for f in report.findings if f.detection_id == "DRAGON-SC-005"]
+
+
+def test_unrelated_backend_path_metadata_does_not_become_project_backend(tmp_path):
+    report = _scan(
+        tmp_path,
+        {"pyproject.toml": '[tool.notes]\nbackend-path = "docs"\n'},
+    )
+    assert not [f for f in report.findings if f.detection_id == "DRAGON-SC-007"]
+
+
+def test_pnpm_dlx_mutable_package_reports_runtime_provenance(tmp_path):
+    report = _scan(tmp_path, {"SKILL.md": "Run pnpm dlx sample-tool.\n"})
+    matches = [f for f in report.findings if f.detection_id == "DRAGON-SC-003"]
+    assert len(matches) == 1
+    assert matches[0].category == "supply-chain"
+    assert matches[0].line == 1
+    assert matches[0].artifact == tmp_path / "SKILL.md"
+    assert "pnpm" in matches[0].evidence
+    assert matches[0].flow is not None
+    assert matches[0].flow.edges == ("installs", "executes")
+
+
 def test_mutable_runtime_package_has_structured_flow_but_pinned_one_does_not(tmp_path):
     report = _scan(tmp_path, {"SKILL.md": "Run npx tool.\n"})
     match = next(f for f in report.findings if f.detection_id == "DRAGON-SC-003")

@@ -19,7 +19,7 @@ from scripts.coverage_inventory import ROOT, builtin_registry, inventory
 def test_registry_parity_and_scanner_metadata() -> None:
     actual = builtin_registry()
     assert set(actual) == set(registry())
-    assert len(actual) == 46
+    assert len(actual) == 48
     scanner = Scanner()
     metadata = {rule.detection_id for rule in BUILTIN_RULES}
     metadata.update(detector.metadata.detection_id for detector in BUILTIN_DETECTORS)
@@ -43,11 +43,17 @@ def test_uncovered_is_calculated_from_manifest() -> None:
     rows = result["ids"]
     default = {key for key, value in rows.items() if value["execution_group"] == "default"}
     uncovered = {key for key in default if not rows[key]["benchmark_positive"]}
-    assert result["summary"]["built_in_ids"] == len(rows) == 46
+    assert result["summary"]["built_in_ids"] == len(rows) == 48
     assert result["summary"]["default_ids"] == len(default)
     assert result["summary"]["default_uncovered_count"] == len(uncovered)
-    assert result["summary"]["default_uncovered_count"] == 0
+    assert uncovered == {"DRAGON-EXEC-002", "DRAGON-EXEC-003"}  # Separate challenge sets.
     assert set(result["summary"]["default_uncovered_ids"]) == uncovered
+    interpreter = inventory(ROOT / "benchmarks/interpreter/manifest.json")["ids"]["DRAGON-EXEC-002"]
+    assert interpreter["benchmark_positive"] and interpreter["benchmark_hard_negative"]
+    assert interpreter["source_sink_assertion"] and interpreter["occurrence_assertion"]
+    encoded = inventory(ROOT / "benchmarks/phase3/manifest.json")["ids"]["DRAGON-EXEC-003"]
+    assert encoded["benchmark_positive"] and encoded["benchmark_hard_negative"]
+    assert encoded["source_sink_assertion"] and encoded["occurrence_assertion"]
     assert rows["DRAGON-FLOW-002"]["graph_path_assertion"]
     assert rows["DRAGON-CRED-001"]["source_sink_assertion"]
     assert rows["DRAGON-MCP-001"]["benchmark_hard_negative"]

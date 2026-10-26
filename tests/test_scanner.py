@@ -160,6 +160,33 @@ def test_symlinks_are_not_traversed(tmp_path: Path, malicious_corpus: Path) -> N
         raise AssertionError("symlink accepted")
 
 
+def test_project_discovery_entry_budget_marks_partial_without_losing_prior_artifact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import dragonscan.discovery as discovery
+    from dragonscan.policy import evaluate
+
+    monkeypatch.setattr(discovery, "MAX_ENTRIES", 4, raising=False)
+    (tmp_path / "AGENTS.md").write_text("ordinary guidance")
+    for index in range(6):
+        (tmp_path / f"ignored-{index}.txt").write_text("unrelated")
+    report = Scanner().scan(Target(tmp_path))
+    assert any(item.path == tmp_path / "AGENTS.md" for item in report.artifacts)
+    assert any("entry limit" in item.message for item in report.diagnostics)
+    assert evaluate(report).scan_status == "partial"
+    assert evaluate(report).exit_code == 3
+
+
+def test_normal_project_discovery_remains_complete_under_entry_budget(tmp_path: Path) -> None:
+    from dragonscan.policy import evaluate
+
+    (tmp_path / "AGENTS.md").write_text("ordinary guidance")
+    (tmp_path / "ignored.txt").write_text("unrelated")
+    report = Scanner().scan(Target(tmp_path))
+    assert len(report.artifacts) == 1
+    assert evaluate(report).scan_status == "complete"
+
+
 def test_invalid_and_oversize_inputs_fail_closed(tmp_path: Path) -> None:
     (tmp_path / "mcp.json").write_text("{bad json")
     (tmp_path / "SKILL.md").write_bytes(b"x" * (1_048_576 + 1))

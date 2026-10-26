@@ -77,6 +77,8 @@ _BAD_ESCAPE = re.compile(
     r"\\(?:x(?![0-9A-Fa-f]{2})(?:[A-Z]{2}|[0-9A-Fa-f]\b)"
     r"|u(?![0-9A-Fa-f]{4})(?:[A-Z]{4}|[0-9A-Fa-f]{1,3}\b))"
 )
+_ENCODED_DIRECTIVE = re.compile(r"\s*(?:run|execute)\s+(?:encoded|base64)\s*:\s*", re.I)
+_DIRECT_ENCODED_PREFIX = re.compile(r"\s*(?:run|execute)\s+(?:(?:encoded|base64)\s*:\s*)?", re.I)
 _CONFIG_TEXT_KEYS = frozenset(
     {"description", "instructions", "instruction", "prompt", "systemprompt", "command", "script"}
 )
@@ -129,6 +131,17 @@ def _hex_bytes_match(match: re.Match[str]) -> str:
 
 
 def _decode(text: str) -> str | None:
+    # A printed or unrelated argument is data, not a directive to execute
+    # its decoded contents. Keep explicit PowerShell encoded commands eligible.
+    first_token = _ENCODED.search(text)
+    if (
+        first_token is not None
+        and re.match(r"\s*(?:run|execute)\b", text, re.I)
+        and not _DIRECT_ENCODED_PREFIX.fullmatch(text[: first_token.start()])
+        and not _PS_ENCODED.search(text[: first_token.start()])
+    ):
+        return None
+
     def substitute(match: re.Match[str]) -> str:
         token = match.group()
         try:
@@ -158,10 +171,17 @@ def _decode(text: str) -> str | None:
 
     result = _HEX_BYTES.sub(_hex_bytes_match, text, count=4)
     result = _ENCODED.sub(substitute, result, count=4)
+    directive = _ENCODED_DIRECTIVE.match(text)
+    if directive is not None:
+        token = _ENCODED.fullmatch(text[directive.end() :].strip())
+        if token is not None:
+            revealed = result[directive.end() :]
+            if re.match(r"(?:run|execute)\s+", revealed, re.I):
+                return revealed
     return result if result != text else None
 
 
-def _transform(text: str) -> tuple[tuple[str, str], ...]:
+def _transform(text: str) -> tuple[tuple[tuple[str, str], ...], bool]:
     results: list[tuple[str, str]] = []
     stripped = text.strip()
     if stripped.startswith("<!--") and stripped.endswith("-->"):
@@ -227,7 +247,10 @@ def _transform(text: str) -> tuple[tuple[str, str], ...]:
         spaced = _SPACED_COMMAND.sub("curl", text)
         if spaced != text:
             results.append(("token-fragmentation", spaced))
-    return tuple((name, value) for name, value in results if len(value) <= MAX_OUTPUT)
+    return (
+        tuple((name, value) for name, value in results if len(value) <= MAX_OUTPUT),
+        any(len(value) > MAX_OUTPUT for _, value in results),
+    )
 
 
 def _excerpt(text: str, kind: str) -> str:
@@ -388,11 +411,14 @@ def views(document: Document) -> tuple[tuple[AnalysisView, ...], tuple[str, ...]
         region_attempts = 0
         queue: list[tuple[str, tuple[str, ...]]] = [(original, ())]
         for current, chain in queue:
+            transformed, exceeded_output = _transform(current)
+            if exceeded_output:
+                diagnostics.append("evasion expansion limit reached; analysis truncated")
             if len(chain) >= MAX_DEPTH:
-                if _transform(current):
+                if transformed:
                     diagnostics.append("evasion transformation depth limit reached")
                 continue
-            for name, value in _transform(current):
+            for name, value in transformed:
                 attempts += 1
                 region_attempts += 1
                 if (

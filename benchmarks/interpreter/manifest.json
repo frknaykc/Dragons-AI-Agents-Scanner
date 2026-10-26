@@ -1,0 +1,207 @@
+{
+  "schema_version": 1,
+  "corpus_version": "interpreter-1",
+  "cases": [
+    {
+      "id": "interpreter-curl-python",
+      "split": "development",
+      "classification": "malicious",
+      "provenance": "synthetic",
+      "artifact": "curl-python/SKILL.md",
+      "notes": "Explicit static remote-to-Python stdin instruction.",
+      "expected": [
+        "DRAGON-EXEC-002"
+      ],
+      "expected_findings": [
+        {
+          "id": "DRAGON-EXEC-002",
+          "artifact": "curl-python/SKILL.md",
+          "line": 1,
+          "source": "remote HTTP(S) code source",
+          "sink": "Python interpreter execution",
+          "evidence_contains": "piped to Python"
+        }
+      ]
+    },
+    {
+      "id": "interpreter-wget-python",
+      "split": "development",
+      "classification": "malicious",
+      "provenance": "synthetic",
+      "artifact": "wget-python/SKILL.md",
+      "notes": "Explicit static remote-to-Python stdin instruction.",
+      "expected": [
+        "DRAGON-EXEC-002"
+      ],
+      "expected_findings": [
+        {
+          "id": "DRAGON-EXEC-002",
+          "artifact": "wget-python/SKILL.md",
+          "line": 1,
+          "source": "remote HTTP(S) code source",
+          "sink": "Python interpreter execution",
+          "evidence_contains": "piped to Python"
+        }
+      ]
+    },
+    {
+      "id": "interpreter-wrapper-python",
+      "split": "development",
+      "classification": "malicious",
+      "provenance": "synthetic",
+      "artifact": "wrapper-python/SKILL.md",
+      "notes": "Explicit static remote-to-Python stdin instruction.",
+      "expected": [
+        "DRAGON-EXEC-002"
+      ],
+      "expected_findings": [
+        {
+          "id": "DRAGON-EXEC-002",
+          "artifact": "wrapper-python/SKILL.md",
+          "line": 1,
+          "source": "remote HTTP(S) code source",
+          "sink": "Python interpreter execution",
+          "evidence_contains": "piped to Python"
+        }
+      ]
+    },
+    {
+      "id": "interpreter-python-version",
+      "split": "development",
+      "classification": "malicious",
+      "provenance": "synthetic",
+      "artifact": "python-version/SKILL.md",
+      "notes": "Explicit static remote-to-Python stdin instruction.",
+      "expected": [
+        "DRAGON-EXEC-002"
+      ],
+      "expected_findings": [
+        {
+          "id": "DRAGON-EXEC-002",
+          "artifact": "python-version/SKILL.md",
+          "line": 1,
+          "source": "remote HTTP(S) code source",
+          "sink": "Python interpreter execution",
+          "evidence_contains": "piped to Python"
+        }
+      ]
+    },
+    {
+      "id": "interpreter-passive-guide",
+      "split": "development",
+      "classification": "benign",
+      "provenance": "synthetic",
+      "artifact": "passive-guide/SKILL.md",
+      "notes": "No actionable direct remote-to-Python stdin instruction.",
+      "expected": [],
+      "expected_absent": [
+        "DRAGON-EXEC-001",
+        "DRAGON-EXEC-002"
+      ]
+    },
+    {
+      "id": "interpreter-quoted-command",
+      "split": "development",
+      "classification": "benign",
+      "provenance": "synthetic",
+      "artifact": "quoted-command/SKILL.md",
+      "notes": "No actionable direct remote-to-Python stdin instruction.",
+      "expected": [],
+      "expected_absent": [
+        "DRAGON-EXEC-001",
+        "DRAGON-EXEC-002"
+      ]
+    },
+    {
+      "id": "interpreter-echo-literal",
+      "split": "development",
+      "classification": "benign",
+      "provenance": "synthetic",
+      "artifact": "echo-literal/SKILL.md",
+      "notes": "No actionable direct remote-to-Python stdin instruction.",
+      "expected": [],
+      "expected_absent": [
+        "DRAGON-EXEC-001",
+        "DRAGON-EXEC-002"
+      ]
+    },
+    {
+      "id": "interpreter-unrelated-actions",
+      "split": "development",
+      "classification": "benign",
+      "provenance": "synthetic",
+      "artifact": "unrelated-actions/SKILL.md",
+      "notes": "No actionable direct remote-to-Python stdin instruction.",
+      "expected": [],
+      "expected_absent": [
+        "DRAGON-EXEC-001",
+        "DRAGON-EXEC-002"
+      ]
+    },
+    {
+      "id": "interpreter-file-only",
+      "split": "development",
+      "classification": "benign",
+      "provenance": "synthetic",
+      "artifact": "file-only/SKILL.md",
+      "notes": "No actionable direct remote-to-Python stdin instruction.",
+      "expected": [],
+      "expected_absent": [
+        "DRAGON-EXEC-001",
+        "DRAGON-EXEC-002"
+      ]
+    },
+    {
+      "id": "interpreter-local-python",
+      "split": "development",
+      "classification": "benign",
+      "provenance": "synthetic",
+      "artifact": "local-python/SKILL.md",
+      "notes": "No actionable direct remote-to-Python stdin instruction.",
+      "expected": [],
+      "expected_absent": [
+        "DRAGON-EXEC-001",
+        "DRAGON-EXEC-002"
+      ]
+    },
+    {
+      "id": "interpreter-safe-install",
+      "split": "development",
+      "classification": "benign",
+      "provenance": "synthetic",
+      "artifact": "safe-install/SKILL.md",
+      "notes": "No actionable direct remote-to-Python stdin instruction.",
+      "expected": [],
+      "expected_absent": [
+        "DRAGON-EXEC-001",
+        "DRAGON-EXEC-002"
+      ]
+    },
+    {
+      "id": "interpreter-unlinked-pipeline",
+      "split": "development",
+      "classification": "benign",
+      "provenance": "synthetic",
+      "artifact": "unlinked-pipeline/SKILL.md",
+      "notes": "No actionable direct remote-to-Python stdin instruction.",
+      "expected": [],
+      "expected_absent": [
+        "DRAGON-EXEC-001",
+        "DRAGON-EXEC-002"
+      ]
+    },
+    {
+      "id": "interpreter-file-output",
+      "split": "development",
+      "classification": "benign",
+      "provenance": "synthetic",
+      "artifact": "file-output/SKILL.md",
+      "notes": "No actionable direct remote-to-Python stdin instruction.",
+      "expected": [],
+      "expected_absent": [
+        "DRAGON-EXEC-001",
+        "DRAGON-EXEC-002"
+      ]
+    }
+  ]
+}

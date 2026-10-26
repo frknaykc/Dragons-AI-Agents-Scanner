@@ -1,11 +1,14 @@
 """Pure terminal and JSON formatting of scan reports."""
 
 import json
+import textwrap
 from collections import Counter
 from dataclasses import asdict
+from pathlib import Path
 
-from dragonscan.models import ScanReport
+from dragonscan.models import ArtifactKind, Finding, ScanReport
 from dragonscan.policy import PolicyResult, evaluate
+from dragonscan.report_context import INTERPRETATION, context_data, context_rows
 from dragonscan.sarif import sarif_report as sarif_report
 
 
@@ -27,11 +30,8 @@ def json_report(report: ScanReport, policy: PolicyResult | None = None) -> str:
     data["findings"] = []
     for finding in report.findings:
         item = {**asdict(finding), "artifact": str(finding.artifact)}
-        if finding.path:
-            item["path"] = [
-                {**asdict(step), "artifact": str(step.artifact)} for step in finding.path
-            ]
-        else:
+        item.update(context_data(finding))
+        if not finding.path:
             item.pop("path")
             item.pop("taint")
         if finding.signature is None:
@@ -48,11 +48,6 @@ def json_report(report: ScanReport, policy: PolicyResult | None = None) -> str:
             item.pop("semantic")
         if finding.flow is None:
             item.pop("flow")
-        else:
-            item["flow"]["artifacts"] = [str(path) for path in finding.flow.artifacts]
-            item["flow"]["locations"] = [
-                {**asdict(ref), "path": str(ref.path)} for ref in finding.flow.locations
-            ]
         data["findings"].append(item)
     for key in tuple(data):
         if key.startswith("semantic_"):
@@ -177,7 +172,7 @@ def json_report(report: ScanReport, policy: PolicyResult | None = None) -> str:
 _COLORS = {
     "critical": "1;91",
     "high": "31",
-    "medium": "33",
+    "medium": "38;5;208",
     "low": "34",
     "info": "36",
     "pass": "32",
@@ -190,6 +185,9 @@ _COLORS = {
     "error": "31",
     "warning": "33",
     "coverage": "36",
+    "check": "1;36",
+    "false_positive": "1;35",
+    "fix": "1;32",
 }
 
 
@@ -204,31 +202,148 @@ def _safe(value: str) -> str:
     return ascii(value)[1:-1]
 
 
-def _diagnostic_summary(lines: list[str], report: ScanReport, color: bool) -> None:
-    if not report.errors and not report.diagnostics:
+_BOX_WIDTH = 80
+
+
+def _box_top(title: str, *, section: bool = False) -> str:
+    left, right, bar = ("╔═ ", " ╗", "═") if section else ("┌─ ", " ┐", "─")
+    return left + title + bar * (_BOX_WIDTH - len(left + title + right)) + right
+
+
+def _box_bottom(*, section: bool = False) -> str:
+    left, right, bar = ("╚", "╝", "═") if section else ("└", "┘", "─")
+    return left + bar * (_BOX_WIDTH - 2) + right
+
+
+def _box_row(label: str, value: str, color: bool, kind: str = "") -> list[str]:
+    prefix = f"{label + ':':<16}" if label else ""
+    wrapped = textwrap.wrap(value, _BOX_WIDTH - 4 - len(prefix), break_on_hyphens=False)
+    result = []
+    for index, chunk in enumerate(wrapped or [""]):
+        leading = (
+            _style(label + ":", kind, color) + prefix[len(label) + 1 :]
+            if index == 0 and label
+            else " " * len(prefix)
+        )
+        raw = prefix + chunk
+        result.append("│ " + leading + chunk + " " * (_BOX_WIDTH - 4 - len(raw)) + " │")
+    return result
+
+
+def _review_guidance(finding: Finding) -> tuple[str, str]:
+    """Terminal-only review prompts; do not infer an incident or a new finding."""
+    if finding.detection_id == "DRAGON-MCP-001":
+        return (
+            "Inspect the cited server command and args; verify the package "
+            "or image version or digest and whether launch can resolve it.",
+            "The cited entry may be documentation or an inactive server; "
+            "confirm its effective runtime configuration.",
+        )
+    if finding.detection_id == "DRAGON-CRED-001":
+        return (
+            "Read the full instruction around this line; confirm it directs access "
+            "to a secret, rather than prohibiting access or disclosure.",
+            "Negated/quoted guidance or an authorized test workflow can change "
+            "the interpretation; a mention is not a secret read.",
+        )
+    if finding.detection_id == "DRAGON-MCP-011":
+        return (
+            "Check the header reference, endpoint owner and credential scope "
+            "in the cited configuration; no request is proven.",
+            "An intentional scoped authentication header is normal; its "
+            "presence alone is not credential leakage.",
+        )
+    if finding.detection_id == "DRAGON-MCP-003":
+        return (
+            "Inspect the cited configuration entry locally; verify whether it "
+            "holds a literal secret without copying its value.",
+            "A non-secret placeholder can resemble a credential; the scanner "
+            "did not validate the value.",
+        )
+    if finding.category == "data-exfiltration":
+        return (
+            "Check whether the cited source and destination refer to the same data "
+            "in an actionable instruction; no transfer was observed.",
+            "Quoted examples, negations and unrelated transfers should not be "
+            "treated as a data flow.",
+        )
+    if finding.category == "mcp-security":
+        return (
+            "Review the named MCP configuration or tool metadata in the cited "
+            "artifact; confirm whether it is active and authorized.",
+            "A declared capability or setting alone does not prove a request, "
+            "execution or compromise.",
+        )
+    return (
+        "Inspect the cited artifact and surrounding context; verify the stated "
+        "behavior and trust boundary before acting.",
+        "Quoted, prohibited or benign authorized behavior can change the "
+        "interpretation of a static match.",
+    )
+
+
+def _diagnostic_summary(
+    lines: list[str], report: ScanReport, color: bool, json_saved: bool
+) -> None:
+    partial_roots = sum(
+        item.status == "discovered" and item.resolution == "partial"
+        for item in report.installed_environments
+    )
+    if not report.errors and not report.diagnostics and not partial_roots:
         return
     lines.append("")
-    lines.append("Diagnostics")
-    for level, messages in (
-        ("ERROR", report.errors),
-        ("WARNING", tuple(d.message for d in report.diagnostics if d.level == "warning")),
-        ("COVERAGE", tuple(d.message for d in report.diagnostics if d.level == "coverage")),
-    ):
-        if not messages:
-            continue
-        label = _style(level, level.lower(), color)
-        lines.append(f"{label}: {len(messages)} (scan details; not security findings)")
-        reasons = Counter(message.rsplit(": ", 1)[-1] for message in messages)
-        for reason, count in reasons.most_common(3):
-            lines.append(f"  {count:,} x {_safe(reason)}")
-        if len(reasons) > 3:
-            lines.append(f"  ... {len(reasons) - 3:,} more diagnostic types")
-        lines.append("  Example: " + _safe(messages[0]))
-    lines.append("Full per-artifact diagnostics: --format json --output scan.json")
+    lines.append(_box_top("Scan coverage & diagnostics", section=True))
+    lines.append("║ " + "Operational limits; not security findings".ljust(_BOX_WIDTH - 4) + " ║")
+    lines.append(_box_bottom(section=True))
+    errors = len(report.errors)
+    coverage = sum(d.level == "coverage" for d in report.diagnostics)
+    warnings = sum(d.level == "warning" for d in report.diagnostics)
+    parts = []
+    if errors:
+        parts.append(f"{errors:,} error{'s' if errors != 1 else ''}")
+    if coverage:
+        parts.append(f"{coverage:,} limited {'analyses' if coverage != 1 else 'analysis'}")
+    if warnings:
+        parts.append(f"{warnings:,} warning{'s' if warnings != 1 else ''}")
+    if partial_roots:
+        parts.append(f"{partial_roots:,} partial agent root{'s' if partial_roots != 1 else ''}")
+    lines.append(f"Coverage    {_style('; '.join(parts), 'coverage', color)}")
+    if report.errors:
+        lines.append(f"Cause       {_safe(report.errors[0])[:200]}")
+    lines.append(
+        "Details     See the JSON report for affected artifacts and limits."
+        if json_saved
+        else "Details     Use --format json --output PATH for affected artifacts and limits."
+    )
+
+
+_KIND_LABELS = {
+    ArtifactKind.SKILL: "Skills",
+    ArtifactKind.MCP_CONFIG: "MCP configs",
+    ArtifactKind.INSTRUCTIONS: "instructions",
+    ArtifactKind.MEMORY: "memory",
+    ArtifactKind.SOUL: "soul",
+    ArtifactKind.AGENT_CONFIG: "agent configs",
+    ArtifactKind.PLUGIN_METADATA: "plugins",
+    ArtifactKind.HOOK_CONFIG: "hooks",
+    ArtifactKind.SCRIPT: "scripts",
+    ArtifactKind.DEPENDENCY_MANIFEST: "dependency manifests",
+    ArtifactKind.STRUCTURED_CONFIG: "structured configs",
+}
+
+
+def _summary_list(lines: list[str], label: str, text: str) -> None:
+    lines.extend(textwrap.wrap(f"{label:<12}{text}", width=100, subsequent_indent=" " * 12))
 
 
 def terminal_report(
-    report: ScanReport, policy: PolicyResult | None = None, *, color: bool = False
+    report: ScanReport,
+    policy: PolicyResult | None = None,
+    *,
+    color: bool = False,
+    installed_scan: bool = False,
+    report_path: Path | None = None,
+    json_saved: bool = False,
 ) -> str:
     policy = policy or evaluate(report)
     status = policy.scan_status.upper()
@@ -236,131 +351,182 @@ def terminal_report(
     lines = [
         "Dragons Scan",
         f"Target      {ascii(str(report.target))}",
-        f"Artifacts   {len(report.artifacts):,}",
-        f"Status      {_style(status, policy.scan_status, color)}",
-        f"Risk        {_style(risk.upper(), risk, color)}",
-        f"Findings    {len(report.findings):,}",
-        "Severities  "
-        + ", ".join(
-            f"{_style(level.upper(), level, color)} {report.counts.get(level, 0):,}"
-            for level in ("critical", "high", "medium", "low", "info")
-        ),
-        f"Policy      {_style(policy.status.upper(), policy.status, color)}",
-        f"Reason      {_safe(policy.reason)}",
     ]
-    _diagnostic_summary(lines, report, color)
-    lines.extend(("", "Findings" if report.findings else "Findings    None"))
+    if installed_scan or report.installed_environments:
+        agents = sorted(
+            {item.agent for item in report.installed_environments if item.status == "discovered"}
+        )
+        partial = sum(
+            item.status == "discovered" and item.resolution == "partial"
+            for item in report.installed_environments
+        )
+        detail = f"{len(agents)} found"
+        if partial:
+            detail += f"; {partial} partial root{'s' if partial != 1 else ''}"
+        _summary_list(
+            lines,
+            "Agents",
+            f"{', '.join(_safe(name) for name in agents) or 'None found'} ({detail})",
+        )
+    kinds = Counter(artifact.kind for artifact in report.artifacts)
+    _summary_list(
+        lines,
+        "Scanned",
+        ", ".join(f"{label} {kinds[kind]:,}" for kind, label in _KIND_LABELS.items() if kinds[kind])
+        or "No supported artifacts",
+    )
+    if report_path is not None:
+        lines.append(f"Report      {ascii(str(report_path))}")
+    lines.extend(
+        [
+            f"Artifacts   {len(report.artifacts):,}",
+            f"Status      {_style(status, policy.scan_status, color)}",
+            f"Risk        {_style(risk.upper(), risk, color)}",
+            f"Findings    {len(report.findings):,}",
+            "Severities  "
+            + ", ".join(
+                f"{_style(level.upper(), level, color)} {report.counts.get(level, 0):,}"
+                for level in ("critical", "high", "medium", "low", "info")
+            ),
+            f"Policy      {_style(policy.status.upper(), policy.status, color)}",
+            f"Reason      {_safe(policy.reason)}",
+        ]
+    )
+    lines.extend(
+        (
+            "",
+            _box_top(f"Findings ({len(report.findings):,})", section=True),
+            "║ "
+            + "Static signals; confidence is evidence strength, not incident probability".ljust(
+                _BOX_WIDTH - 4
+            )
+            + " ║",
+            _box_bottom(section=True),
+        )
+    )
+    if not report.findings:
+        lines.append("Findings    None")
     for finding in sorted(
         report.findings,
         key=lambda item: ("critical", "high", "medium", "low", "info").index(item.severity.value),
     ):
         location = f":{finding.line}" if finding.line else ""
-        lines.extend(
-            (
-                "",
-                f"{_style(finding.severity.value.upper(), finding.severity.value, color)}  "
-                f"{_safe(finding.detection_id)}  ({finding.confidence.value} confidence)",
-                f"  {_safe(finding.title)}",
-                f"  File      {ascii(str(finding.artifact))}{location}",
-                f"  Evidence  {ascii(finding.evidence)}",
-                f"  Reason    {_safe(finding.explanation)}",
-            )
-        )
+        rows = [
+            ("", _safe(finding.title), ""),
+            ("Rule", _safe(finding.detection_id), ""),
+            ("Category", _safe(finding.category), ""),
+            ("Confidence", finding.confidence.value.upper(), ""),
+            ("File", f"{ascii(str(finding.artifact))}{location}", ""),
+            ("Evidence", ascii(finding.evidence), ""),
+            ("Reason", _safe(finding.explanation), ""),
+        ]
         if finding.signature is not None:
             info = finding.signature
             version = f" v{info.version}" if info.version else ""
-            lines.append(
-                f"  Signature: {ascii(info.signature_id)} ({ascii(info.signature_type)}) "
-                f"from {ascii(info.pack)}{ascii(version)}; context={ascii(info.context)}"
+            rows.append(
+                (
+                    "Signature",
+                    f"{ascii(info.signature_id)} ({ascii(info.signature_type)}) "
+                    f"from {ascii(info.pack)}{ascii(version)}; context={ascii(info.context)}",
+                    "",
+                )
             )
         if finding.intelligence is not None:
             for source in finding.intelligence.sources:
-                lines.append(
-                    f"  Intelligence: {ascii(source.feed_id)} v{ascii(source.feed_version)} "
-                    f"record={ascii(source.record_id)}; "
-                    f"classification={ascii(source.classification)}; "
-                    f"source={ascii(source.source)}; "
-                    f"source_version={ascii(source.source_version or 'unknown')}; "
-                    f"published={ascii(source.published or 'unknown')}; "
-                    f"updated={ascii(source.updated or 'unknown')}; "
-                    f"feed_confidence={ascii(source.confidence or 'unknown')}; "
-                    f"trust={ascii(source.trust or 'unknown')}; "
-                    f"provenance={ascii(source.provenance or 'unknown')}; "
-                    f"feed_sha256={ascii(source.feed_sha256 or 'unknown')}"
+                rows.append(
+                    (
+                        "Intelligence",
+                        f"{ascii(source.feed_id)} v{ascii(source.feed_version)} "
+                        f"record={ascii(source.record_id)}; "
+                        f"classification={ascii(source.classification)}; "
+                        f"source={ascii(source.source)}; "
+                        f"source_version={ascii(source.source_version or 'unknown')}; "
+                        f"published={ascii(source.published or 'unknown')}; "
+                        f"updated={ascii(source.updated or 'unknown')}; "
+                        f"feed_confidence={ascii(source.confidence or 'unknown')}; "
+                        f"trust={ascii(source.trust or 'unknown')}; "
+                        f"provenance={ascii(source.provenance or 'unknown')}; "
+                        f"feed_sha256={ascii(source.feed_sha256 or 'unknown')}",
+                        "",
+                    )
                 )
         if finding.semantic is not None:
             semantic_info = finding.semantic
-            lines.append(
-                f"  SEMANTIC: {ascii(semantic_info.category)} {ascii(semantic_info.verdict)}; "
-                f"candidate={ascii(semantic_info.candidate_id)}; "
-                f"evidence={ascii(', '.join(semantic_info.evidence_ids))}; "
-                f"provider={ascii(semantic_info.provider)}; model={ascii(semantic_info.model)}"
+            rows.append(
+                (
+                    "SEMANTIC",
+                    f"{ascii(semantic_info.category)} {ascii(semantic_info.verdict)}; "
+                    f"candidate={ascii(semantic_info.candidate_id)}; "
+                    f"evidence={ascii(', '.join(semantic_info.evidence_ids))}; "
+                    f"provider={ascii(semantic_info.provider)}; model={ascii(semantic_info.model)}",
+                    "",
+                )
             )
-            lines.append(f"  Rationale (model opinion): {ascii(semantic_info.rationale)}")
+            rows.append(("Model opinion", ascii(semantic_info.rationale), ""))
         if finding.evasion is not None:
             evasion = finding.evasion
-            lines.append(
-                f"  Static view: {ascii(' > '.join(evasion.chain))}; "
-                f"depth={evasion.depth}; source={ascii(evasion.source_kind)}; "
-                f"range={evasion.source_start}-{evasion.source_end}; "
-                f"confidence={evasion.confidence.value}; "
-                f"original={ascii(evasion.original_excerpt)}; "
-                f"canonical={ascii(evasion.canonical_excerpt)}"
+            rows.append(
+                (
+                    "Static view",
+                    f"{ascii(' > '.join(evasion.chain))}; "
+                    f"depth={evasion.depth}; source={ascii(evasion.source_kind)}; "
+                    f"range={evasion.source_start}-{evasion.source_end}; "
+                    f"confidence={evasion.confidence.value}; "
+                    f"original={ascii(evasion.original_excerpt)}; "
+                    f"canonical={ascii(evasion.canonical_excerpt)}",
+                    "",
+                )
             )
         if finding.dependency is not None:
             dep = finding.dependency
-            lines.append(
-                f"  Dependency: {ascii(dep.ecosystem)}:{ascii(dep.package)} "
-                f"[{ascii(dep.pinning)}, {ascii(dep.source)}, {ascii(dep.manager)}; "
-                f"{ascii(dep.mechanism)}]"
+            rows.append(
+                (
+                    "Dependency",
+                    f"{ascii(dep.ecosystem)}:{ascii(dep.package)} "
+                    f"[{ascii(dep.pinning)}, {ascii(dep.source)}, {ascii(dep.manager)}; "
+                    f"{ascii(dep.mechanism)}]",
+                    "",
+                )
             )
         if finding.vulnerability is not None:
             vuln = finding.vulnerability
-            lines.append(
-                f"  OSV: {ascii(vuln.vulnerability_id)} "
-                f"aliases={ascii(', '.join(vuln.aliases))}; "
-                f"upstream severity={ascii(vuln.upstream_severity or 'unknown')}; "
-                f"fixed={ascii(', '.join(vuln.fixed_versions) or 'not provided')}"
+            rows.append(
+                (
+                    "OSV",
+                    f"{ascii(vuln.vulnerability_id)} "
+                    f"aliases={ascii(', '.join(vuln.aliases))}; "
+                    f"upstream severity={ascii(vuln.upstream_severity or 'unknown')}; "
+                    f"fixed={ascii(', '.join(vuln.fixed_versions) or 'not provided')}",
+                    "",
+                )
             )
-        if finding.path:
-            lines.append(f"  Source: {ascii(finding.source or 'unknown')}")
-            lines.append(f"  Sink: {ascii(finding.sink or 'unknown')}")
-            if finding.flow is not None:
-                flow = finding.flow
-                lines.append(
-                    f"  Static flow: {ascii(flow.source_type)} -> {ascii(flow.sink_type)}; "
-                    f"confidence={flow.confidence.value}; "
-                    f"boundaries={ascii(', '.join(flow.boundaries) or 'none')}"
-                )
-            lines.append("  Path:")
-            for step in finding.path:
-                location = f":{step.line}" if step.line is not None else ""
-                lines.append(
-                    f"    {ascii(str(step.artifact))}{location} "
-                    f"--{_safe(step.edge)}--> {ascii(step.target)}"
-                )
+        rows.extend(
+            (label, ascii(value) if label in {"Source", "Sink"} else _safe(value), "")
+            for label, value in context_rows(finding)
+        )
+        rows.append(("Interpretation", INTERPRETATION, ""))
+        check, false_positive = _review_guidance(finding)
+        rows.extend(
+            (
+                ("Check", check, "check"),
+                ("False positive", false_positive, "false_positive"),
+                ("Fix", _safe(finding.remediation), "fix"),
+            )
+        )
+        lines.append("")
+        severity = finding.severity.value.upper()
+        lines.append(
+            _box_top(severity).replace(severity, _style(severity, finding.severity.value, color), 1)
+        )
+        for label, value, kind in rows:
+            lines.extend(_box_row(label, value, color, kind))
+        lines.append(_box_bottom())
+    _diagnostic_summary(lines, report, color, json_saved)
     if report.acquisition_status != "not_required":
         lines.append(f"Acquisition: {report.acquisition_status} ({report.acquisition_kind})")
         for diagnostic in report.acquisition_diagnostics:
             lines.append(f"ACQUISITION DIAGNOSTIC: {ascii(diagnostic)}")
-    if report.installed_environments:
-        lines.append("Installed agent environments (local evidence, not binary proof):")
-        for item in report.installed_environments:
-            lines.append(
-                f"  {ascii(item.agent)}: {item.status}/{item.resolution} "
-                f"scope={item.scope} evidence={','.join(item.evidence) or 'none'} "
-                f"installation={item.installation_evidence} [{ascii(item.source)}] "
-                f"root={ascii(str(item.root))}"
-            )
-            if item.diagnostic:
-                lines.append(f"    DIAGNOSTIC: {ascii(item.diagnostic)}")
-        lines.append(
-            f"Installed artifact roots: "
-            f"{sum(len(item.artifact_roots) for item in report.installed_environments)}; "
-            f"discovered artifact origins: "
-            f"{sum(item.provenance == 'installed_agent' for item in report.artifact_origins)}"
-        )
-        lines.append(f"Static MCP server associations: {len(report.installed_mcp_servers)}")
+
     if report.vulnerability_status != "disabled":
         lines.append(f"Vulnerability intelligence: {report.vulnerability_status}")
     for diagnostic in report.vulnerability_diagnostics:

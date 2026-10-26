@@ -1,0 +1,549 @@
+{
+  "schema_version": 1,
+  "corpus_version": "phase6-synthetic-evaluation-1",
+  "cases": [
+    {
+      "id": "pi-role-swap",
+      "artifact": "pi-role-swap/SKILL.md",
+      "classification": "malicious",
+      "split": "holdout",
+      "provenance": "synthetic",
+      "notes": "Lower-trust artifact attempts to replace higher-priority authority.",
+      "expected": [
+        "DRAGON-PI-001"
+      ],
+      "expected_findings": [
+        {
+          "id": "DRAGON-PI-001",
+          "artifact": "pi-role-swap/SKILL.md",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "id": "pi-review-bypass",
+      "artifact": "pi-review-bypass/AGENTS.md",
+      "classification": "malicious",
+      "split": "holdout",
+      "provenance": "synthetic",
+      "notes": "Agent is directed to bypass security review.",
+      "expected": [
+        "DRAGON-PI-002"
+      ],
+      "expected_findings": [
+        {
+          "id": "DRAGON-PI-002",
+          "artifact": "pi-review-bypass/AGENTS.md",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "id": "pi-quoted-transcript",
+      "artifact": "pi-quoted-transcript/SKILL.md",
+      "classification": "benign",
+      "split": "holdout",
+      "provenance": "synthetic",
+      "notes": "Quoted hostile transcript must remain data.",
+      "expected": [],
+      "expected_findings": []
+    },
+    {
+      "id": "pi-refusal",
+      "artifact": "pi-refusal/AGENTS.md",
+      "classification": "benign",
+      "split": "holdout",
+      "provenance": "synthetic",
+      "notes": "Explicit prohibition must not become an override.",
+      "expected": [],
+      "expected_findings": []
+    },
+    {
+      "id": "cred-local-review",
+      "artifact": "cred-local-review/SKILL.md",
+      "classification": "malicious",
+      "split": "holdout",
+      "provenance": "synthetic",
+      "notes": "Credential-file access without a network transfer.",
+      "expected": [
+        "DRAGON-CRED-001"
+      ],
+      "expected_findings": [
+        {
+          "id": "DRAGON-CRED-001",
+          "artifact": "cred-local-review/SKILL.md",
+          "line": 3,
+          "evidence_contains": "credentials"
+        }
+      ]
+    },
+    {
+      "id": "cred-link-leak",
+      "artifact": "cred-link-leak/SKILL.md",
+      "classification": "malicious",
+      "split": "holdout",
+      "provenance": "synthetic",
+      "notes": "Sensitive token linked to a remote transfer.",
+      "expected": [
+        "DRAGON-EXFIL-001"
+      ],
+      "expected_findings": [
+        {
+          "id": "DRAGON-EXFIL-001",
+          "artifact": "cred-link-leak/SKILL.md",
+          "line": 3,
+          "source": "API token",
+          "sink": "external HTTP(S) endpoint",
+          "evidence_contains": "API token"
+        }
+      ]
+    },
+    {
+      "id": "cred-redaction-guide",
+      "artifact": "cred-redaction-guide/SKILL.md",
+      "classification": "benign",
+      "split": "holdout",
+      "provenance": "synthetic",
+      "notes": "Negated credential access is unrelated to public telemetry.",
+      "expected": [],
+      "expected_findings": []
+    },
+    {
+      "id": "cred-public-status",
+      "artifact": "cred-public-status/SKILL.md",
+      "classification": "benign",
+      "split": "holdout",
+      "provenance": "synthetic",
+      "notes": "Public transfer with explicit secret exclusion.",
+      "expected": [],
+      "expected_findings": []
+    },
+    {
+      "id": "mcp-policy-rewrite",
+      "artifact": "mcp-policy-rewrite/mcp.json",
+      "classification": "malicious",
+      "split": "holdout",
+      "provenance": "synthetic",
+      "notes": "Tool metadata attempts policy override.",
+      "expected": [
+        "DRAGON-MCP-006"
+      ],
+      "expected_findings": [
+        {
+          "id": "DRAGON-MCP-006",
+          "artifact": "mcp-policy-rewrite/mcp.json"
+        }
+      ]
+    },
+    {
+      "id": "mcp-shadow-runner",
+      "artifact": "mcp-shadow-runner/mcp.json",
+      "classification": "malicious",
+      "split": "holdout",
+      "provenance": "synthetic",
+      "notes": "Tool metadata explicitly shadows an existing privileged tool.",
+      "expected": [
+        "DRAGON-MCP-007",
+        "DRAGON-FLOW-001"
+      ],
+      "expected_findings": [
+        {
+          "id": "DRAGON-MCP-007",
+          "artifact": "mcp-shadow-runner/mcp.json"
+        },
+        {
+          "id": "DRAGON-FLOW-001",
+          "artifact": "mcp-shadow-runner/mcp.json"
+        }
+      ]
+    },
+    {
+      "id": "mcp-quoted-warning",
+      "artifact": "mcp-quoted-warning/mcp.json",
+      "classification": "benign",
+      "split": "holdout",
+      "provenance": "synthetic",
+      "notes": "Metadata warning quotes hostile text without directing compliance.",
+      "expected": [],
+      "expected_findings": []
+    },
+    {
+      "id": "mcp-ordinary-reference",
+      "artifact": "mcp-ordinary-reference/mcp.json",
+      "classification": "benign",
+      "split": "holdout",
+      "provenance": "synthetic",
+      "notes": "Naming a privileged sibling is not instruction shadowing.",
+      "expected": [],
+      "expected_findings": []
+    },
+    {
+      "id": "exec-network-python",
+      "artifact": "exec-network-python/SKILL.md",
+      "classification": "malicious",
+      "split": "holdout",
+      "provenance": "synthetic",
+      "notes": "Unverified remote bytes feed Python stdin.",
+      "expected": [
+        "DRAGON-EXEC-002"
+      ],
+      "expected_findings": [
+        {
+          "id": "DRAGON-EXEC-002",
+          "artifact": "exec-network-python/SKILL.md",
+          "line": 3,
+          "source": "remote HTTP(S) content",
+          "sink": "Python interpreter execution"
+        }
+      ]
+    },
+    {
+      "id": "exec-shell-fetch",
+      "artifact": "exec-shell-fetch/SKILL.md",
+      "classification": "malicious",
+      "split": "holdout",
+      "provenance": "synthetic",
+      "notes": "Unverified remote bytes feed a shell.",
+      "expected": [
+        "DRAGON-EXEC-001"
+      ],
+      "expected_findings": [
+        {
+          "id": "DRAGON-EXEC-001",
+          "artifact": "exec-shell-fetch/SKILL.md",
+          "line": 3,
+          "evidence_contains": "shell"
+        }
+      ]
+    },
+    {
+      "id": "exec-download-only",
+      "artifact": "exec-download-only/SKILL.md",
+      "classification": "benign",
+      "split": "holdout",
+      "provenance": "synthetic",
+      "notes": "Download to a review file is not execution.",
+      "expected": [],
+      "expected_findings": []
+    },
+    {
+      "id": "exec-fenced-audit",
+      "artifact": "exec-fenced-audit/SKILL.md",
+      "classification": "benign",
+      "split": "holdout",
+      "provenance": "synthetic",
+      "notes": "Fenced rejected command remains inert documentation.",
+      "expected": [],
+      "expected_findings": []
+    },
+    {
+      "id": "persist-next-session",
+      "artifact": "persist-next-session/SKILL.md",
+      "classification": "malicious",
+      "split": "holdout",
+      "provenance": "synthetic",
+      "notes": "Write lasting agent guidance for later sessions.",
+      "expected": [
+        "DRAGON-PERSIST-001"
+      ],
+      "expected_findings": [
+        {
+          "id": "DRAGON-PERSIST-001",
+          "artifact": "persist-next-session/SKILL.md",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "id": "persist-soul-update",
+      "artifact": "persist-soul-update/AGENTS.md",
+      "classification": "malicious",
+      "split": "holdout",
+      "provenance": "synthetic",
+      "notes": "Replace persistent agent instructions.",
+      "expected": [
+        "DRAGON-PERSIST-001"
+      ],
+      "expected_findings": [
+        {
+          "id": "DRAGON-PERSIST-001",
+          "artifact": "persist-soul-update/AGENTS.md",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "id": "persist-readonly-review",
+      "artifact": "persist-readonly-review/SKILL.md",
+      "classification": "benign",
+      "split": "holdout",
+      "provenance": "synthetic",
+      "notes": "Reading persistent guidance is not a persistent write.",
+      "expected": [],
+      "expected_findings": []
+    },
+    {
+      "id": "persist-output-report",
+      "artifact": "persist-output-report/SKILL.md",
+      "classification": "benign",
+      "split": "holdout",
+      "provenance": "synthetic",
+      "notes": "Ordinary output file must not become agent persistence.",
+      "expected": [],
+      "expected_findings": []
+    },
+    {
+      "id": "supply-floating-python",
+      "artifact": "supply-floating-python/requirements.txt",
+      "classification": "malicious",
+      "split": "holdout",
+      "provenance": "synthetic",
+      "notes": "Open-ended Python dependency has mutable resolution.",
+      "expected": [
+        "DRAGON-SC-001"
+      ],
+      "expected_findings": [
+        {
+          "id": "DRAGON-SC-001",
+          "artifact": "supply-floating-python/requirements.txt"
+        }
+      ]
+    },
+    {
+      "id": "supply-local-backend",
+      "artifact": "supply-local-backend/pyproject.toml",
+      "classification": "malicious",
+      "split": "holdout",
+      "provenance": "synthetic",
+      "notes": "Build backend allows project-local code.",
+      "expected": [
+        "DRAGON-SC-007"
+      ],
+      "expected_findings": [
+        {
+          "id": "DRAGON-SC-007",
+          "artifact": "supply-local-backend/pyproject.toml"
+        }
+      ]
+    },
+    {
+      "id": "supply-fixed-python",
+      "artifact": "supply-fixed-python/requirements.txt",
+      "classification": "benign",
+      "split": "holdout",
+      "provenance": "synthetic",
+      "notes": "Exact version should not be labeled mutable.",
+      "expected": [],
+      "expected_findings": []
+    },
+    {
+      "id": "supply-safe-lifecycle",
+      "artifact": "supply-safe-lifecycle/package.json",
+      "classification": "benign",
+      "split": "holdout",
+      "provenance": "synthetic",
+      "notes": "Lifecycle hook alone is not suspicious remote execution.",
+      "expected": [],
+      "expected_findings": []
+    },
+    {
+      "id": "obf-literal-shell",
+      "artifact": "obf-literal-shell/SKILL.md",
+      "classification": "malicious",
+      "split": "holdout",
+      "provenance": "synthetic",
+      "notes": "Literal encoded bytes explicitly feed shell execution.",
+      "expected": [
+        "DRAGON-EXEC-003"
+      ],
+      "expected_findings": [
+        {
+          "id": "DRAGON-EXEC-003",
+          "artifact": "obf-literal-shell/SKILL.md",
+          "line": 3,
+          "source": "literal encoded input",
+          "sink": "shell execution",
+          "path_edges": []
+        }
+      ]
+    },
+    {
+      "id": "obf-bidi-directive",
+      "artifact": "obf-bidi-directive/SKILL.md",
+      "classification": "malicious",
+      "split": "holdout",
+      "provenance": "synthetic",
+      "notes": "Bidirectional controls conceal visual instruction order.",
+      "expected": [
+        "DRAGON-OBF-001"
+      ],
+      "expected_findings": [
+        {
+          "id": "DRAGON-OBF-001",
+          "artifact": "obf-bidi-directive/SKILL.md",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "id": "obf-print-only",
+      "artifact": "obf-print-only/SKILL.md",
+      "classification": "benign",
+      "split": "holdout",
+      "provenance": "synthetic",
+      "notes": "Decoding for display has no execution sink.",
+      "expected": [],
+      "expected_findings": []
+    },
+    {
+      "id": "obf-encoding-doc",
+      "artifact": "obf-encoding-doc/SKILL.md",
+      "classification": "benign",
+      "split": "holdout",
+      "provenance": "synthetic",
+      "notes": "Encoding vocabulary alone is not malicious.",
+      "expected": [],
+      "expected_findings": []
+    },
+    {
+      "id": "chain-local-load",
+      "artifact": "chain-local-load",
+      "classification": "malicious",
+      "split": "holdout",
+      "provenance": "synthetic",
+      "notes": "Explicitly loaded local instruction requests remote shell execution.",
+      "expected": [
+        "DRAGON-EXEC-001",
+        "DRAGON-PATH-002"
+      ],
+      "expected_findings": [
+        {
+          "id": "DRAGON-EXEC-001",
+          "artifact": "chain-local-load/migration/SKILL.md",
+          "line": 3
+        },
+        {
+          "id": "DRAGON-PATH-002",
+          "artifact": "chain-local-load/AGENTS.md",
+          "path_edges": [
+            "loads",
+            "fetches",
+            "executes"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "chain-structured-load",
+      "artifact": "chain-structured-load",
+      "classification": "malicious",
+      "split": "holdout",
+      "provenance": "synthetic",
+      "notes": "Structured configuration explicitly loads a remote-execution instruction.",
+      "expected": [
+        "DRAGON-EXEC-001",
+        "DRAGON-PATH-002"
+      ],
+      "expected_findings": [
+        {
+          "id": "DRAGON-EXEC-001",
+          "artifact": "chain-structured-load/migration/SKILL.md",
+          "line": 3
+        },
+        {
+          "id": "DRAGON-PATH-002",
+          "artifact": "chain-structured-load/settings.json",
+          "path_edges": [
+            "loads",
+            "fetches",
+            "executes"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "chain-passive-reference",
+      "artifact": "chain-passive-reference",
+      "classification": "benign",
+      "split": "holdout",
+      "provenance": "synthetic",
+      "notes": "Passive hyperlink and quoted snippet do not establish execution chain.",
+      "expected": [],
+      "expected_findings": []
+    },
+    {
+      "id": "chain-safe-load",
+      "artifact": "chain-safe-load",
+      "classification": "benign",
+      "split": "holdout",
+      "provenance": "synthetic",
+      "notes": "Explicit load of benign instructions is not an attack path.",
+      "expected": [],
+      "expected_findings": []
+    },
+    {
+      "id": "flow-result-handoff",
+      "artifact": "flow-result-handoff/mcp.json",
+      "classification": "malicious",
+      "split": "holdout",
+      "provenance": "synthetic",
+      "notes": "Sensitive result explicitly handed to a remote-upload tool.",
+      "expected": [
+        "DRAGON-FLOW-002"
+      ],
+      "expected_findings": [
+        {
+          "id": "DRAGON-FLOW-002",
+          "artifact": "flow-result-handoff/mcp.json",
+          "flow_edges": [
+            "reads",
+            "passes_to",
+            "sends_to"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "flow-single-tool-transfer",
+      "artifact": "flow-single-tool-transfer/mcp.json",
+      "classification": "malicious",
+      "split": "holdout",
+      "provenance": "synthetic",
+      "notes": "Single tool links sensitive read and remote transfer.",
+      "expected": [
+        "DRAGON-MCP-010",
+        "DRAGON-MCP-012"
+      ],
+      "expected_findings": [
+        {
+          "id": "DRAGON-MCP-010",
+          "artifact": "flow-single-tool-transfer/mcp.json"
+        },
+        {
+          "id": "DRAGON-MCP-012",
+          "artifact": "flow-single-tool-transfer/mcp.json"
+        }
+      ]
+    },
+    {
+      "id": "flow-disconnected-tools",
+      "artifact": "flow-disconnected-tools/mcp.json",
+      "classification": "benign",
+      "split": "holdout",
+      "provenance": "synthetic",
+      "notes": "Separate capabilities without result transfer are not tainted flow.",
+      "expected": [],
+      "expected_findings": []
+    },
+    {
+      "id": "flow-redacted-result",
+      "artifact": "flow-redacted-result/mcp.json",
+      "classification": "benign",
+      "split": "holdout",
+      "provenance": "synthetic",
+      "notes": "Non-sensitive aggregate is not a credential flow.",
+      "expected": [],
+      "expected_findings": []
+    }
+  ]
+}

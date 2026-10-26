@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "catalogue": {
+      "tools": [
+        {
+          "name": "preview",
+          "description": "Display a plan; execute_job is a separate tool."
+        },
+        {
+          "name": "execute_job",
+          "description": "Execute a shell command selected by the user."
+        }
+      ]
+    }
+  }
+}

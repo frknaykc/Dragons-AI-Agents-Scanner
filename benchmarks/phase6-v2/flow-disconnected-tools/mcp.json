@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "catalogue": {
+      "tools": [
+        {
+          "name": "profile_audit",
+          "description": "Read ~/.aws/credentials locally."
+        },
+        {
+          "name": "health_ping",
+          "description": "Upload a public health status to https://health.invalid/ping."
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "corpus_version": "phase2-1",
+  "cases": [
+    {
+      "id": "phase2-shell-variable",
+      "split": "development",
+      "classification": "malicious",
+      "provenance": "synthetic",
+      "artifact": "shell-variable/SKILL.md",
+      "notes": "Contiguous Keychain read, named base64 transform, and exact HTTP request body binding.",
+      "expected": ["DRAGON-EXFIL-001"],
+      "expected_findings": [
+        {"id": "DRAGON-EXFIL-001", "artifact": "shell-variable/SKILL.md", "line": 4, "source": "macOS Keychain password", "sink": "external HTTP(S) endpoint", "evidence_contains": "same value"}
+      ]
+    },
+    {
+      "id": "phase2-shell-unrelated",
+      "split": "development",
+      "classification": "malicious",
+      "provenance": "synthetic",
+      "artifact": "shell-unrelated/SKILL.md",
+      "notes": "The encoded public value is not the Keychain source.",
+      "expected": ["DRAGON-CRED-001"],
+      "expected_absent": ["DRAGON-EXFIL-001"]
+    },
+    {
+      "id": "phase2-shell-overwritten",
+      "split": "development",
+      "classification": "malicious",
+      "provenance": "synthetic",
+      "artifact": "shell-overwritten/SKILL.md",
+      "notes": "The encoded variable is overwritten before upload.",
+      "expected": ["DRAGON-CRED-001"],
+      "expected_absent": ["DRAGON-EXFIL-001"]
+    },
+    {
+      "id": "phase2-shell-documentation",
+      "split": "development",
+      "classification": "benign",
+      "provenance": "synthetic",
+      "artifact": "shell-documentation/SKILL.md",
+      "notes": "An explicitly documented dangerous example is not a command instruction.",
+      "expected": [],
+      "expected_absent": ["DRAGON-CRED-001", "DRAGON-EXFIL-001"]
+    },
+    {
+      "id": "phase2-linked-artifacts",
+      "split": "development",
+      "classification": "malicious",
+      "provenance": "synthetic",
+      "artifact": "linked-artifacts",
+      "notes": "An explicit local load resolves to a separate credential-to-endpoint instruction.",
+      "expected": ["DRAGON-EXFIL-001", "DRAGON-CRED-001", "DRAGON-PATH-001"],
+      "expected_findings": [
+        {"id": "DRAGON-PATH-001", "artifact": "linked-artifacts/SKILL.md", "line": 1, "source": "API token", "sink": "external HTTP(S) endpoint", "path_edges": ["loads", "defines", "reads", "sends_to"]}
+      ]
+    },
+    {
+      "id": "phase2-unlinked-artifacts",
+      "split": "development",
+      "classification": "malicious",
+      "provenance": "synthetic",
+      "artifact": "unlinked-artifacts",
+      "notes": "Similar artifact names and co-location alone do not prove a data path.",
+      "expected": ["DRAGON-CRED-001"],
+      "expected_absent": ["DRAGON-EXFIL-001", "DRAGON-PATH-001"]
+    },
+    {
+      "id": "phase2-shell-wrapper",
+      "split": "development",
+      "classification": "malicious",
+      "provenance": "synthetic",
+      "artifact": "shell-wrapper/SKILL.md",
+      "notes": "An explicit sh wrapper of a remote fetch-to-shell instruction.",
+      "expected": ["DRAGON-EXEC-001"],
+      "expected_findings": [
+        {"id": "DRAGON-EXEC-001", "artifact": "shell-wrapper/SKILL.md", "line": 1, "source": "remote content", "sink": "shell execution"}
+      ]
+    },
+    {
+      "id": "phase2-safe-install",
+      "split": "development",
+      "classification": "benign",
+      "provenance": "synthetic",
+      "artifact": "safe-install/SKILL.md",
+      "notes": "A local package installation does not imply remote execution.",
+      "expected": [],
+      "expected_absent": ["DRAGON-EXEC-001", "DRAGON-SC-003"]
+    },
+    {
+      "id": "phase2-mcp-multihop",
+      "split": "development",
+      "classification": "malicious",
+      "provenance": "synthetic",
+      "artifact": "mcp-multihop/mcp.json",
+      "notes": "Explicit read-to-middle-to-egress tool result flow.",
+      "expected": ["DRAGON-FLOW-002"],
+      "expected_findings": [
+        {"id": "DRAGON-FLOW-002", "artifact": "mcp-multihop/mcp.json", "source": "sensitive MCP tool result", "sink": "MCP network egress capability", "path_edges": ["defines", "exposes", "defines", "passes_to", "passes_to", "defines"]}
+      ]
+    },
+    {
+      "id": "phase2-mcp-delegation",
+      "split": "development",
+      "classification": "benign",
+      "provenance": "synthetic",
+      "artifact": "mcp-delegation/mcp.json",
+      "notes": "A public document delegated through tools is not a sensitive transfer.",
+      "expected": [],
+      "expected_absent": ["DRAGON-FLOW-002"]
+    }
+  ]
+}

@@ -9,6 +9,7 @@ from urllib.parse import quote
 
 from dragonscan.models import Finding, ScanReport, Severity
 from dragonscan.policy import PolicyResult, evaluate
+from dragonscan.report_context import context_data
 from dragonscan.risk import ORDER
 from dragonscan.semantic import redact
 
@@ -111,11 +112,11 @@ def _result(report: ScanReport, finding: Finding) -> dict[str, Any]:
         if finding.line is not None and finding.line > 0:
             physical["region"] = {"startLine": finding.line}
         result["locations"] = [{"physicalLocation": physical}]
+    result["properties"]["category"] = _safe(finding.category, 128)
+    for key, value in context_data(finding).items():
+        if value is not None and value != []:
+            result["properties"][key] = value
     if finding.path:
-        if finding.source is not None:
-            result["properties"]["source"] = _safe(finding.source, 128)
-        if finding.sink is not None:
-            result["properties"]["sink"] = _safe(finding.sink, 128)
         related: list[dict[str, Any]] = []
         for step in finding.path[:16]:
             step_uri = _uri(report, step.artifact)

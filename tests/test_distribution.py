@@ -43,7 +43,7 @@ def test_package_metadata_and_build_group() -> None:
     assert "Copyright (c) 2026 Furkan ‘NaxoziwuS’ Aykaç" in (ROOT / "LICENSE").read_text(
         encoding="utf-8"
     )
-    assert {"click", "markdown-it-py", "PyYAML"} == {
+    assert {"click", "markdown-it-py", "PyYAML", "textual"} == {
         re.split(r"[<>=]", dependency)[0] for dependency in project["dependencies"]
     }
     assert METADATA["dependency-groups"]["standalone"] == ["pyinstaller==6.16.0"]

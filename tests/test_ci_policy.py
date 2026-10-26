@@ -104,7 +104,12 @@ def test_explicit_strict_coverage_and_default_compatibility(
     report = ScanReport(tmp_path, (), (), installed_environments=(env,))
     monkeypatch.setattr("dragonscan.cli.scan_target", lambda target: report)
     runner = CliRunner()
-    assert runner.invoke(main, ["scan", str(tmp_path)]).exit_code == 3
+    terminal = runner.invoke(main, ["scan", str(tmp_path)])
+    assert terminal.exit_code == 3
+    assert "Findings (0)" in terminal.output
+    assert "Agents      agent (1 found; 1 partial root)" in terminal.output
+    assert "Coverage    1 partial agent root" in terminal.output
+    assert terminal.output.index("Agents      agent") < terminal.output.index("Findings (0)")
     result = runner.invoke(
         main, ["scan", str(tmp_path), "--fail-on-incomplete", "--format", "json"]
     )

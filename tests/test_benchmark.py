@@ -366,7 +366,7 @@ def test_real_corpus_offline_execution_free_and_same_scanner(tmp_path: Path) -> 
         result = run(root / "manifest.json")
     assert result["status"] == "completed"
     assert result == run(root / "manifest.json")
-    assert result["coverage"]["total_rules"] == 46
+    assert result["coverage"]["total_rules"] == 48
     assert len(result["coverage"]["supported"]) == 38
     assert len(result["coverage"]["semantic_excluded"]) == 5
     assert result["summary"]["benign_cases"] > 0
@@ -408,6 +408,19 @@ def test_partial_scan_with_expected_finding_is_not_scored_as_fn(
     assert result["summary"]["evaluated_cases"] == 0
     assert result["summary"]["fn"] == 0
     assert result["false_negatives"] == []
+
+
+def test_parse_diagnostic_cannot_complete_benchmark_case(tmp_path: Path) -> None:
+    (tmp_path / "one").mkdir()
+    (tmp_path / "one/kilo.json").write_text("{bad json")
+    path = manifest(tmp_path, [case("one", artifact="one/kilo.json")])
+    report = Scanner().scan(Target(tmp_path / "one/kilo.json"))
+    assert report.diagnostics and not report.errors
+    result = run(path)
+    assert result["status"] == "partial"
+    assert result["summary"]["failed_cases"] == 1
+    assert result["summary"]["evaluated_cases"] == 0
+    assert result["summary"]["fp"] == result["summary"]["fn"] == 0
 
 
 def test_case_isolation_and_partial_status(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

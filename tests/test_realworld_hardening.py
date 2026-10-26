@@ -87,8 +87,7 @@ def test_unsupported_optional_mcp_schema_and_malformed_supported_schema(tmp_path
         d.level == "warning" and "mcpServers object" in d.message for d in malformed.diagnostics
     )
     assert evaluate(malformed).scan_status == "partial"
-    assert "COVERAGE:" in terminal_report(malformed)
-    assert "WARNING:" in terminal_report(malformed)
+    assert "Coverage    1 limited analysis; 1 warning" in terminal_report(malformed)
     assert evaluate(malformed).exit_code == 3
     assert json.loads(json_report(malformed))["policy"]["status"] == "incomplete"
 
