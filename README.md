@@ -34,6 +34,8 @@ Replace the example path with a supported file or directory of your own. The fir
 
 [Installation options](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/blob/main/docs/INSTALLATION.md) · [CLI commands](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/blob/main/docs/CLI_GUIDE.md)
 
+Run `uv run dragonscan` in an interactive terminal for an icon-led, line-oriented target menu: choose all known local agents, one known agent or a local file/directory, then confirm before scanning. Run `uv run dragonscan -tui` for the full-screen Textual interface with scoped selection and a browsable report. Both interfaces scan locally by default. For a one-shot scan without either interface, pass a target or scan flags directly (`uv run dragonscan ./AGENTS.md --format json` or `uv run dragonscan --installed-agents`); the existing `scan PATH` and `scan --installed-agents` forms still work. Installed-agent scans save a private JSON report by default when terminal output is selected.
+
 ## See the scanner
 
 The images below capture real macOS Terminal sessions using inert test fixtures. They are not simulated terminal interfaces, and no malicious payload was executed. The [screenshot verification log](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/blob/main/assets/screenshots/README.md) records the command, fixture, exit code and capture method for each image. Tap an image to enlarge it on mobile.
@@ -83,7 +85,9 @@ Scanning a path does not search your installed agents. To inspect known local ag
 uv run dragonscan scan --installed-agents
 ```
 
-This option reads known local locations; it does not prove an agent is installed or active. [Installed-agent details](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/blob/main/docs/SUPPORTED_AGENTS.md)
+This option reads known local locations; it does not prove an agent is installed or active. The terminal summary lists only discovered agents and counts the artifact types scanned. A detailed JSON report is saved to a new private `~/dragonscan-*/scan.json` directory and its exact path appears under `Report`. Review it locally before sharing; it may contain local paths and excerpts. [Installed-agent details](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/blob/main/docs/SUPPORTED_AGENTS.md)
+
+To scan larger known agent directories, adjust the discovery budgets with `--max-entries-per-root`, `--max-artifacts`, `--max-artifacts-per-root` and `--max-depth`; use `--agent` to select one known agent. A reached limit is reported as partial coverage, not a clean scan. File-size, format and security exclusions still apply. [Options and limits](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/blob/main/docs/CLI_GUIDE.md)
 
 ## How it works
 
@@ -109,6 +113,8 @@ uv run dragonscan scan ./AGENTS.md
 uv run dragonscan scan ./agent-directory --format json --output scan.json
 uv run dragonscan scan ./agent-directory --format sarif --output scan.sarif --fail-on high
 ```
+
+Terminal findings appear in individual cards with evidence, confidence, review checks, false-positive considerations and remediation. Scan limits appear as a short coverage summary, not as security findings; detailed diagnostics and the full agent inventory are in JSON. A partial scan is not a negative security result.
 
 `./AGENTS.md` and `./agent-directory` are example paths; supply your own supported artifact or directory. Reports are written to the local filesystem. `--fail-on high` opts into a policy failure when a completed scan finds a high- or critical-severity issue.
 

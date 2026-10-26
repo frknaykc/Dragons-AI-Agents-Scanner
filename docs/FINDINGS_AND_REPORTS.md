@@ -8,21 +8,50 @@ Each finding has a stable **detection ID** (for example, `DRAGON-PI-001`), categ
 
 Where evidence supports it, `source` and `sink` describe the input and destination, `flow` describes structured transfer context and `path` contains supported attack-graph steps. Missing fields mean the relationship was **not established**, not that the artifact is safe. Location may be file-only for some formats. Diagnostics describe unreadable/malformed/omitted analysis, **not** security findings. A diagnostic can make a scan partial even when findings also exist.
 
-The terminal summary presents `Status` (`COMPLETE`, `PARTIAL`, `FAILED`), risk, severity counts, `Policy` (`PASS`, `POLICY_VIOLATION`, `INCOMPLETE`, `SCAN_ERROR`) and reason. It groups `ERROR`, `WARNING` and `COVERAGE` separately. [Real clean-scan screenshot](../assets/screenshots/dragons-clean-scan.png) · [real gated-finding screenshot](../assets/screenshots/dragons-severity-policy.png) · [missing-target text capture](assets/cli/diagnostic.txt). The [screenshot log](../assets/screenshots/README.md) records commands, fixtures and exit codes.
+The terminal summary starts with the target and counts of scanned artifact types, followed by `Artifacts`, `Status` (`COMPLETE`, `PARTIAL`, `FAILED`), risk, severity counts, `Policy` (`PASS`, `POLICY_VIOLATION`, `INCOMPLETE`, `SCAN_ERROR`) and reason. With `--installed-agents`, it also lists distinct discovered agent names (location evidence, not proof of installation) and the saved JSON report path before the result counts. A boxed **Findings** section contains a separate card for each security finding. Each card shows severity, title, rule ID, confidence, file/line, evidence, reason, **Check** (what to inspect), **False positive** (what could change the interpretation), and **Fix** (the rule's remediation). `MEDIUM` is orange when terminal color is enabled; `Check`, `False positive` and `Fix` labels have distinct colors. Piped output, `NO_COLOR` and report files contain no ANSI color codes. The review prompts are guidance, not extra findings or evidence that an action occurred. They do not change JSON/SARIF fields.
 
-A verified synthetic security finding, with the absolute local artifact path intentionally **omitted** (this is a summary, not a verbatim terminal capture):
+**Scan coverage & diagnostics** follows the findings with counts of errors, limited analyses, warnings and partial agent roots; it shows the first fatal cause, but not individual warning or coverage messages. Limits, unreadable files and skipped regions are not included in the finding count. A `PARTIAL` scan is not a clean bill of health, even when no findings appear. The default terminal `--installed-agents` scan saves full JSON to a newly created private directory under the user's home (`~/dragonscan-*/scan.json`, permission-restricted on POSIX systems). Its `Report` line gives the exact path. This file may contain local paths and bounded excerpts: review it before sharing or retaining it. The report is not uploaded; each run creates a new directory. Explicit `--format json` or `--output` continues to behave as requested, without an extra copy. JSON includes the per-artifact diagnostics and full installed-agent inventory, including unlocated roots; absence from the terminal agent list does not establish that a program is uninstalled. These [real terminal screenshots](../assets/screenshots/dragons-clean-scan.png) and [gated-finding capture](../assets/screenshots/dragons-severity-policy.png), along with the [missing-target text capture](assets/cli/diagnostic.txt), document earlier output; the [screenshot log](../assets/screenshots/README.md) records their commands and dates.
+
+A synthetic security finding's selected fields, with the absolute local artifact path intentionally **omitted** (not a verbatim terminal capture):
 
 ```text
 Status      COMPLETE
 Risk        HIGH
-Findings    1
 Policy      POLICY_VIOLATION
-HIGH  DRAGON-PI-001  (high confidence)
-  Prior instruction override
-  Evidence  'instruction directs the agent to disregard prior instructions'
+╔═ Findings (1) ...
+┌─ HIGH ...
+│ Prior instruction override
+│ Rule:           DRAGON-PI-001
+│ Confidence:     HIGH
+│ Evidence:       'instruction directs the agent to disregard prior instructions'
+│ Reason:         An actionable instruction attempts to replace prior guidance;
+│                 intent is not execution.
+│ Check:          Inspect the cited artifact and surrounding context; verify ...
+│ False positive: Quoted, prohibited or benign authorized behavior can change ...
+│ Fix:            Remove the override and verify the artifact's author and trust boundary.
 ```
 
 Command: `uv run dragonscan scan benchmarks/corpus/pi-override/SKILL.md --fail-on high` (exit **1**). This fixture is inert; Dragons did not run its contents.
+
+## Static relationship details
+
+CLI finding cards and the existing TUI detail pane show category, source, sink and
+supported static path steps, including edge, artifact/line, origin and confidence.
+Available flow types, trust boundaries, capabilities and transformations are shown
+without inventing missing relationships. `not established` means no supporting
+relationship was supplied by the detector; it does not mean safe. A supported
+static path is **not runtime verification** or evidence of a successful attack.
+Severity describes potential impact; confidence describes evidence strength.
+The TUI keeps the scan coverage banner visible and long details scroll within the
+existing pane, including at narrow terminal widths.
+
+JSON retains its existing field shapes and omission rules. SARIF result properties
+add `category` and, when present, `source`, `sink`, `path` and `flow`; these are
+static context, not SARIF execution traces. Existing `relatedLocations` remain.
+Relationship strings in all four formats use the same redaction boundary before
+display/export, with unsafe or oversized values suppressed rather than truncated
+before redaction. Local paths remain potentially identifying: review reports
+before sharing. No rule, severity threshold or policy exit code changes.
 
 ## JSON
 
