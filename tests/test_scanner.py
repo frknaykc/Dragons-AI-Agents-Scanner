@@ -1,6 +1,7 @@
 """Behavioral coverage of inert corpus, boundaries, and public CLI."""
 
 import json
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -160,8 +161,9 @@ def test_symlinks_are_not_traversed(tmp_path: Path, malicious_corpus: Path) -> N
         raise AssertionError("symlink accepted")
 
 
+@pytest.mark.parametrize("artifact_index", (0, 3))
 def test_project_discovery_entry_budget_marks_partial_without_losing_prior_artifact(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, artifact_index: int
 ) -> None:
     import dragonscan.discovery as discovery
     from dragonscan.policy import evaluate
@@ -170,6 +172,24 @@ def test_project_discovery_entry_budget_marks_partial_without_losing_prior_artif
     (tmp_path / "AGENTS.md").write_text("ordinary guidance")
     for index in range(6):
         (tmp_path / f"ignored-{index}.txt").write_text("unrelated")
+
+    # Creation order is not scandir order (notably on Linux). Exercise an
+    # artifact actually visited before the budget, including its final slot.
+    real_scandir = discovery.os.scandir
+
+    @contextmanager
+    def ordered_scandir(path):
+        with real_scandir(path) as stream:
+            if Path(path) == tmp_path:
+                entries = sorted(stream, key=lambda entry: entry.name)
+                artifact = next(entry for entry in entries if entry.name == "AGENTS.md")
+                entries.remove(artifact)
+                entries.insert(artifact_index, artifact)
+                yield iter(entries)
+            else:
+                yield stream
+
+    monkeypatch.setattr(discovery.os, "scandir", ordered_scandir)
     report = Scanner().scan(Target(tmp_path))
     assert any(item.path == tmp_path / "AGENTS.md" for item in report.artifacts)
     assert any("entry limit" in item.message for item in report.diagnostics)
