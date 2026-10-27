@@ -21,7 +21,7 @@ from dragonscan.installed_agents import SPECS
 from dragonscan.models import ArtifactKind, Diagnostic, Finding, ScanReport, Severity, Target
 from dragonscan.policy import PolicyResult, evaluate
 from dragonscan.report_context import INTERPRETATION, context_rows
-from dragonscan.reporting import json_report, sarif_report, terminal_report
+from dragonscan.reporting import json_report, risk_label, sarif_report, terminal_report
 from dragonscan.scanner import Scanner
 from dragonscan.target_acquisition import acquire
 
@@ -364,9 +364,9 @@ class ScanApp(App[None]):
     #finding-pane { width: 1fr; height: 1fr; padding: 0 2;
                     border: solid #704b28; background: #170d09; }
     #finding-content { height: auto; color: #f1e4d0; }
-    #results-layout.stacked { layout: vertical; height: 12; }
-    #results-layout.stacked #findings-tree { width: 100%; height: 6; }
-    #results-layout.stacked #finding-pane { width: 100%; height: 6; padding: 0 1; }
+    #results-layout.stacked { layout: vertical; height: 12; min-height: 8; max-height: 100%; }
+    #results-layout.stacked #findings-tree { width: 100%; height: 1fr; }
+    #results-layout.stacked #finding-pane { width: 100%; height: 1fr; padding: 0 1; }
     .empty-results { color: #c6a985; padding: 0 0 1 0; }
     #summary { height: auto; margin-bottom: 1; }
     #coverage { height: auto; padding: 0 1; margin-bottom: 1;
@@ -1127,7 +1127,9 @@ class ScanApp(App[None]):
         self.scanning = False
         self.query_one("#activity", Static).display = False
         self._show_stage("confirm")
-        self.query_one("#status", Static).update(Text(_safe_text(message)))
+        self.query_one("#status", Static).update(
+            Text(f"Risk: NOT ASSESSED · {_safe_text(message)}")
+        )
 
     def _finish(self, report: ScanReport, policy: PolicyResult, saved: Path | None) -> None:
         self.scanning = False
@@ -1149,6 +1151,7 @@ class ScanApp(App[None]):
         self.query_one("#summary", Static).update(
             f"Target: {_safe_text(report.target)}\n"
             f"Artifacts: {len(report.artifacts)}  ·  Findings: {len(report.findings)}"
+            + f"\nRisk: {risk_label(report, policy).upper()}"
             + (f"\nSeverities: {breakdown}" if breakdown else "")
             + (f"\nDetailed JSON: {_safe_text(saved)}" if saved else "")
         )

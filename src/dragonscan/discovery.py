@@ -68,6 +68,12 @@ def classify(
     source_format = FORMATS.get(path.suffix.lower())
     if source_format is None:
         return None
+    # Imported here because installed discovery also uses this module's bounded walk.
+    from dragonscan.installed_agents import classify_agent_config
+
+    known_config = classify_agent_config(path)
+    if known_config is not None:
+        return known_config
     ecosystem = next(
         (
             ECOSYSTEM_DIRS[part.lower()]

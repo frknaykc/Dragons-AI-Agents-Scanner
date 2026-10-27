@@ -55,6 +55,10 @@ before sharing. No rule, severity threshold or policy exit code changes.
 
 ## JSON
 
+Failed scans without findings display **Risk: NOT ASSESSED** in the terminal and TUI, including when zero artifacts could be analyzed. Completed scans without findings retain **Risk: NONE**; existing findings retain their severity even if another artifact fails. Neither label is a guarantee of safety.
+
+JSON keeps its nullable severity contract: `risk: null` means there is no finding severity, not that analysis succeeded. Check `scan_status`, `policy.status`, errors and diagnostics: a failed scan has `scan_status: failed`, `policy.status: scan_error` and exit code **3**. SARIF keeps operational errors out of `results` and reports them through `invocations[0].executionSuccessful: false` and the existing policy properties. A successfully executed but partial scan still requires checking the policy; `executionSuccessful: true` alone is not a pass.
+
 ```sh
 uv run dragonscan scan benchmarks/corpus/benign-credential-guide/AGENTS.md --format json --output scan.json
 ```

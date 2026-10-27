@@ -31,9 +31,9 @@ def document(tmp_path: Path, name: str, content: str, parent: str = ""):
         ("", "SOUL.md", ArtifactKind.SOUL, SourceFormat.MARKDOWN, None),
         ("", "CLAUDE.md", ArtifactKind.INSTRUCTIONS, SourceFormat.MARKDOWN, None),
         ("", "AGENTS.md", ArtifactKind.INSTRUCTIONS, SourceFormat.MARKDOWN, None),
-        (".claude", "settings.json", ArtifactKind.AGENT_CONFIG, SourceFormat.JSON, "claude-code"),
+        (".claude", "settings.json", ArtifactKind.AGENT_CONFIG, SourceFormat.JSON, "Claude Code"),
         (".cursor", "mcp.json", ArtifactKind.MCP_CONFIG, SourceFormat.JSON, "cursor"),
-        (".codex", "config.toml", ArtifactKind.AGENT_CONFIG, SourceFormat.TOML, "codex"),
+        (".codex", "config.toml", ArtifactKind.AGENT_CONFIG, SourceFormat.TOML, "Codex"),
         (".gemini", "settings.yaml", ArtifactKind.AGENT_CONFIG, SourceFormat.YAML, "gemini-cli"),
         (".windsurf", "settings.json", ArtifactKind.AGENT_CONFIG, SourceFormat.JSON, "windsurf"),
         (".openclaw", "config.yaml", ArtifactKind.AGENT_CONFIG, SourceFormat.YAML, "openclaw"),
@@ -161,16 +161,23 @@ def test_mcp_normalization_redacts_env_and_extracts_explicit_relations(tmp_path)
     assert "fixture-private-value" not in json_report(Scanner().scan(Target(doc.artifact.path)))
 
 
-def test_settings_can_embed_mcp_and_hooks_without_reclassifying_entire_artifact(tmp_path):
+@pytest.mark.parametrize("parent,has_mcp", ((".cursor", True), (".claude", False)))
+def test_settings_can_embed_mcp_and_hooks_without_reclassifying_entire_artifact(
+    tmp_path, parent, has_mcp
+):
     doc = document(
         tmp_path,
         "settings.json",
         '{"mcpServers":{"alpha":{"command":"python","args":["-m","demo"]}},'
         '"hooks":{"PreToolUse":[{"command":"echo inert"}]}}',
-        ".claude",
+        parent,
     )
     assert doc.artifact.kind == ArtifactKind.AGENT_CONFIG
-    assert doc.servers[0].package == "demo"
+    if has_mcp:
+        assert doc.servers[0].package == "demo"
+    else:
+        # Claude settings use their existing agent-specific parser: MCP lives elsewhere.
+        assert doc.servers == ()
     assert any(entry.key_path[0] == "hooks" for entry in doc.entries)
 
 

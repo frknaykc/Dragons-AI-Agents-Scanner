@@ -503,6 +503,48 @@ def _spec_artifact(path: Path, root: Path, spec: AgentSpec, location: Location) 
     return None
 
 
+def classify_agent_config(path: Path) -> Artifact | None:
+    """Reuse verified config aliases for direct scans, never infer from file content.
+
+    Product-specific directory components are required. The auth-bearing Claude
+    user file is recognized only immediately inside the selected home directory.
+    Instruction aliases and other agents retain their existing discovery policy.
+    """
+    if path.name == ".claude.json" and path.parent == Path.home().absolute():
+        _safe_mode(path, path.parent)
+        return Artifact(path, ArtifactKind.MCP_CONFIG, SourceFormat.JSON, "Claude Code")
+    for spec in SPECS:
+        if spec.kind not in {"Cline", "Claude Code", "Codex", "Cursor", "Hermes Agent"}:
+            continue
+        locations = (
+            *spec.locations,
+            *(
+                location
+                for platform in PLATFORM_LOCATIONS.values()
+                for location in platform.get(spec.kind, ())
+            ),
+        )
+        for location in locations:
+            if not location.user or not any(
+                path.name == Path(name).name
+                and kind in {ArtifactKind.AGENT_CONFIG, ArtifactKind.MCP_CONFIG}
+                for name, kind, _ in location.extra
+            ):
+                continue
+            components = Path(location.relative).parts
+            for root in path.parents:
+                if root.parts[-len(components) :] != components:
+                    continue
+                artifact = _spec_artifact(path, root, spec, location)
+                if artifact is not None and artifact.kind in {
+                    ArtifactKind.AGENT_CONFIG,
+                    ArtifactKind.MCP_CONFIG,
+                }:
+                    _safe_mode(path, root.parents[len(components) - 1])
+                    return artifact
+    return None
+
+
 def classify_project_artifact(target: Target, path: Path) -> Artifact | None:
     """Opt-in aliases; generic AGENTS.md/MCP files confer no agent identity."""
     base = target.path.absolute()

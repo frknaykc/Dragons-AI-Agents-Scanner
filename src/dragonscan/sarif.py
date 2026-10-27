@@ -197,6 +197,7 @@ def sarif_report(report: ScanReport, policy: PolicyResult | None = None) -> str:
                 {
                     "tool": {"driver": {"name": "Dragons AI Agent Scanner", "rules": rules}},
                     "results": results,
+                    "invocations": [{"executionSuccessful": not policy.execution_errors}],
                     "properties": {"policy": policy.as_dict()},
                 }
             ],

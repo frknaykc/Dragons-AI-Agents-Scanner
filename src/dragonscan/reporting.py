@@ -9,6 +9,7 @@ from pathlib import Path
 from dragonscan.models import ArtifactKind, Finding, ScanReport
 from dragonscan.policy import PolicyResult, evaluate
 from dragonscan.report_context import INTERPRETATION, context_data, context_rows
+from dragonscan.risk import summarize
 from dragonscan.sarif import sarif_report as sarif_report
 
 
@@ -336,6 +337,14 @@ def _summary_list(lines: list[str], label: str, text: str) -> None:
     lines.extend(textwrap.wrap(f"{label:<12}{text}", width=100, subsequent_indent=" " * 12))
 
 
+def risk_label(report: ScanReport, policy: PolicyResult) -> str:
+    """A failed scan without findings has no trustworthy clean risk assessment."""
+    if policy.scan_status == "failed" and not report.findings:
+        return "not assessed"
+    risk = report.risk or summarize(report.findings)[0]
+    return risk.value if risk else "none"
+
+
 def terminal_report(
     report: ScanReport,
     policy: PolicyResult | None = None,
@@ -347,7 +356,7 @@ def terminal_report(
 ) -> str:
     policy = policy or evaluate(report)
     status = policy.scan_status.upper()
-    risk = report.risk.value if report.risk else "none"
+    risk = risk_label(report, policy)
     lines = [
         "Dragons Scan",
         f"Target      {ascii(str(report.target))}",

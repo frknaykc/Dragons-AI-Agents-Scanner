@@ -716,9 +716,13 @@ def test_results_severity_breakdown_uses_actual_findings(tmp_path: Path) -> None
     asyncio.run(run())
 
 
+@pytest.mark.parametrize("long_target", (False, True))
 def test_results_tree_groups_shared_artifacts_and_updates_detail_on_selection(
     tmp_path: Path,
+    long_target: bool,
 ) -> None:
+    if long_target:
+        tmp_path = tmp_path / ("nested-target-" * 20)
     shared = tmp_path / "shared" / "SKILL.md"
     local = tmp_path / "local" / "AGENTS.md"
     artifacts = tuple(
