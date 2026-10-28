@@ -34,7 +34,7 @@ def evaluate(
     incomplete = tuple(
         name
         for name, partial in (
-            ("static_analysis", bool(report.diagnostics)),
+            ("static_analysis", any(item.incomplete for item in report.diagnostics)),
             ("acquisition", report.acquisition_status == "partial"),
             ("vulnerability", report.vulnerability_status == "partial"),
             ("intelligence", report.intelligence_status == "partial"),

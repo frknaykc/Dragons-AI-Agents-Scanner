@@ -8,7 +8,9 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import click
+from rich.console import Console
 
+from dragonscan.cli_progress import TerminalScanProgress
 from dragonscan.discovery import DiscoveryError
 from dragonscan.dynamic_mcp import DynamicPolicy
 from dragonscan.installed_agents import SPECS
@@ -381,7 +383,18 @@ def scan(
         except ValueError:
             raise click.UsageError("invalid semantic provider configuration") from None
     report: ScanReport | None = None
+    progress = TerminalScanProgress(
+        Console(file=sys.stdout, no_color=not _terminal_color_enabled()),
+        enabled=(
+            output_format == "terminal"
+            and output is None
+            and sys.stdout.isatty()
+            and os.environ.get("TERM") != "dumb"
+        ),
+        installed=installed_agents,
+    )
     try:
+        progress.start()
         if vuln_check:
             from dragonscan.osv import OSVProvider
 
@@ -409,6 +422,8 @@ def scan(
                 intel_feeds=intel_feeds,
                 intel_store=intel_store,
             )
+        if progress.enabled:
+            scanner.progress = progress
         if installed_agents:
             target = Target(local_path) if local_path is not None else None
             report = (
@@ -446,6 +461,7 @@ def scan(
                     and not vuln_check
                     and not intel_feeds
                     and intel_store is None
+                    and not progress.enabled
                     else scanner.scan(Target(local_path), max_artifacts=max_artifacts)
                 )
     except AcquisitionCleanupError:
@@ -470,6 +486,8 @@ def scan(
         # A scanner/provider bug must not look like a finding-policy failure or clean scan.
         # Do not serialize exception text: provider errors may contain secrets.
         report = ScanReport(local_path or Path.home(), (), (), ("Scanner execution failed",))
+    finally:
+        progress.stop()
     policy = evaluate(
         report,
         Severity(fail_on) if fail_on is not None else None,

@@ -1,7 +1,7 @@
 """Scanner orchestration; independent from CLI and report format."""
 
 import hashlib
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import fields, is_dataclass, replace
 from enum import Enum
 from pathlib import Path
@@ -43,6 +43,7 @@ from dragonscan.parse_errors import ParseError
 from dragonscan.parsing import parse
 from dragonscan.risk import summarize
 from dragonscan.rules import BUILTIN_RULES, Rule
+from dragonscan.scan_progress import ScanProgress
 from dragonscan.semantic import SemanticLimits, SemanticProvider
 from dragonscan.semantic import enrich as enrich_semantic
 from dragonscan.signature_graph import annotate, enrich_correlations
@@ -71,7 +72,9 @@ class Scanner:
         dynamic_policy: DynamicPolicy | None = None,
         intel_feeds: tuple[Path, ...] = (),
         intel_store: Path | None = None,
+        progress: Callable[[ScanProgress], None] | None = None,
     ):
+        self.progress = progress
         # An explicit legacy rule selection keeps the old selection semantics.
         self.rules = tuple(BUILTIN_RULES if rules is None else rules)
         self.vulnerability_provider = vulnerability_provider
@@ -111,6 +114,10 @@ class Scanner:
             SignatureEngine((*builtins, *loaded)) if builtins or loaded else None
         )
 
+    def _notify(self, event: ScanProgress) -> None:
+        if self.progress is not None:
+            self.progress(event)
+
     def scan(
         self,
         target: Target,
@@ -120,6 +127,7 @@ class Scanner:
         boundaries: dict[Path, Path] | None = None,
         reference_boundaries: dict[Path, Path] | None = None,
         claude_project: Path | None = None,
+        progress_agents: tuple[tuple[Path, str], ...] = (),
     ) -> ScanReport:
         # A reused scanner must observe the current installed feed, never a stale index.
         intel_feeds, intel_diagnostics = (
@@ -128,9 +136,11 @@ class Scanner:
         intel_matcher = Matcher(intel_feeds) if self.intel_requested else None
         discovery_messages: list[str] = []
         if artifacts is None:
+            self._notify(ScanProgress("discover"))
             artifacts = discover(
                 target, max_artifacts=max_artifacts, limit_diagnostics=discovery_messages
             )
+        self._notify(ScanProgress("ready", artifacts=artifacts, agents=progress_agents))
 
         def boundary_for(path: Path) -> Target:
             return Target(boundaries[path]) if boundaries is not None else target
@@ -166,7 +176,10 @@ class Scanner:
             Diagnostic("coverage", message) for message in discovery_messages
         ]
         skipped_parse = 0
+        fully_analyzed_paths: set[Path] = set()
         for artifact in artifacts:
+            self._notify(ScanProgress("start", artifact=artifact))
+            finding_start = len(findings)
             coverage["attempted"] += 1
             diagnostic_start = len(diagnostics)
             try:
@@ -192,12 +205,14 @@ class Scanner:
                 else:
                     errors.append(f"{artifact.path}: {exc}")
                 normalized.append(artifact)
+                self._notify(ScanProgress("processed", artifact=artifact, errors=1))
                 continue
             except ParseError as exc:
                 coverage["failed"] += 1
                 diagnostics.append(Diagnostic("warning", f"{artifact.path}: {exc}"))
                 skipped_parse += 1
                 normalized.append(artifact)
+                self._notify(ScanProgress("processed", artifact=artifact, errors=1))
                 continue
             normalized.append(document.artifact)
             coverage["parsed"] += 1
@@ -420,9 +435,18 @@ class Scanner:
                 else finding
                 for finding in document_findings
             )
-            coverage[
-                "partially_analyzed" if len(diagnostics) > diagnostic_start else "fully_analyzed"
-            ] += 1
+            if any(item.incomplete for item in diagnostics[diagnostic_start:]):
+                coverage["partially_analyzed"] += 1
+            else:
+                coverage["fully_analyzed"] += 1
+                fully_analyzed_paths.add(artifact.path)
+            if self.progress is not None:
+                self._notify(
+                    ScanProgress(
+                        "processed", artifact=artifact, findings=tuple(findings[finding_start:])
+                    )
+                )
+        self._notify(ScanProgress("correlate"))
         cross_stage_start = len(diagnostics)
         if self.enable_correlation:
             if boundaries is None:
@@ -433,7 +457,7 @@ class Scanner:
                 findings.extend(
                     describe_existing_flow(f, tuple(documents)) for f in supply_findings
                 )
-                diagnostics.extend(Diagnostic("warning", item) for item in supply_errors)
+                diagnostics.extend(supply_errors)
             else:
                 groups: dict[Path, list[Document]] = {}
                 for document in documents:
@@ -447,7 +471,7 @@ class Scanner:
                     findings.extend(
                         describe_existing_flow(f, tuple(analyzed)) for f in supply_findings
                     )
-                    diagnostics.extend(Diagnostic("warning", item) for item in supply_errors)
+                    diagnostics.extend(supply_errors)
         if self.enable_correlation:
             try:
                 graph = build_graph(
@@ -486,10 +510,17 @@ class Scanner:
         ):
             errors.append("no supported artifact could be parsed")
         results = tuple(findings)
-        if len(diagnostics) > cross_stage_start or retention_limited:
-            # Cross-artifact limits cannot be attributed to just one document.
+        cross_stage_gaps = [item for item in diagnostics[cross_stage_start:] if item.incomplete]
+        if any(item.artifact is None for item in cross_stage_gaps) or retention_limited:
+            # Unscoped graph/flow/context limits still affect cross-artifact analysis.
             coverage["partially_analyzed"] += coverage["fully_analyzed"]
             coverage["fully_analyzed"] = 0
+        else:
+            affected = fully_analyzed_paths.intersection(
+                item.artifact for item in cross_stage_gaps if item.artifact is not None
+            )
+            coverage["partially_analyzed"] += len(affected)
+            coverage["fully_analyzed"] -= len(affected)
         risk, counts = summarize(results)
         report = ScanReport(
             target.path,
@@ -556,6 +587,7 @@ class Scanner:
                 intelligence_diagnostics=tuple(dict.fromkeys(intel_diagnostics)),
             )
         self.graph = graph
+        self._notify(ScanProgress("finished", report=report))
         return report
 
     def scan_installed(
@@ -576,6 +608,7 @@ class Scanner:
             raise DiscoveryError(
                 "network enrichment is unavailable during installed-agent discovery"
             )
+        self._notify(ScanProgress("discover"))
         discovered = discover_installed(
             home=home,
             platform=platform,
@@ -670,6 +703,13 @@ class Scanner:
             artifacts=tuple(unique),
             boundaries=boundaries,
             reference_boundaries=reference_boundaries,
+            progress_agents=tuple(
+                (origin.scanned_artifact, origin.agent)
+                for origin in resolved_origins
+                if origin.scanned_artifact is not None and origin.agent is not None
+            )
+            if self.progress is not None
+            else (),
             claude_project=(
                 target.path.absolute() if target.path.is_dir() else target.path.absolute().parent
             )

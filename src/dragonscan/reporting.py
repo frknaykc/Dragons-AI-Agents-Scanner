@@ -19,6 +19,10 @@ def json_report(report: ScanReport, policy: PolicyResult | None = None) -> str:
     data["scan_status"] = policy.scan_status
     data["policy"] = policy.as_dict()
     data["target"] = str(report.target)
+    data["diagnostics"] = [
+        {**asdict(item), "artifact": str(item.artifact) if item.artifact is not None else None}
+        for item in report.diagnostics
+    ]
     data["artifacts"] = [
         {
             "path": str(artifact.path),

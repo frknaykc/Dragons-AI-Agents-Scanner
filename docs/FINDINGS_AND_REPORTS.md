@@ -14,6 +14,31 @@ The terminal summary starts with the target and counts of scanned artifact types
 
 The `Coverage` summary distinguishes attempts, successful parses, full/partial analysis and failures. Parsing alone is not full security analysis. JSON exposes the counters in `coverage`; SARIF exposes them in `runs[0].properties.coverage`. A scan with no successfully parsed supported artifacts is `FAILED`, not a clean zero-finding result. Files outside the supported selection and an unknown remainder behind a traversal limit are not invented as successful or skipped artifacts. See the [counter definitions](REFERENCE.md#analysis-coverage).
 
+### Diagnostic scope
+
+JSON diagnostic objects retain `level` and `message` and add `artifact` (a path or
+`null`) and `incomplete` (a boolean). SARIF exposes the same objects in
+`runs[0].properties.diagnostics`, outside security `results`. Consumers should
+accept these additive fields. A missing artifact scope does not identify an
+affected file; consumers must not infer one from message text.
+
+Artifact-scoped dependency gaps mark only the affected, successfully parsed
+artifacts partial. Scan-wide graph, flow or retained-context limits still prevent
+full cross-artifact analysis. An artifact with both a local and a dependency gap
+counts as partial once. `skipped` counts skipped artifacts, not individual
+dependency records omitted within a parsed artifact.
+
+Duplicate dependency definitions and conflicting manifest/lockfile metadata
+remain incomplete warnings: the supply-chain pass omits the affected dependency
+checks. Even identical pinned duplicates remain partial under that existing
+behavior. The scanner continues other dependency checks and graph/flow analysis;
+the warning does not invalidate unrelated artifacts or erase graph relationships.
+
+Only an explicitly non-blocking diagnostic (`incomplete: false`) can leave
+analysis complete. Existing diagnostic producers default to `true`; this change
+does not downgrade existing warnings. A genuine gap retains `PARTIAL` and exit
+code **3**. CLI and TUI use the same coverage counters and policy as JSON/SARIF.
+
 A synthetic security finding's selected fields, with the absolute local artifact path intentionally **omitted** (not a verbatim terminal capture):
 
 ```text

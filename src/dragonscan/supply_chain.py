@@ -10,6 +10,7 @@ from dragonscan.models import (
     Confidence,
     Dependency,
     DependencyEvidence,
+    Diagnostic,
     Document,
     Finding,
     PathStep,
@@ -112,7 +113,7 @@ def _finding(
 
 def analyze(
     target: Target, documents: tuple[Document, ...]
-) -> tuple[tuple[Document, ...], tuple[Finding, ...], tuple[str, ...]]:
+) -> tuple[tuple[Document, ...], tuple[Finding, ...], tuple[Diagnostic, ...]]:
     """Reconcile local provenance without resolving or loading dependency paths."""
     registries = {
         doc.artifact.path.parent: (doc.registry, dict(doc.registry_scopes))
@@ -148,7 +149,7 @@ def analyze(
                 locked.setdefault(key, set()).add(dep.exact_version)
 
     findings: list[Finding] = []
-    diagnostics: list[str] = []
+    diagnostics: list[Diagnostic] = []
     for doc in normalized:
         duplicates: set[tuple[str, str, str]] = set()
         seen: set[tuple[str, str, str]] = set()
@@ -159,7 +160,13 @@ def analyze(
                     duplicates.add(group_key)
                 seen.add(group_key)
         if duplicates:
-            diagnostics.append(f"{doc.artifact.path}: duplicate dependency definitions")
+            diagnostics.append(
+                Diagnostic(
+                    "warning",
+                    f"{doc.artifact.path}: duplicate dependency definitions",
+                    artifact=doc.artifact.path,
+                )
+            )
         for dep in doc.dependencies:
             if (dep.ecosystem, dep.name, dep.group) in duplicates:
                 continue
@@ -171,7 +178,11 @@ def analyze(
                 and (dep.exact_version not in lock_versions)
             ):
                 diagnostics.append(
-                    f"{dep.location.path}: conflicting manifest and lockfile metadata"
+                    Diagnostic(
+                        "warning",
+                        f"{dep.location.path}: conflicting manifest and lockfile metadata",
+                        artifact=dep.location.path,
+                    )
                 )
                 continue
             if dep.source == "local" and dep.path_status in {"outside", "symlink", "unsafe"}:

@@ -166,7 +166,7 @@ def _rule(findings: list[Finding]) -> dict[str, Any]:
 
 
 def sarif_report(report: ScanReport, policy: PolicyResult | None = None) -> str:
-    """Emit only security findings; diagnostics stay in the existing report formats."""
+    """Emit security findings as results; keep operational diagnostics in properties."""
     policy = policy or evaluate(report)
     by_id: dict[str, list[Finding]] = {}
     for finding in report.findings:
@@ -198,7 +198,21 @@ def sarif_report(report: ScanReport, policy: PolicyResult | None = None) -> str:
                     "tool": {"driver": {"name": "Dragons AI Agent Scanner", "rules": rules}},
                     "results": results,
                     "invocations": [{"executionSuccessful": not policy.execution_errors}],
-                    "properties": {"policy": policy.as_dict(), "coverage": report.coverage},
+                    "properties": {
+                        "policy": policy.as_dict(),
+                        "coverage": report.coverage,
+                        "diagnostics": [
+                            {
+                                "level": item.level,
+                                "message": item.message,
+                                "artifact": str(item.artifact)
+                                if item.artifact is not None
+                                else None,
+                                "incomplete": item.incomplete,
+                            }
+                            for item in report.diagnostics
+                        ],
+                    },
                 }
             ],
         },

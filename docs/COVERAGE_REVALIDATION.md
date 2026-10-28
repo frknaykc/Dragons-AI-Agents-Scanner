@@ -2,6 +2,10 @@
 
 Date: 2026-10-28. Sanitized results only; private artifacts and raw scan output are not included.
 
+This is the historical coverage/provenance validation, before the M3 checkpoint
+and diagnostic-attribution fix. For the subsequent commits, CI result and
+Hermes-only revalidation, see [Hermes coverage attribution](HERMES_COVERAGE_ATTRIBUTION.md).
+
 ## Checkpoint and CI
 
 Coverage checkpoint: [`75cddea01aeebaca1f35e1496f6770fa362da6b2`](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/commit/75cddea01aeebaca1f35e1496f6770fa362da6b2), pushed normally to `main`.

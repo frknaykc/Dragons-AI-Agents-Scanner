@@ -12,6 +12,24 @@ Run `uv run dragonscan -tui` in an interactive terminal to open the Textual inte
 
 To copy text from the interface, drag to select it and press Ctrl+C. On macOS, the selection is also sent to the system clipboard; on other platforms, copying uses the terminal's clipboard support (OSC 52). Ctrl+C without a selection does not copy. For terminal-native selection instead, use your terminal's selection modifier and copy shortcut.
 
+### Live scan progress
+
+After confirmation, terminal scans show an animated discovery indicator followed by one
+updating row per agent with selected artifacts. Each row displays the current path,
+`Scanned processed/total`, `Findings`, severity counts `C/H/M/L/I`, and `Error`.
+`Scanned` counts completed file-processing attempts, including failed loads or parses;
+it does not mean fully analyzed coverage. `Error` counts those failed artifact attempts,
+not warnings or all scan-level diagnostics. Findings are provisional until cross-artifact
+analysis finishes and reconciles the totals. The final report remains authoritative for
+coverage, diagnostics and policy.
+
+Agent rows use installed-discovery attribution; a shared artifact is counted once under
+its first discovered owner. Explicit local targets appear under `Local artifacts`.
+Long paths are shortened from the left to retain filenames; narrow terminals shorten
+`Scanned` to `Files` and `Findings` to `F`. The live region disappears before the existing
+result screen is printed. Pipes, JSON/SARIF, `--output` and `TERM=dumb` do not animate.
+`NO_COLOR` disables colors without disabling activity indicators.
+
 ## Help and first scan
 
 ```sh

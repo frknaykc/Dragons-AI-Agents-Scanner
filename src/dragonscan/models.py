@@ -427,6 +427,8 @@ class Finding:
 class Diagnostic:
     level: Literal["warning", "coverage"]  # Fatal errors remain in ScanReport.errors
     message: str
+    artifact: Path | None = None  # None means unscoped; never infer scope from message text.
+    incomplete: bool = True  # Existing diagnostics remain conservative by default.
 
 
 @dataclass(frozen=True)
