@@ -142,6 +142,25 @@ def test_cursor_json_locations_follow_structure_not_duplicate_text(tmp_path):
     assert_outputs(report, findings[0], 5)
 
 
+@pytest.mark.parametrize("indent", [None, 2, "\t"])
+def test_mcp_dependencies_retain_the_entire_parser_source_reference(tmp_path, indent):
+    text = json.dumps(
+        {
+            "mcpServers": {
+                "first": {"command": "npx", "args": ["example-tool@1.0.0"]},
+                "second": {"command": "npx", "args": ["example-tool@2.0.0"]},
+            }
+        },
+        indent=indent,
+    )
+    path = write(tmp_path, "mcp.json", text)
+    doc = parse(discover(Target(path))[0], text)
+    assert len(doc.dependencies) == len(doc.servers) == 2
+    for dep, server in zip(doc.dependencies, doc.servers, strict=True):
+        assert dep.exact_version == server.package_version
+        assert dep.location == server.location
+
+
 def test_json_location_mapping_failure_keeps_valid_input_and_none(tmp_path):
     # JSON permits leading tabs; the optional YAML source-position composer does not.
     text = '{\n\t"mcpServers": {"mutable":{"command":"npx","args":["example-tool"]}}\n}'

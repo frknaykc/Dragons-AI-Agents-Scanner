@@ -563,7 +563,7 @@ def runtime_dependencies(
         )
         dep = _runtime_package(artifact, spec, server.runtime, server.location.line, "mcp")
         if dep:
-            output.append(dep)
+            output.append(replace(dep, location=server.location))
     for block in document.blocks:
         if block.kind in {"quote", "code", "heading"}:
             continue
