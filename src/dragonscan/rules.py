@@ -99,6 +99,7 @@ def mcp_fetch_to_shell(document: Document) -> Iterable[Finding]:
             confidence=Confidence.HIGH,
             classification=Classification.RISKY,
             artifact=document.artifact.path,
+            line=server.location.line,
             evidence="MCP server command uses a fetch-to-shell pipeline",
             explanation="Launching this configured server would execute downloaded code; "
             "the scanner does not launch it.",

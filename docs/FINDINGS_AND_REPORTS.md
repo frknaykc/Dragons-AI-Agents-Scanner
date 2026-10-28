@@ -37,6 +37,27 @@ Command: `uv run dragonscan scan benchmarks/corpus/pi-override/SKILL.md --fail-o
 
 ## Static relationship details
 
+### Source locations
+
+Runtime package findings in Markdown use the command's line within its parsed
+block, rather than the paragraph's first line. Documentation, quoted examples and
+code fences retain their existing non-actionable context; a location correction
+does not change that context.
+
+JSON MCP findings use the structured declaration's source line when the bounded
+position mapper establishes it. The mapper composes source positions without
+constructing YAML values or searching for repeated text. Valid JSON outside the
+mapper's syntax or resource budget retains a file-only location (`line: null` in
+JSON, no SARIF region). JSON/JSONC with literal Unicode line separators also keeps
+unknown positions where YAML and JSON line semantics differ. TOML positions remain
+unknown. CLI, TUI, JSON and SARIF project the same available finding location.
+
+Direct and installed scans classify recognized Hermes `SOUL.md` files as `soul`
+with `Hermes Agent` attribution. Unrelated `SOUL.md` files keep their generic `soul`
+identity without an inferred ecosystem; symlink restrictions still apply.
+
+### Supported relationships
+
 CLI finding cards and the existing TUI detail pane show category, source, sink and
 supported static path steps, including edge, artifact/line, origin and confidence.
 Available flow types, trust boundaries, capabilities and transformations are shown

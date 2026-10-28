@@ -574,7 +574,9 @@ def runtime_dependencies(
                 artifact,
                 match.group(2).rstrip(".,"),
                 match.group(1),
-                block.location.line,
+                block.location.line + block.text.count("\n", 0, match.start())
+                if block.location.line is not None
+                else None,
                 "instruction",
             )
             if dep:
@@ -584,7 +586,9 @@ def runtime_dependencies(
                 artifact,
                 match.group(1).rstrip(".,"),
                 "pip",
-                block.location.line,
+                block.location.line + block.text.count("\n", 0, match.start())
+                if block.location.line is not None
+                else None,
                 "instruction-install"
                 if _EXEC.search(block.text[match.end() :])
                 else "instruction-setup",

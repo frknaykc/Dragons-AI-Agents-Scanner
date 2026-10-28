@@ -376,7 +376,7 @@ def test_unrelated_documentation_sentence_cannot_hide_prior_sensitive_transfer(
         matches[0].evidence
         == "one MCP tool instruction links a sensitive read to an external transfer"
     )
-    assert matches[0].line is None  # MCP tool location currently has no JSON line mapping.
+    assert matches[0].line == 1  # The synthetic JSON document occupies one source line.
     assert matches[0].source == "sensitive local data"
     assert matches[0].sink == "network egress capability"
     assert [step.edge for step in matches[0].path] == ["defines", "exposes", "defines", "sends_to"]

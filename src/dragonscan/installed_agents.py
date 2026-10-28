@@ -224,7 +224,7 @@ SPECS = (
                 ("config.yaml", "SOUL.md", "skills", "memories", "profiles", "cron/jobs.json"),
                 (
                     ("config.yaml", ArtifactKind.AGENT_CONFIG, SourceFormat.YAML),
-                    ("SOUL.md", ArtifactKind.INSTRUCTIONS, SourceFormat.MARKDOWN),
+                    ("SOUL.md", ArtifactKind.SOUL, SourceFormat.MARKDOWN),
                     ("cron/jobs.json", ArtifactKind.AGENT_CONFIG, SourceFormat.JSON),
                 ),
                 project=False,
@@ -505,11 +505,11 @@ def _spec_artifact(path: Path, root: Path, spec: AgentSpec, location: Location) 
 
 
 def classify_agent_config(path: Path) -> Artifact | None:
-    """Reuse verified config aliases for direct scans, never infer from file content.
+    """Reuse verified config/SOUL aliases for direct scans, never infer from content.
 
     Product-specific directory components are required. The auth-bearing Claude
     user file is recognized only immediately inside the selected home directory.
-    Instruction aliases and other agents retain their existing discovery policy.
+    Other instruction aliases and agents retain their existing discovery policy.
     """
     if path.name == ".claude.json" and path.parent == Path.home().absolute():
         _safe_mode(path, path.parent)
@@ -528,7 +528,7 @@ def classify_agent_config(path: Path) -> Artifact | None:
         for location in locations:
             if not location.user or not any(
                 path.name == Path(name).name
-                and kind in {ArtifactKind.AGENT_CONFIG, ArtifactKind.MCP_CONFIG}
+                and kind in {ArtifactKind.AGENT_CONFIG, ArtifactKind.MCP_CONFIG, ArtifactKind.SOUL}
                 for name, kind, _ in location.extra
             ):
                 continue
@@ -540,6 +540,7 @@ def classify_agent_config(path: Path) -> Artifact | None:
                 if artifact is not None and artifact.kind in {
                     ArtifactKind.AGENT_CONFIG,
                     ArtifactKind.MCP_CONFIG,
+                    ArtifactKind.SOUL,
                 }:
                     _safe_mode(path, root.parents[len(components) - 1])
                     return artifact

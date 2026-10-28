@@ -120,6 +120,9 @@ def _load(artifact: Artifact, text: str) -> tuple[Any, Node | None]:
             ):
                 raise ParseError("unsupported JSONC configuration")
             data, sanitized = load_jsonc(text, _unique_pairs, _reject_constant)
+            if any(char in sanitized for char in "\u0085\u2028\u2029"):
+                # YAML and JSON disagree on these characters' line-break semantics.
+                return data, None
             # JSON was already validated. Use the bounded composer for source positions only;
             # never construct YAML values from JSONC or treat comments as evidence.
             loader = BoundedSafeLoader(sanitized)
@@ -130,9 +133,20 @@ def _load(artifact: Artifact, text: str) -> tuple[Any, Node | None]:
             finally:
                 loader.dispose()
         if fmt == SourceFormat.JSON:
-            return json.loads(
+            data = json.loads(
                 text, object_pairs_hook=_unique_pairs, parse_constant=_reject_constant
-            ), None
+            )
+            # Reuse the bounded JSONC position mapper, never YAML value construction.
+            # Valid JSON outside its syntax/budget retains unknown source positions.
+            if any(char in text for char in "\u0085\u2028\u2029"):
+                return data, None
+            loader = BoundedSafeLoader(text)
+            try:
+                return data, loader.get_single_node()
+            except (yaml.YAMLError, ParseError):
+                return data, None
+            finally:
+                loader.dispose()
         if fmt == SourceFormat.TOML:
             return tomllib.loads(text), None
         if fmt == SourceFormat.YAML:
