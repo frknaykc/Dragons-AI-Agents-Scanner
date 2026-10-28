@@ -302,7 +302,8 @@ def test_splash_keyboard_and_local_artifact_budget(tmp_path: Path) -> None:
                     break
             assert app.report is not None
             assert len(app.report.artifacts) == 2
-            assert app.policy is not None and app.policy.scan_status == "partial"
-            assert any("artifact budget reached" in d.message for d in app.report.diagnostics)
+            assert app.policy is not None and app.policy.scan_status == "complete"
+            assert not app.report.diagnostics  # Equality alone is not budget exhaustion.
+            assert app.report.coverage["fully_analyzed"] == 2
 
     asyncio.run(run())

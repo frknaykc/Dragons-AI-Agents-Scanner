@@ -534,7 +534,9 @@ def _command_context(text: str, start: int, end: int) -> bool:
     return bool(re.search(r"\b(?:run|execute|invoke)\s*$", before, re.I))
 
 
-def runtime_dependencies(document: Document) -> tuple[Dependency, ...]:
+def runtime_dependencies(
+    document: Document, limit_diagnostics: list[str] | None = None
+) -> tuple[Dependency, ...]:
     artifact = document.artifact
     output: list[Dependency] = []
     for server in document.servers:
@@ -589,6 +591,8 @@ def runtime_dependencies(document: Document) -> tuple[Dependency, ...]:
             )
             if dep:
                 output.append(dep)
+    if len(output) > MAX_DEPENDENCIES and limit_diagnostics is not None:
+        limit_diagnostics.append("runtime dependency limit reached; analysis incomplete")
     return tuple(output[:MAX_DEPENDENCIES])
 
 

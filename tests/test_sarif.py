@@ -204,8 +204,9 @@ def test_diagnostics_not_gate_and_semantic_finding_can_gate(
 def test_invalid_usage_and_json_stdout_purity(tmp_path: Path) -> None:
     assert CliRunner().invoke(main, ["scan", str(tmp_path), "--fail-on", "bogus"]).exit_code == 2
     result = CliRunner().invoke(main, ["scan", str(tmp_path), "--format", "json"])
-    assert result.exit_code == 0 and result.stderr == ""
+    assert result.exit_code == 3 and result.stderr == ""
     assert json.loads(result.stdout)["findings"] == []
+    assert json.loads(result.stdout)["scan_status"] == "failed"
 
 
 def test_real_archive_and_remote_projection_without_temp_path(tmp_path: Path) -> None:

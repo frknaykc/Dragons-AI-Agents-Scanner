@@ -147,9 +147,9 @@ def _metadata(
             fields = schema.get("properties", {})
             if not isinstance(fields, dict) or not all(isinstance(k, str) for k in fields):
                 raise ParseError("invalid MCP tool input schema")
-            result.append(
-                McpTool(name, description[:4096], instructions[:4096], tuple(fields), ref)
-            )
+            # Loading and structured parsing already bound the input. Keep all
+            # metadata so late directives and their surrounding context survive.
+            result.append(McpTool(name, description, instructions, tuple(fields), ref))
         else:
             uri = item.get("uri")
             if uri is not None and not isinstance(uri, str):
@@ -161,7 +161,7 @@ def _metadata(
             result.append(
                 McpContent(
                     name,
-                    description[:4096],
+                    description,
                     ref,
                     safe_mcp_url(uri) if uri and scheme in {"http", "https"} else None,
                     scheme if scheme in {"http", "https", "file"} else "other" if uri else None,

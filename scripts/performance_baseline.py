@@ -159,7 +159,7 @@ def _files(case: Workload, root: Path, counters: dict[str, int]) -> dict[str, fl
             or len(report.diagnostics) != 1
             or not (
                 report.diagnostics[0].level == "coverage"
-                and "evasion source region too large" in report.diagnostics[0].message
+                and "evasion encoded token size limit" in report.diagnostics[0].message
             )
         ):
             raise RuntimeError("unexpected nearmax analysis diagnostic")

@@ -16,8 +16,10 @@ from dragonscan.models import (
     Target,
 )
 
-# Fixed known roots only; callers may raise discovery budgets per run.
-MAX_ARTIFACTS = 256
+# Fixed known roots only; cumulative budgets are opt-in.
+MAX_ARTIFACTS: int | None = None
+# Legacy constant name retained; the default now bounds each directory buffer,
+# not all entries across a root. Explicit max_entries_per_root remains cumulative.
 MAX_ENTRIES_PER_ROOT = 2048
 MAX_DEPTH = 4
 
@@ -40,7 +42,7 @@ class Location:
     strict_user: bool = False
     allowed_dirs: tuple[str, ...] = ()
     max_depth: int = MAX_DEPTH
-    max_artifacts: int = MAX_ARTIFACTS
+    max_artifacts: int | None = None
 
 
 @dataclass(frozen=True)
@@ -232,7 +234,6 @@ SPECS = (
                 strict_user=True,
                 allowed_dirs=("profiles", "skills", "memories", "cron"),
                 max_depth=6,
-                max_artifacts=64,
             ),
         ),
     ),
@@ -767,20 +768,27 @@ def discover_installed(
                         marker is not None and (stat.S_ISREG(marker) or stat.S_ISDIR(marker))
                         for marker in markers
                     ):
+                        limits = (
+                            max_artifacts_per_root
+                            if max_artifacts_per_root is not None
+                            else location.max_artifacts,
+                            artifact_budget - len(counted_paths)
+                            if artifact_budget is not None
+                            else None,
+                        )
+                        available = min(
+                            (value for value in limits if value is not None), default=None
+                        )
                         found, diagnostic = discover_installed_bounded(
                             Target(root),
                             max_depth=max_depth if max_depth is not None else location.max_depth,
-                            max_entries=(
+                            max_entries=max_entries_per_root,
+                            max_directory_entries=(
                                 max_entries_per_root
                                 if max_entries_per_root is not None
                                 else MAX_ENTRIES_PER_ROOT
                             ),
-                            max_artifacts=min(
-                                max_artifacts_per_root
-                                if max_artifacts_per_root is not None
-                                else location.max_artifacts,
-                                artifact_budget - len(counted_paths),
-                            ),
+                            max_artifacts=available,
                             known_artifact=partial(
                                 _spec_artifact, root=root, spec=spec, location=location
                             ),
@@ -798,10 +806,11 @@ def discover_installed(
                                 extras.append(Artifact(root / name, kind, source_format, spec.kind))
                         paths = {artifact.path for artifact in found}
                         found = (*found, *(item for item in extras if item.path not in paths))
-                        available = artifact_budget - len(counted_paths)
-                        if len(found) > available:
+                        if available is not None and len(found) > available:
                             found = found[:available]
-                            diagnostic = "agent discovery artifact limit exceeded"
+                            message = "agent discovery artifact limit exceeded"
+                            if diagnostic is None or message not in diagnostic:
+                                diagnostic = f"{diagnostic}; {message}" if diagnostic else message
                         counted_paths.update(artifact.path for artifact in found)
                         if any(
                             (unsupported_mode := _safe_mode(root / name, base)) is not None
@@ -854,8 +863,8 @@ def discover_installed(
     try:
         mode = _safe_mode(claude_file, base) if agent in (None, "Claude Code") else None
         if mode is not None and stat.S_ISREG(mode):
-            if len(artifacts) >= artifact_budget:
-                raise DiscoveryError("agent discovery limit exceeded")
+            if artifact_budget is not None and len(counted_paths) >= artifact_budget:
+                raise DiscoveryError("agent discovery artifact limit exceeded")
             artifact = Artifact(
                 claude_file, ArtifactKind.MCP_CONFIG, SourceFormat.JSON, "Claude Code"
             )

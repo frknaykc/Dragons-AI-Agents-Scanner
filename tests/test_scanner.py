@@ -170,17 +170,20 @@ def test_project_discovery_entry_budget_marks_partial_without_losing_prior_artif
 
     monkeypatch.setattr(discovery, "MAX_ENTRIES", 4, raising=False)
     (tmp_path / "AGENTS.md").write_text("ordinary guidance")
+    oversized = tmp_path / "oversized"
+    oversized.mkdir()
+    (oversized / "AGENTS.md").write_text("ordinary guidance")
     for index in range(6):
-        (tmp_path / f"ignored-{index}.txt").write_text("unrelated")
+        (oversized / f"ignored-{index}.txt").write_text("unrelated")
 
-    # Creation order is not scandir order (notably on Linux). Exercise an
-    # artifact actually visited before the budget, including its final slot.
+    # Oversized directories are omitted as a unit, rather than choosing an
+    # unstable filesystem-order prefix. Earlier complete directories survive.
     real_scandir = discovery.os.scandir
 
     @contextmanager
     def ordered_scandir(path):
         with real_scandir(path) as stream:
-            if Path(path) == tmp_path:
+            if Path(path) == oversized:
                 entries = sorted(stream, key=lambda entry: entry.name)
                 artifact = next(entry for entry in entries if entry.name == "AGENTS.md")
                 entries.remove(artifact)
@@ -192,6 +195,7 @@ def test_project_discovery_entry_budget_marks_partial_without_losing_prior_artif
     monkeypatch.setattr(discovery.os, "scandir", ordered_scandir)
     report = Scanner().scan(Target(tmp_path))
     assert any(item.path == tmp_path / "AGENTS.md" for item in report.artifacts)
+    assert all(item.path != oversized / "AGENTS.md" for item in report.artifacts)
     assert any("entry limit" in item.message for item in report.diagnostics)
     assert evaluate(report).scan_status == "partial"
     assert evaluate(report).exit_code == 3

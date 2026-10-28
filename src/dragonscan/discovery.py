@@ -11,9 +11,12 @@ from dragonscan.models import Artifact, ArtifactKind, SourceFormat, Target
 INSTRUCTION_NAMES = frozenset({"skill.md", "agents.md", "soul.md", "memory.md", "claude.md"})
 MCP_NAMES = frozenset({"mcp.json", ".mcp.json", "mcp-config.json", "claude_desktop_config.json"})
 SKIP_DIRS = frozenset({".git", ".venv", "node_modules", "__pycache__"})
-MAX_FILES = 10_000
+# Optional policy override; no cumulative artifact cap by default.
+MAX_FILES: int | None = None
+# Bounds on traversal working memory, not cumulative tree size.
 MAX_ENTRIES = 100_000
-MAX_INSTALLED_PROJECT_ARTIFACTS = 256
+MAX_PENDING_DIRS = 8192
+MAX_DEPTH = 64
 ECOSYSTEM_DIRS = {
     ".claude": "claude-code",
     ".claude-plugin": "claude-code",
@@ -142,72 +145,28 @@ def discover(
     if not path.is_dir():
         raise DiscoveryError("target does not exist or is not a regular file/directory")
 
-    if not installed_project:
-        bounded_artifacts, diagnostic = discover_installed_bounded(
-            target,
-            max_depth=max_depth if max_depth is not None else MAX_ENTRIES,
-            max_entries=MAX_ENTRIES,
-            max_artifacts=artifact_limit,
-            known_artifact=known_artifact,
+    bounded_artifacts, diagnostic = discover_installed_bounded(
+        target,
+        max_depth=max_depth if max_depth is not None else (8 if installed_project else MAX_DEPTH),
+        max_entries=None,
+        max_directory_entries=8192 if installed_project else MAX_ENTRIES,
+        max_artifacts=artifact_limit,
+        known_artifact=known_artifact,
+        installed_project=installed_project,
+    )
+    if diagnostic is not None:
+        if "artifact limit" in diagnostic:
+            raise DiscoveryError("artifact count exceeds limit")
+        message = diagnostic.replace("agent discovery", "project discovery")
+        if limit_diagnostics is None:
+            raise DiscoveryError(message)
+        limit_diagnostics.append(message)
+    return tuple(
+        sorted(
+            bounded_artifacts,
+            key=lambda item: (item.path.parent.relative_to(path).parts, item.path.name),
         )
-        if diagnostic is not None:
-            if "artifact limit" in diagnostic:
-                raise DiscoveryError("artifact count exceeds limit")
-            message = diagnostic.replace("agent discovery", "project discovery")
-            if limit_diagnostics is None:
-                raise DiscoveryError(message)
-            limit_diagnostics.append(message)
-        return tuple(
-            sorted(
-                bounded_artifacts,
-                key=lambda item: (item.path.parent.relative_to(path).parts, item.path.name),
-            )
-        )
-
-    artifacts: list[Artifact] = []
-    entries = 0
-
-    def on_error(error: OSError) -> None:
-        raise DiscoveryError(f"directory traversal failed: {error.strerror}")
-
-    for root, dirs, files in os.walk(path, followlinks=False, onerror=on_error):
-        if installed_project:
-            entries += len(dirs) + len(files)
-            if entries > 8192:
-                raise DiscoveryError("project agent discovery entry limit exceeded")
-        dirs[:] = sorted(
-            d for d in dirs if d not in SKIP_DIRS and not (Path(root) / d).is_symlink()
-        )
-        if max_depth is not None and len(Path(root).relative_to(path).parts) >= max_depth:
-            dirs.clear()
-        if installed_project and dirs and len(Path(root).relative_to(path).parts) >= 8:
-            raise DiscoveryError("project agent discovery depth limit exceeded")
-        for name in sorted(files):
-            candidate = Path(root) / name
-            artifact = (
-                known_artifact(candidate) if known_artifact is not None else None
-            ) or classify(candidate, installed_project=installed_project)
-            if artifact is None:
-                continue
-            if installed_project:
-                try:
-                    mode = candidate.lstat().st_mode
-                except OSError as exc:
-                    raise DiscoveryError(
-                        f"project agent artifact inaccessible: {type(exc).__name__}"
-                    ) from None
-                if stat.S_ISLNK(mode):
-                    continue
-                if not stat.S_ISREG(mode):
-                    raise DiscoveryError("project agent artifact is not a regular file")
-            elif candidate.is_symlink():
-                continue
-            artifacts.append(artifact)
-            if installed_project and len(artifacts) > MAX_INSTALLED_PROJECT_ARTIFACTS:
-                raise DiscoveryError("project agent artifact limit exceeded")
-            if len(artifacts) > artifact_limit:
-                raise DiscoveryError("artifact count exceeds limit")
-    return tuple(artifacts)
+    )
 
 
 def discover_bounded(
@@ -217,47 +176,15 @@ def discover_bounded(
 
     A limit failure discards the root instead of silently omitting candidates.
     """
-    path = target.path.absolute()
-    if path.is_symlink() or not path.is_dir():
-        raise DiscoveryError("agent root is not a regular directory")
-    pending = [(path, 0)]
-    entries = 0
-    artifacts: list[Artifact] = []
-    while pending:
-        root, depth = pending.pop()
-        try:
-            if not stat.S_ISDIR(root.lstat().st_mode):
-                raise DiscoveryError("agent directory changed during traversal")
-            with os.scandir(root) as stream:
-                names = []
-                for entry in stream:
-                    entries += 1
-                    if entries > max_entries:
-                        raise DiscoveryError("agent discovery entry limit exceeded")
-                    names.append(entry.name)
-        except OSError as exc:
-            raise DiscoveryError(f"agent directory inaccessible: {type(exc).__name__}") from None
-        for name in sorted(names, reverse=True):
-            candidate = root / name
-            try:
-                mode = candidate.lstat().st_mode
-            except OSError as exc:
-                raise DiscoveryError(f"agent entry inaccessible: {type(exc).__name__}") from None
-            if stat.S_ISDIR(mode):
-                if name not in SKIP_DIRS:
-                    if depth >= max_depth:
-                        raise DiscoveryError("agent discovery depth limit exceeded")
-                    pending.append((candidate, depth + 1))
-            elif stat.S_ISREG(mode):
-                artifact = classify(candidate)
-                if artifact is not None:
-                    artifacts.append(artifact)
-                    if len(artifacts) > max_artifacts:
-                        raise DiscoveryError("agent discovery artifact limit exceeded")
+    artifacts, diagnostic = discover_installed_bounded(
+        target, max_depth=max_depth, max_entries=max_entries, max_artifacts=max_artifacts
+    )
+    if diagnostic is not None:
+        raise DiscoveryError(diagnostic)
     return tuple(sorted(artifacts, key=lambda item: str(item.path)))
 
 
-# Installed discovery only: do not change explicit project scanning or its limits.
+# Active artifacts precede caches in the shared bounded traversal.
 _SECONDARY_DIRS = frozenset(
     {"cache", "vendor_imports", "extensions", "projects", "sessions", "file-history"}
 )
@@ -268,16 +195,22 @@ def discover_installed_bounded(
     target: Target,
     *,
     max_depth: int,
-    max_entries: int,
-    max_artifacts: int,
+    max_entries: int | None,
+    max_artifacts: int | None,
     known_artifact: Callable[[Path], Artifact | None] | None = None,
     descend: Callable[[Path], bool] | None = None,
     strict_artifact: bool = False,
+    max_directory_entries: int = MAX_ENTRIES,
+    max_pending_dirs: int = MAX_PENDING_DIRS,
+    installed_project: bool = False,
 ) -> tuple[tuple[Artifact, ...], str | None]:
-    """Scan known roots by active-first breadth, retaining evidence on budget exhaustion.
+    """Scan roots active-first and depth-first, retaining evidence on exhaustion.
 
-    Cache/staging are lower priority, not silently ignored. Each visited entry
-    still counts against the same per-root budget, including unclassified files.
+    Cache/staging are lower priority, not silently ignored. Optional total budgets
+    count unclassified entries too. Directory buffers, pending directories and
+    depth are bounded independently of total tree size. An oversized directory is
+    omitted as a unit: a filesystem-order prefix cannot be selected deterministically.
+    Previously discovered evidence and unrelated subtrees are retained on failure.
     """
     path = target.path.absolute()
     if path.is_symlink() or not path.is_dir():
@@ -285,34 +218,52 @@ def discover_installed_bounded(
     pending: list[tuple[int, int, str, Path]] = [(0, 0, str(path), path)]
     entries = 0
     artifacts: list[Artifact] = []
-    diagnostic: str | None = None
+    diagnostics: list[str] = []
+
+    def diagnose(message: str) -> None:
+        if message not in diagnostics:
+            diagnostics.append(message)
+
     while pending:
-        priority, depth, _, root = heapq.heappop(pending)
-        exhausted = False
+        priority, negative_depth, _, root = heapq.heappop(pending)
+        depth = -negative_depth
+        oversized = False
         try:
             if not stat.S_ISDIR(root.lstat().st_mode):
-                raise DiscoveryError("agent directory changed during traversal")
+                diagnose("agent directory changed during traversal")
+                continue
             with os.scandir(root) as stream:
-                names = []
+                names: list[str] = []
                 for entry in stream:
                     entries += 1
-                    if entries > max_entries:
-                        exhausted = True
+                    if max_entries is not None and entries > max_entries:
+                        diagnose("agent discovery entry limit exceeded")
+                        return tuple(artifacts), "; ".join(diagnostics)
+                    if len(names) >= max_directory_entries:
+                        oversized = True
                         break
                     names.append(entry.name)
         except OSError as exc:
-            raise DiscoveryError(f"agent directory inaccessible: {type(exc).__name__}") from None
+            diagnose(f"agent directory inaccessible: {type(exc).__name__}")
+            continue
+        if oversized:
+            diagnose("agent discovery directory entry limit exceeded")
+            continue
         for name in sorted(names):
             candidate = root / name
             try:
                 mode = candidate.lstat().st_mode
             except OSError as exc:
-                raise DiscoveryError(f"agent entry inaccessible: {type(exc).__name__}") from None
+                diagnose(f"agent entry inaccessible: {type(exc).__name__}")
+                continue
             if stat.S_ISDIR(mode) and name not in SKIP_DIRS:
                 if descend is not None and not descend(candidate):
                     continue
                 if depth >= max_depth:
-                    diagnostic = "agent discovery depth limit exceeded"
+                    diagnose("agent discovery depth limit exceeded")
+                    continue
+                if len(pending) >= max_pending_dirs:
+                    diagnose("agent discovery frontier limit exceeded")
                     continue
                 lower = name.lower()
                 rank = (
@@ -321,15 +272,18 @@ def discover_installed_bounded(
                     else (1 if lower in _SECONDARY_DIRS else 0)
                 )
                 next_priority = max(priority, rank)
-                heapq.heappush(pending, (next_priority, depth + 1, str(candidate), candidate))
+                heapq.heappush(pending, (next_priority, -(depth + 1), str(candidate), candidate))
             elif stat.S_ISREG(mode):
                 artifact = known_artifact(candidate) if known_artifact is not None else None
                 if artifact is None and not strict_artifact:
-                    artifact = classify(candidate)
+                    artifact = classify(candidate, installed_project=installed_project)
                 if artifact is not None:
-                    if len(artifacts) >= max_artifacts:
-                        return tuple(artifacts), "agent discovery artifact limit exceeded"
+                    if max_artifacts is not None and len(artifacts) >= max_artifacts:
+                        diagnose("agent discovery artifact limit exceeded")
+                        return tuple(artifacts), "; ".join(diagnostics)
                     artifacts.append(artifact)
-        if exhausted:
-            return tuple(artifacts), "agent discovery entry limit exceeded"
-    return tuple(artifacts), diagnostic
+            elif installed_project and not stat.S_ISLNK(mode):
+                artifact = known_artifact(candidate) if known_artifact is not None else None
+                if artifact is not None or classify(candidate, installed_project=True) is not None:
+                    diagnose("project agent artifact is not a regular file")
+    return tuple(artifacts), "; ".join(diagnostics) or None

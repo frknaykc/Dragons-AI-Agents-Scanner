@@ -54,7 +54,11 @@ def parse(
         else parser(artifact, text)
     )
     if document.servers or document.blocks:
+        limit_diagnostics: list[str] = []
+        runtime = runtime_dependencies(document, limit_diagnostics)
         document = replace(
-            document, dependencies=(*document.dependencies, *runtime_dependencies(document))
+            document,
+            dependencies=(*document.dependencies, *runtime),
+            diagnostics=(*document.diagnostics, *limit_diagnostics),
         )
     return document

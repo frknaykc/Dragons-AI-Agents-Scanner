@@ -27,7 +27,10 @@ def evaluate(
     report: ScanReport, fail_on: Severity | None = None, *, fail_on_incomplete: bool = False
 ) -> PolicyResult:
     """Execution failure wins over incomplete coverage, which wins over findings."""
-    errors = bool(report.errors) or report.acquisition_status in {"blocked", "failed"}
+    no_analysis = bool(report.coverage) and report.coverage.get("parsed", 0) == 0
+    errors = (
+        bool(report.errors) or report.acquisition_status in {"blocked", "failed"} or no_analysis
+    )
     incomplete = tuple(
         name
         for name, partial in (
@@ -61,7 +64,12 @@ def evaluate(
     )
     if errors:
         return PolicyResult(
-            "scan_error", "failed", "Scanner or acquisition error", triggers, incomplete, True
+            "scan_error",
+            "partial" if report.coverage.get("parsed", 0) else "failed",
+            "No supported analysis completed" if no_analysis else "Scanner or acquisition error",
+            triggers,
+            incomplete,
+            True,
         )
     if incomplete:
         return PolicyResult(

@@ -5,6 +5,7 @@ from dataclasses import replace
 from pathlib import PurePosixPath
 
 from markdown_it import MarkdownIt
+from markdown_it.rules_inline import StateInline, html_inline
 
 from dragonscan.models import (
     Artifact,
@@ -41,6 +42,21 @@ def _reference(destination: str, location: SourceRef) -> Relationship | None:
     if PurePosixPath(file_path).suffix.lower() in _FILE_SUFFIXES:
         return Relationship("references_file", file_path, location)
     return None
+
+
+def _html_comment(state: StateInline, silent: bool) -> bool:
+    """Tokenize comments only, retaining their exact inline source offsets."""
+    start = state.pos
+    if not state.src.startswith("<!--", start) or not html_inline(state, silent):
+        return False
+    if not silent:
+        state.tokens[-1].meta["source_offset"] = start
+        state.tokens[-1].meta["quoted"] = bool(
+            start
+            and state.src[start - 1] in "\"'"
+            and state.src[state.pos : state.pos + 1] == state.src[start - 1]
+        )
+    return True
 
 
 def parse_markdown(artifact: Artifact, text: str) -> Document:
@@ -87,12 +103,13 @@ def parse_markdown(artifact: Artifact, text: str) -> Document:
                 )
         except ParseError:
             frontmatter_diagnostics = ("malformed Cursor rule frontmatter; ignored",)
-    parser = MarkdownIt("commonmark", {"html": False, "maxNesting": 64})
+    parser = MarkdownIt("commonmark", {"html": True, "maxNesting": 64}).disable("html_block")
+    parser.inline.ruler.at("html_inline", _html_comment)
     try:
         tokens = parser.parse(text)
     except (RecursionError, OverflowError, ValueError) as exc:
         raise ParseError("Markdown exceeds parser complexity limit") from exc
-    if len(tokens) > _MAX_TOKENS:
+    if len(tokens) + sum(len(token.children or ()) for token in tokens) > _MAX_TOKENS:
         raise ParseError("Markdown exceeds token limit")
     blocks: list[MarkdownBlock] = []
     instructions: list[Instruction] = []
@@ -131,6 +148,8 @@ def parse_markdown(artifact: Artifact, text: str) -> Document:
         location = SourceRef(artifact.path, artifact.source_format, start + 1, end)
         spans: list[Span] = []
         link: str | None = None
+        comments: list[MarkdownBlock] = []
+        comment_offset, comment_line = 0, start + 1
         for child in token.children or []:
             if child.type == "link_open":
                 link = str(child.attrGet("href")) if child.attrGet("href") is not None else None
@@ -142,6 +161,27 @@ def parse_markdown(artifact: Artifact, text: str) -> Document:
                 link = None
             elif child.type in {"softbreak", "hardbreak"}:
                 spans.append(Span("text", "\n", location))
+            elif child.type == "html_inline":
+                offset = child.meta["source_offset"]
+                comment_line += token.content.count("\n", comment_offset, offset)
+                comment_offset = offset
+                comment_location = SourceRef(
+                    artifact.path,
+                    artifact.source_format,
+                    comment_line,
+                    comment_line + child.content.count("\n"),
+                )
+                comments.append(
+                    MarkdownBlock(
+                        "quote"
+                        if "blockquote_open" in container or child.meta["quoted"]
+                        else "html",
+                        child.content,
+                        comment_location,
+                    )
+                )
+                # Do not join separate words or lose subsequent source line offsets.
+                spans.append(Span("text", " " + "\n" * child.content.count("\n"), location))
             elif child.type in {"text", "code_inline"}:
                 kind = "inline_code" if child.type == "code_inline" else "link" if link else "text"
                 destination = (
@@ -154,21 +194,24 @@ def parse_markdown(artifact: Artifact, text: str) -> Document:
                         if relation is not None:
                             relations.append(relation)
         is_quote = "blockquote_open" in container
-        is_html = _HTML_SOURCE.match(token.content) is not None
+        is_html = _HTML_SOURCE.match(token.content) is not None and not (
+            comments and token.content.lstrip().startswith("<!--")
+        )
         is_list = "list_item_open" in container
         is_heading = index > 0 and tokens[index - 1].type == "heading_open"
         kind = (
-            "html"
+            "quote"
+            if is_quote
+            else "html"
             if is_html
             else "heading"
             if is_heading
-            else "quote"
-            if is_quote
             else "list_item"
             if is_list
             else "paragraph"
         )
         blocks.append(MarkdownBlock(kind, token.content, location, tuple(spans)))
+        blocks.extend(comments)
         if not is_quote and not is_html:
             visible = "".join(
                 span.text
@@ -181,15 +224,22 @@ def parse_markdown(artifact: Artifact, text: str) -> Document:
                 )
                 for span in spans
                 if span.kind != "inline_code"
-            ).strip()
+            )
+            leading_lines = visible[: len(visible) - len(visible.lstrip())].count("\n")
+            visible = visible.strip()
             if visible:
-                instructions.append(Instruction(visible, start + 1, location))
+                instruction_location = replace(location, line=start + 1 + leading_lines)
+                instructions.append(
+                    Instruction(visible, start + 1 + leading_lines, instruction_location)
+                )
                 # Only an explicit directive yields a load edge; a hyperlink alone is a reference.
                 load = _LOAD_FILE.match(visible)
                 if load is not None:
-                    relation = _reference(load.group("path"), location)
+                    relation = _reference(load.group("path"), instruction_location)
                     if relation is not None and relation.kind == "references_file":
-                        relations.append(Relationship("loads_file", relation.target, location))
+                        relations.append(
+                            Relationship("loads_file", relation.target, instruction_location)
+                        )
     if cursor_rule:
         blocks = [block for block in blocks if (block.location.line or 0) > frontmatter_end]
         instructions = [

@@ -250,7 +250,9 @@ def test_diagnostic_exit_is_distinct_from_not_found(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
-    assert CliRunner().invoke(main, ["scan", "--installed-agents"]).exit_code == 0
+    empty = CliRunner().invoke(main, ["scan", "--installed-agents", "--format", "json"])
+    assert empty.exit_code == 3  # No supported analysis is not a completed security scan.
+    assert not json.loads(empty.output)["diagnostics"]
     (tmp_path / ".claude").symlink_to(tmp_path.parent, target_is_directory=True)
     result = CliRunner().invoke(main, ["scan", "--installed-agents", "--format", "json"])
     assert result.exit_code == 3
@@ -700,7 +702,7 @@ def test_project_fifo_config_is_diagnostic_without_opening(tmp_path: Path) -> No
     )
 
 
-def test_explicit_project_artifact_budget_is_partial(tmp_path: Path) -> None:
+def test_explicit_project_has_no_default_256_artifact_budget(tmp_path: Path) -> None:
     home, project = tmp_path / "home", tmp_path / "project"
     home.mkdir()
     project.mkdir()
@@ -709,11 +711,9 @@ def test_explicit_project_artifact_budget_is_partial(tmp_path: Path) -> None:
         directory.mkdir()
         (directory / "AGENTS.md").write_text("inert")
     report = Scanner().scan_installed(Target(project), home=home)
-    assert not report.artifacts
-    assert any(
-        item.scope == "project" and item.status == "diagnostic" and item.resolution == "partial"
-        for item in report.installed_environments
-    )
+    assert len(report.artifacts) == 257
+    assert not report.errors
+    assert not any(item.resolution == "partial" for item in report.installed_environments)
 
 
 def test_explicit_project_depth_budget_is_partial_not_silent(tmp_path: Path) -> None:

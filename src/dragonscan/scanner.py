@@ -14,7 +14,7 @@ from dragonscan.detectors import BUILTIN_DETECTORS, SourceSinkDetector
 from dragonscan.discovery import DiscoveryError, discover
 from dragonscan.dynamic_mcp import DynamicPolicy, DynamicResult, available_capabilities
 from dragonscan.dynamic_mcp import inspect as inspect_mcp
-from dragonscan.evasion import views
+from dragonscan.evasion import iter_views
 from dragonscan.evasion_graph import annotate_views
 from dragonscan.flow import correlate_flows, describe_existing_flow
 from dragonscan.installed_agents import (
@@ -53,6 +53,10 @@ from dragonscan.target_acquisition import AcquiredTarget
 from dragonscan.threat_intel import INTELLIGENCE_IDS, STORE_NAME, Matcher, load_feeds
 from dragonscan.vulnerability import VULNERABILITY_IDS, IntelligenceProvider
 from dragonscan.vulnerability import enrich as enrich_vulnerabilities
+
+# Retained cross-artifact context, not a discovery or per-artifact analysis cap.
+MAX_CONTEXT_BYTES = 32 * 1024 * 1024
+MAX_CONTEXT_ITEMS = 100_000
 
 
 class Scanner:
@@ -133,6 +137,26 @@ class Scanner:
 
         normalized: list[Artifact] = []
         documents: list[Document] = []
+        coverage: dict[str, int] = dict.fromkeys(
+            (
+                "discovered",
+                "attempted",
+                "loaded",
+                "parsed",
+                "fully_analyzed",
+                "partially_analyzed",
+                "failed",
+                "skipped",
+                "evasion_regions",
+                "evasion_views",
+            ),
+            0,
+        )
+        coverage["discovered"] = len(artifacts)
+        retained_bytes = retained_items = 0
+        retention_limited = False
+        mcp_inventory: list[tuple[Path, str, str]] = []
+        mcp_scope_hints: list[tuple[Path, str, str]] = []
         intel_digests: dict[Path, str] = {}
         observations_by_path: dict[Path, tuple[Observation, ...]] = {}
         findings: list[Finding] = []
@@ -143,12 +167,15 @@ class Scanner:
         ]
         skipped_parse = 0
         for artifact in artifacts:
+            coverage["attempted"] += 1
+            diagnostic_start = len(diagnostics)
             try:
                 if intel_matcher is not None:
                     text, raw = load_text_with_bytes(artifact.path)
                     intel_digests[artifact.path] = hashlib.sha256(raw).hexdigest()
                 else:
                     text = load_text(artifact.path)
+                coverage["loaded"] += 1
                 document = parse(
                     artifact,
                     text,
@@ -156,6 +183,7 @@ class Scanner:
                     claude_project=claude_project if artifact.path.name == ".claude.json" else None,
                 )
             except LoadError as exc:
+                coverage["failed"] += 1
                 if artifact.ecosystem in {"Kilo Code", "Zed Agent", "Goose"} and (
                     "exceeds 1 MiB" in str(exc) or "Unicode" in str(exc)
                 ):
@@ -166,12 +194,51 @@ class Scanner:
                 normalized.append(artifact)
                 continue
             except ParseError as exc:
+                coverage["failed"] += 1
                 diagnostics.append(Diagnostic("warning", f"{artifact.path}: {exc}"))
                 skipped_parse += 1
                 normalized.append(artifact)
                 continue
             normalized.append(document.artifact)
-            documents.append(document)
+            coverage["parsed"] += 1
+            mcp_inventory.extend(
+                (document.artifact.path, server.name, server.transport or "unspecified")
+                for server in document.servers
+            )
+            mcp_scope_hints.extend(
+                (document.artifact.path, server.name, server.config_scope)
+                for server in document.servers
+                if server.config_scope is not None
+            )
+            context_bytes = len(text.encode("utf-8"))
+            context_items = sum(
+                len(items)
+                for items in (
+                    document.blocks,
+                    document.instructions,
+                    document.entries,
+                    document.servers,
+                    document.dependencies,
+                    document.relationships,
+                )
+            )
+            retain_context = (
+                retained_bytes + context_bytes <= MAX_CONTEXT_BYTES
+                and retained_items + context_items <= MAX_CONTEXT_ITEMS
+            )
+            if retain_context:
+                documents.append(document)
+                retained_bytes += context_bytes
+                retained_items += context_items
+            else:
+                retention_limited = True
+                diagnostics.append(
+                    Diagnostic(
+                        "coverage",
+                        f"{artifact.path}: cross-artifact context budget reached; "
+                        "local analysis continues, correlation/enrichment incomplete",
+                    )
+                )
             diagnostics.extend(
                 Diagnostic(
                     "coverage"
@@ -194,7 +261,8 @@ class Scanner:
             for rule in self.rules:
                 document_findings.extend(rule.detect(document))
             observations = collect(document)
-            observations_by_path[document.artifact.path] = observations
+            if retain_context:
+                observations_by_path[document.artifact.path] = observations
             for detector in self.detectors:
                 document_findings.extend(
                     detector.detect(
@@ -220,14 +288,8 @@ class Scanner:
                     )
             # Derived views are evidence only; never add their observations or
             # dependencies to the graph or vulnerability query plan.
-            derived, evasion_diagnostics = views(document)
-            diagnostics.extend(
-                Diagnostic(
-                    "warning" if "malformed escape" in item else "coverage",
-                    f"{artifact.path}: {item}",
-                )
-                for item in evasion_diagnostics
-            )
+            evasion_diagnostics: list[str] = []
+            derived = iter_views(document, evasion_diagnostics, coverage)
             seen = {
                 (
                     f.detection_id,
@@ -253,7 +315,7 @@ class Scanner:
                 )
             for view in derived:
                 candidates: list[Finding] = []
-                if "hidden-html" in view.evidence.chain:
+                if "hidden-html" in view.evidence.chain and view.context == "block-html":
                     hidden = replace(
                         view.document,
                         instructions=(
@@ -297,7 +359,13 @@ class Scanner:
                             )
                         )
                 for candidate in candidates:
-                    if candidate.line not in {None, view.location.line}:
+                    if (
+                        candidate.line is not None
+                        and view.location.line is not None
+                        and not view.location.line
+                        <= candidate.line
+                        <= (view.location.end_line or view.location.line)
+                    ):
                         continue
                     key = (
                         candidate.detection_id,
@@ -319,7 +387,9 @@ class Scanner:
                     document_findings.append(
                         replace(
                             candidate,
-                            line=view.location.line,
+                            line=candidate.line
+                            if candidate.line is not None
+                            else view.location.line,
                             severity=(
                                 Severity.LOW
                                 if "hidden-html" in view.evidence.chain
@@ -336,6 +406,13 @@ class Scanner:
                             evasion=view.evidence,
                         )
                     )
+            diagnostics.extend(
+                Diagnostic(
+                    "warning" if "malformed escape" in item else "coverage",
+                    f"{artifact.path}: {item}",
+                )
+                for item in dict.fromkeys(evasion_diagnostics)
+            )
             findings.extend(
                 replace(finding, capabilities=(*finding.capabilities, "remote-installer"))
                 if finding.detection_id in {"DRAGON-EXEC-001", "DAAS-002"}
@@ -343,6 +420,10 @@ class Scanner:
                 else finding
                 for finding in document_findings
             )
+            coverage[
+                "partially_analyzed" if len(diagnostics) > diagnostic_start else "fully_analyzed"
+            ] += 1
+        cross_stage_start = len(diagnostics)
         if self.enable_correlation:
             if boundaries is None:
                 analyzed, supply_findings, supply_errors = analyze_dependencies(
@@ -398,13 +479,17 @@ class Scanner:
                 diagnostics.append(Diagnostic("coverage", str(exc)))
         if (
             skipped_parse
-            and not documents
+            and not coverage["parsed"]
             and not (
                 normalized and all(artifact.ecosystem == "Kilo Code" for artifact in normalized)
             )
         ):
             errors.append("no supported artifact could be parsed")
         results = tuple(findings)
+        if len(diagnostics) > cross_stage_start or retention_limited:
+            # Cross-artifact limits cannot be attributed to just one document.
+            coverage["partially_analyzed"] += coverage["fully_analyzed"]
+            coverage["fully_analyzed"] = 0
         risk, counts = summarize(results)
         report = ScanReport(
             target.path,
@@ -414,20 +499,12 @@ class Scanner:
             risk,
             counts,
             diagnostics=tuple(diagnostics),
+            coverage=coverage,
         )
         report = replace(
             report,
-            mcp_inventory=tuple(
-                (document.artifact.path, server.name, server.transport or "unspecified")
-                for document in documents
-                for server in document.servers
-            ),
-            mcp_scope_hints=tuple(
-                (document.artifact.path, server.name, server.config_scope)
-                for document in documents
-                for server in document.servers
-                if server.config_scope is not None
-            ),
+            mcp_inventory=tuple(mcp_inventory),
+            mcp_scope_hints=tuple(mcp_scope_hints),
         )
         if self.vulnerability_provider is not None:
             report, graph = enrich_vulnerabilities(
@@ -509,18 +586,22 @@ class Scanner:
             max_depth=max_depth,
         )
         project_diagnostics: tuple[InstalledEnvironment, ...] = ()
+        project_messages: list[str] = []
         try:
             explicit = (
                 discover(
                     target,
                     installed_project=True,
                     known_artifact=lambda path: classify_project_artifact(target, path),
+                    limit_diagnostics=project_messages,
                 )
                 if target is not None
                 else ()
             )
         except DiscoveryError as exc:
             explicit = ()
+            project_messages.append(str(exc))
+        if project_messages:
             assert target is not None
             project_diagnostics = (
                 InstalledEnvironment(
@@ -529,7 +610,7 @@ class Scanner:
                     "explicit_target",
                     (),
                     "diagnostic",
-                    str(exc),
+                    "; ".join(project_messages),
                     scope="project",
                     resolution="partial",
                 ),
@@ -616,7 +697,7 @@ class Scanner:
                     message.startswith(f"{origin.scanned_artifact}:")
                     for message in (
                         *report.errors,
-                        *(item.message for item in report.diagnostics if item.level == "warning"),
+                        *(item.message for item in report.diagnostics),
                     )
                 )
                 for origin in resolved_origins

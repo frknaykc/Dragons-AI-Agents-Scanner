@@ -8,9 +8,11 @@ import binascii
 import html
 import re
 import unicodedata
+from collections.abc import Iterator
 from dataclasses import dataclass, replace
 from urllib.parse import unquote
 
+from dragonscan.loading import MAX_BYTES
 from dragonscan.models import Confidence, Document, EvasionEvidence, McpServer, SourceRef
 
 MAX_REGION = 4096
@@ -49,6 +51,7 @@ _CONFUSABLES = str.maketrans(
     }
 )
 _ENCODED = re.compile(r"(?<![\w/])(?:[0-9a-fA-F]{8,4096}|[A-Za-z0-9+/_-]{16,4096}={0,2})(?![\w/])")
+_OVERSIZED_ENCODED = re.compile(r"(?<![\w/])[A-Za-z0-9+/_-]{4097,}={0,2}(?![\w/])")
 _HEX_BYTES = re.compile(r"(?:0x[0-9a-fA-F]{2}[ \t,]*){4,128}")
 _PERCENT = re.compile(r"(?:%[0-9a-fA-F]{2}){2,}")
 _CONCAT = re.compile(
@@ -169,8 +172,8 @@ def _decode(text: str) -> str | None:
             return token
         return decoded
 
-    result = _HEX_BYTES.sub(_hex_bytes_match, text, count=4)
-    result = _ENCODED.sub(substitute, result, count=4)
+    result = _HEX_BYTES.sub(_hex_bytes_match, text)
+    result = _ENCODED.sub(substitute, result)
     directive = _ENCODED_DIRECTIVE.match(text)
     if directive is not None:
         token = _ENCODED.fullmatch(text[directive.end() :].strip())
@@ -181,17 +184,21 @@ def _decode(text: str) -> str | None:
     return result if result != text else None
 
 
-def _transform(text: str) -> tuple[tuple[tuple[str, str], ...], bool]:
+def _transform(
+    text: str, output_limit: int = MAX_OUTPUT
+) -> tuple[tuple[tuple[str, str], ...], bool]:
     results: list[tuple[str, str]] = []
     stripped = text.strip()
     if stripped.startswith("<!--") and stripped.endswith("-->"):
-        results.append(("hidden-html", stripped[4:-3].strip()))
+        # Preserve line breaks: derived findings must still point into the source.
+        leading = text[: len(text) - len(text.lstrip())].count("\n")
+        results.append(("hidden-html", "\n" * leading + stripped[4:-3]))
     elif _HTML_HIDDEN.match(stripped):
         inner = re.sub(r"<[^>]{1,512}>", " ", stripped).strip()
         if inner:
             results.append(("hidden-html", inner))
     elif stripped.startswith("<"):
-        for match in _HTML_METADATA.finditer(stripped[:1024]):
+        for match in _HTML_METADATA.finditer(stripped):
             if _ACTION.search(match.group(2)):
                 results.append(("hidden-html", match.group(2)))
                 break
@@ -248,8 +255,8 @@ def _transform(text: str) -> tuple[tuple[tuple[str, str], ...], bool]:
         if spaced != text:
             results.append(("token-fragmentation", spaced))
     return (
-        tuple((name, value) for name, value in results if len(value) <= MAX_OUTPUT),
-        any(len(value) > MAX_OUTPUT for _, value in results),
+        tuple((name, value) for name, value in results if len(value) <= output_limit),
+        any(len(value) > output_limit for _, value in results),
     )
 
 
@@ -272,22 +279,25 @@ def _excerpt(text: str, kind: str) -> str:
     return f"{kind}: {len(text)} chars; shape {shape}" + (f"; controls {points}" if points else "")
 
 
-def _regions(document: Document) -> tuple[tuple[str, int, str, SourceRef], ...]:
-    regions: list[tuple[str, int, str, SourceRef]] = []
+def _regions(document: Document) -> Iterator[tuple[str, int, str, SourceRef]]:
     for i, instruction in enumerate(document.instructions):
         if (
             _ACTION.search(instruction.text)
             or _SHELL.search(instruction.text)
-            or _ENCODED.search(instruction.text[:MAX_REGION])
+            or _ENCODED.search(instruction.text)
+            or _OVERSIZED_ENCODED.search(instruction.text)
+            or any(ch in _INVISIBLE or ch in _BIDI for ch in instruction.text)
         ):
-            regions.append(("instruction", i, instruction.text, instruction.location))
+            yield "instruction", i, instruction.text, instruction.location
     for i, block in enumerate(document.blocks):
         if block.kind in {"code", "quote", "html"} and (
             _ACTION.search(block.text)
             or _SHELL.search(block.text)
-            or _ENCODED.search(block.text[:MAX_REGION])
+            or _ENCODED.search(block.text)
+            or _OVERSIZED_ENCODED.search(block.text)
+            or any(ch in _INVISIBLE or ch in _BIDI for ch in block.text)
         ):
-            regions.append((f"block-{block.kind}", i, block.text, block.location))
+            yield f"block-{block.kind}", i, block.text, block.location
     if document.artifact.path.name == "package.json":
         for i, entry in enumerate(document.entries):
             if (
@@ -297,7 +307,7 @@ def _regions(document: Document) -> tuple[tuple[str, int, str, SourceRef], ...]:
                 in {"preinstall", "install", "postinstall", "prepare", "prepublish"}
                 and isinstance(entry.value, str)
             ):
-                regions.append(("lifecycle-script", i, entry.value, entry.location))
+                yield "lifecycle-script", i, entry.value, entry.location
     for i, entry in enumerate(document.entries):
         if (
             entry.kind == "string"
@@ -310,18 +320,17 @@ def _regions(document: Document) -> tuple[tuple[str, int, str, SourceRef], ...]:
                 document.artifact.path.name == "package.json" and entry.key_path[0] == "scripts"
             )
         ):
-            regions.append(("config-entry", i, entry.value, entry.location))
+            yield "config-entry", i, entry.value, entry.location
     for i, server in enumerate(document.servers):
-        regions.append(("mcp-command", i, server.command, server.location))
-        for j, arg in enumerate(server.args[:8]):
-            regions.append((f"mcp-arg:{j}", i, arg, server.location))
-        for j, tool in enumerate(server.tools[:8]):
+        yield "mcp-command", i, server.command, server.location
+        for j, arg in enumerate(server.args):
+            yield f"mcp-arg:{j}", i, arg, server.location
+        for j, tool in enumerate(server.tools):
             for field in ("description", "instructions"):
-                regions.append((f"mcp-tool:{j}:{field}", i, getattr(tool, field), tool.location))
+                yield f"mcp-tool:{j}:{field}", i, getattr(tool, field), tool.location
         for group in ("resources", "prompts"):
-            for j, item in enumerate(getattr(server, group)[:8]):
-                regions.append((f"mcp-{group}:{j}:description", i, item.description, item.location))
-    return tuple(regions)
+            for j, item in enumerate(getattr(server, group)):
+                yield f"mcp-{group}:{j}:description", i, item.description, item.location
 
 
 def _document_view(document: Document, kind: str, index: int, value: str) -> Document:
@@ -337,11 +346,20 @@ def _document_view(document: Document, kind: str, index: int, value: str) -> Doc
             dependencies=(),
         )
     if kind == "instruction":
-        instructions = list(document.instructions)
-        instructions[index] = replace(instructions[index], text=value)
+        # Keep the immediately adjacent instructions for existing source/sink rules,
+        # not the entire document in every derived detector pass.
+        start, end = max(0, index - 1), index + 2
+        instructions = list(document.instructions[start:end])
+        instructions[index - start] = replace(document.instructions[index], text=value)
         return replace(
             document,
             instructions=tuple(instructions),
+            blocks=tuple(
+                block
+                for block in document.blocks
+                if block.location == document.instructions[index].location
+            ),
+            entries=(),
             servers=(),
             relationships=(),
             dependencies=(),
@@ -393,25 +411,39 @@ def _document_view(document: Document, kind: str, index: int, value: str) -> Doc
     return replace(document, servers=(server,), instructions=(), relationships=(), dependencies=())
 
 
-def views(document: Document) -> tuple[tuple[AnalysisView, ...], tuple[str, ...]]:
-    """Explore each source field independently; truncation is explicit and non-fatal."""
-    results: list[AnalysisView] = []
-    diagnostics: list[str] = []
-    regions = _regions(document)
-    if len(regions) > MAX_REGIONS:
-        diagnostics.append("evasion region limit exceeded; some regions were not analyzed")
-    attempts = 0
-    for kind, index, original, location in regions[:MAX_REGIONS]:
-        if len(original) > MAX_REGION:
-            diagnostics.append("evasion source region too large; region skipped")
+def iter_views(
+    document: Document, diagnostics: list[str], statistics: dict[str, int] | None = None
+) -> Iterator[AnalysisView]:
+    """Consume independent parser regions sequentially, preserving their full context.
+
+    No Markdown text is split or reparsed. Decoder/branch budgets reset for each
+    source region, not each artifact. Only one bounded transformation queue lives
+    at a time; callers must consume rather than accumulate these views.
+    """
+    if MAX_REGIONS <= 0:
+        diagnostics.append("evasion region limit invalid; analysis unavailable")
+        return
+    for kind, index, original, location in _regions(document):
+        if statistics is not None:
+            statistics["evasion_regions"] = statistics.get("evasion_regions", 0) + 1
+        if len(original) > MAX_BYTES:
+            diagnostics.append("evasion source region exceeds loader bound; region skipped")
             continue
+        # An individual encoded token is not an ordinary long document. Do not
+        # decode fragments of an over-budget token and claim complete coverage.
+        if _OVERSIZED_ENCODED.search(original):
+            diagnostics.append("evasion encoded token size limit reached; payload not decoded")
         if _BAD_ESCAPE.search(original):
             diagnostics.append("evasion malformed escape sequence; region analyzed without it")
         seen = {original}
         region_attempts = 0
+        produced = 0
+        # Large ordinary regions retain their parser context. Expansion remains
+        # bounded by input size; a short payload still has the old 4 KiB ceiling.
+        output_limit = MAX_OUTPUT if len(original) <= MAX_REGION else len(original)
         queue: list[tuple[str, tuple[str, ...]]] = [(original, ())]
         for current, chain in queue:
-            transformed, exceeded_output = _transform(current)
+            transformed, exceeded_output = _transform(current, output_limit)
             if exceeded_output:
                 diagnostics.append("evasion expansion limit reached; analysis truncated")
             if len(chain) >= MAX_DEPTH:
@@ -419,15 +451,14 @@ def views(document: Document) -> tuple[tuple[AnalysisView, ...], tuple[str, ...]
                     diagnostics.append("evasion transformation depth limit reached")
                 continue
             for name, value in transformed:
-                attempts += 1
                 region_attempts += 1
                 if (
-                    attempts > MAX_ATTEMPTS
+                    region_attempts > MAX_ATTEMPTS
                     or region_attempts > MAX_PER_REGION
-                    or len(results) >= MAX_VIEWS
+                    or produced >= MAX_VIEWS
                 ):
                     diagnostics.append("evasion transform budget exceeded; analysis truncated")
-                    return tuple(results), tuple(dict.fromkeys(diagnostics))
+                    break
                 if len(value) > MAX_EXPANSION_RATIO * max(1, len(original)):
                     diagnostics.append("evasion expansion limit reached; analysis truncated")
                     continue
@@ -448,13 +479,20 @@ def views(document: Document) -> tuple[tuple[AnalysisView, ...], tuple[str, ...]
                     else Confidence.MEDIUM,
                     _excerpt(value, "canonical"),
                 )
-                results.append(
-                    AnalysisView(
-                        _document_view(document, kind, index, value),
-                        evidence,
-                        location,
-                        value,
-                        kind,
-                    )
+                produced += 1
+                if statistics is not None:
+                    statistics["evasion_views"] = statistics.get("evasion_views", 0) + 1
+                yield AnalysisView(
+                    _document_view(document, kind, index, value),
+                    evidence,
+                    location,
+                    value,
+                    kind,
                 )
-    return tuple(results), tuple(dict.fromkeys(diagnostics))
+
+
+def views(document: Document) -> tuple[tuple[AnalysisView, ...], tuple[str, ...]]:
+    """Compatibility helper; the scanner consumes iter_views without accumulation."""
+    diagnostics: list[str] = []
+    result = tuple(iter_views(document, diagnostics))
+    return result, tuple(dict.fromkeys(diagnostics))

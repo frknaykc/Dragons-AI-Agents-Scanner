@@ -491,9 +491,9 @@ class ScanApp(App[None]):
                         classes="hint",
                     )
                     for name, label, placeholder in (
-                        ("entries", "Entries per root", "Default: 2048"),
-                        ("artifacts", "Artifact budget", "Discovery: 256 / directory: 10000"),
-                        ("per-root", "Artifacts per root", "Default varies by agent"),
+                        ("entries", "Entries per root", "Blank = per-directory safety limits"),
+                        ("artifacts", "Artifact budget", "Blank = no total artifact cap"),
+                        ("per-root", "Artifacts per root", "Blank = no per-root artifact cap"),
                         ("depth", "Maximum depth", "Blank = mode default"),
                     ):
                         yield Static(label, id=f"{name}-label", classes="input-label")
@@ -1036,7 +1036,7 @@ class ScanApp(App[None]):
             scanner = Scanner()
             if mode == "path":
                 assert path is not None
-                discovered_count = None
+
                 if path.suffix.lower() in (".zip", ".tar", ".gz", ".tgz") and not path.is_dir():
                     with acquire(str(path), remote=False, git=False) as acquired:
                         report = scanner.scan_acquired(acquired)
@@ -1050,12 +1050,20 @@ class ScanApp(App[None]):
                         max_depth=budgets.get("max_depth"),
                         limit_diagnostics=discovery_messages,
                     )
-                    discovered_count = len(artifacts)
+
                     kinds = frozenset().union(*(KIND_GROUPS[group] for group in groups))
                     selected = tuple(item for item in artifacts if item.kind in kinds)
                     if not selected:
                         raise DiscoveryError("No supported files found in the selected scope.")
                     report = scanner.scan(Target(path), artifacts=selected)
+                    report = replace(
+                        report,
+                        coverage={
+                            **report.coverage,
+                            "discovered": len(artifacts),
+                            "skipped": len(artifacts) - len(selected),
+                        },
+                    )
                     if discovery_messages:
                         report = replace(
                             report,
@@ -1088,20 +1096,7 @@ class ScanApp(App[None]):
                                 Diagnostic("coverage", "; ".join(exclusions)),
                             ),
                         )
-                if path.is_dir() and (
-                    discovered_count if discovered_count is not None else len(report.artifacts)
-                ) >= budgets.get("max_artifacts", 10_000):
-                    report = replace(
-                        report,
-                        diagnostics=(
-                            *report.diagnostics,
-                            Diagnostic(
-                                "coverage",
-                                "Local directory artifact budget reached; "
-                                "additional files may not have been discovered",
-                            ),
-                        ),
-                    )
+
             else:
                 report = scanner.scan_installed(
                     agent=agent,
@@ -1153,6 +1148,15 @@ class ScanApp(App[None]):
             f"Artifacts: {len(report.artifacts)}  ·  Findings: {len(report.findings)}"
             + f"\nRisk: {risk_label(report, policy).upper()}"
             + (f"\nSeverities: {breakdown}" if breakdown else "")
+            + (
+                f"\nAnalysis: {report.coverage['attempted']} attempted · "
+                f"{report.coverage['parsed']} parsed · "
+                f"{report.coverage['fully_analyzed']} full · "
+                f"{report.coverage['partially_analyzed']} partial · "
+                f"{report.coverage['failed']} failed"
+                if report.coverage
+                else ""
+            )
             + (f"\nDetailed JSON: {_safe_text(saved)}" if saved else "")
         )
         coverage = self.query_one("#coverage", Static)

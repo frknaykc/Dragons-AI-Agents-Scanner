@@ -470,3 +470,5 @@ class ScanReport:
     acquisition_source_sha256: str | None = None
     acquisition_source_bytes: int | None = None
     diagnostics: tuple[Diagnostic, ...] = ()
+    # Additive stage counters; successful parsing is not complete analysis.
+    coverage: dict[str, int] = field(default_factory=dict)

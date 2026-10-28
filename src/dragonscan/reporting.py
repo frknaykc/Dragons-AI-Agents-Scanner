@@ -386,6 +386,16 @@ def terminal_report(
     )
     if report_path is not None:
         lines.append(f"Report      {ascii(str(report_path))}")
+    if report.coverage:
+        _summary_list(
+            lines,
+            "Coverage",
+            f"{report.coverage['attempted']:,} attempted; "
+            f"{report.coverage['parsed']:,} parsed; "
+            f"{report.coverage['fully_analyzed']:,} fully analyzed; "
+            f"{report.coverage['partially_analyzed']:,} partial; "
+            f"{report.coverage['failed']:,} failed",
+        )
     lines.extend(
         [
             f"Artifacts   {len(report.artifacts):,}",

@@ -76,7 +76,9 @@ def _active_metadata(text: str, *, preserve_boundaries: bool = False) -> str:
     """Exclude prohibitions without hiding preceding actionable metadata."""
     # Mask only a closed quotation explicitly being rejected, never the rest of
     # its sentence. A warning followed by an active directive remains actionable.
-    text = _REJECTED_QUOTE.sub(" ", text[:4096])
+    # Analyze the complete loader-bounded value; clipping here can both hide a
+    # late directive and sever the closing quote of a rejected example.
+    text = _REJECTED_QUOTE.sub(" ", text)
     segments = re.split(r"(?<=[.!?])\s+(?=[A-Z])|\n+", text)
     separator = "\n" if preserve_boundaries else " "
     return separator.join(
