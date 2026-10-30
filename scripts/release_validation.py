@@ -39,6 +39,7 @@ SAFE_TESTS = (
     "test_private_output.py",
     "test_standalone_licenses.py",
     "test_runtime_license_provision.py",
+    "test_cpython_embedded_notices.py",
 )
 DENIED = frozenset(
     {

@@ -293,7 +293,11 @@ def test_runtime_provenance_and_candidate_versions(tmp_path, monkeypatch, recipe
         licenses,
         "cached_source",
         lambda url, cache: (
-            buffer.getvalue() if "codeload" in url else b"Exact CPython additional notices\n"
+            buffer.getvalue()
+            if "codeload" in url
+            else b"Exact CPython additional notices\n"
+            if url.endswith("/Doc/license.rst")
+            else None
         ),
     )
     if recipe_version != "3.12.12":

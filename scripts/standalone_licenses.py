@@ -27,9 +27,29 @@ CPYTHON_NOTICES_URL = "https://raw.githubusercontent.com/python/cpython/v3.12.12
 PBS_SOURCE_URL = (
     "https://codeload.github.com/astral-sh/python-build-standalone/tar.gz/refs/tags/20260211"
 )
+HACL_NOTICE_URL = (
+    "https://raw.githubusercontent.com/python/cpython/v3.12.12/Modules/_hacl/Hacl_Hash_SHA2.h"
+)
+KARAMEL_NOTICE_URL = (
+    "https://raw.githubusercontent.com/python/cpython/v3.12.12/"
+    "Modules/_hacl/include/krml/internal/target.h"
+)
+# Revision recorded by CPython v3.12.12 Modules/_hacl/refresh.sh (read as data).
+KARAMEL_LICENSE_URL = (
+    "https://raw.githubusercontent.com/hacl-star/hacl-star/"
+    "bb3d0dc8d9d15a5cd51094d5b69e70aa09005ff0/LICENSE"
+)
+CPYTHON_EMBEDDED_NOTICES = {
+    "HACL-MIT.txt": (HACL_NOTICE_URL, True),
+    "KaRaMeL-NOTICE.txt": (KARAMEL_NOTICE_URL, True),
+    "KaRaMeL-LICENSE.txt": (KARAMEL_LICENSE_URL, False),
+}
 SOURCE_DIGESTS = {
     CPYTHON_NOTICES_URL: "341832873fd316a37927e79385093fbbfd40a467428480835fe435a80cadf4e5",
     PBS_SOURCE_URL: "a70d814140fb061d5724c477aeecfdf263e890d3a3515546763adc727f929628",
+    HACL_NOTICE_URL: "093d7693084af0999d2a13d207311d74b5bdfdc9c08447ed4a979e3f7505ae6b",
+    KARAMEL_NOTICE_URL: "d16a59f37a1d4982626870e370889eb9d332a9ad035661b8062f549fc734d061",
+    KARAMEL_LICENSE_URL: "c5accbbd8546e94c34aed24afe689a617627d18eed5a6c48277e48db57c23851",
 }
 
 # Exact bytes from https://raw.githubusercontent.com/yaml/libyaml/0.2.5/License
@@ -241,6 +261,30 @@ def runtime_notices(cache: Path) -> tuple[list[dict[str, Any]], list[str]]:
             "CPython additional third-party notices are not available in the "
             "offline source cache: " + url
         )
+    if version != "3.12.12":
+        unresolved.append("Unreviewed CPython embedded notices: " + version)
+    else:
+        for filename, (source_url, header_only) in CPYTHON_EMBEDDED_NOTICES.items():
+            original = cached_source(source_url, cache)
+            if original is None:
+                unresolved.append("Missing CPython embedded notice: " + source_url)
+                continue
+            content = original
+            if header_only:
+                end = original.find(b"*/")
+                if not original.startswith(b"/*") or end < 0 or not original[2:end].strip():
+                    raise LicenseError("invalid CPython embedded notice header: " + source_url)
+                content = original[: end + 2]  # Exact original comment; never copy code.
+            components.append(
+                {
+                    "name": "CPython embedded " + filename,
+                    "version": version,
+                    "scope": "vendored HACL*/KaRaMeL runtime notices",
+                    "source": source_url,
+                    "source_sha256": digest(original),
+                    "files": {filename: content},
+                }
+            )
     if sys.platform == "win32":
         unresolved.append(
             "Review the exact bundled Microsoft runtime DLL versions and their "

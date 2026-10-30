@@ -92,6 +92,15 @@ def test_reviewed_sources_are_immutable_and_version_specific():
     assert licenses.SOURCE_DIGESTS == {
         cpython: "341832873fd316a37927e79385093fbbfd40a467428480835fe435a80cadf4e5",
         pbs: "a70d814140fb061d5724c477aeecfdf263e890d3a3515546763adc727f929628",
+        licenses.HACL_NOTICE_URL: (
+            "093d7693084af0999d2a13d207311d74b5bdfdc9c08447ed4a979e3f7505ae6b"
+        ),
+        licenses.KARAMEL_NOTICE_URL: (
+            "d16a59f37a1d4982626870e370889eb9d332a9ad035661b8062f549fc734d061"
+        ),
+        licenses.KARAMEL_LICENSE_URL: (
+            "c5accbbd8546e94c34aed24afe689a617627d18eed5a6c48277e48db57c23851"
+        ),
     }
 
 
