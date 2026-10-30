@@ -6,6 +6,10 @@ coverage or general detection accuracy. Examples are inert; no artifact code,
 MCP server, downloaded script, semantic provider or external rule pack was run.
 Research fetched public documentation only, never scanned user content.
 
+The [2026-10-30 follow-up](DISCOVERY_DETECTION_VALIDATION.md) records current
+shared-user/OpenClaw discovery, two further literal-pipeline variants and their
+validation. Counts and checkpoint statements below describe the earlier snapshot.
+
 ## Research basis
 
 VirusTotal describes skills whose apparent functionality conceals instructions to
@@ -72,7 +76,7 @@ selection and live tool state are not inferred from successful parsing.
 | Goose | YAML `config.yaml`, `extensions`, with platform-dependent user configuration locations.[22] | Existing stdio/streamable-HTTP extension subset; disabled/builtin/unsupported entries are not invented as active MCP servers. Recipes and dynamic extension metadata need separate research |
 | Kilo Code | User `~/.config/kilo/kilo.json[c]`, root or `.kilo/kilo.json[c]`, top-level `mcp`.[23] | Existing bounded JSONC/discovery adapters. Malformed server discriminators now skip with an incomplete-analysis diagnostic. Redirected roots and merged effective config remain out of scope |
 | Zed | Settings `context_servers`; local/remote servers and extension-provided servers.[20] | Existing settings-based subset; extension execution, OAuth stores, ACP forwarding and runtime tool changes are not reconstructed |
-| OpenClaw | Skill frontmatter, skill-local supporting files, workspace and shared `.agents/skills`, declared `metadata.openclaw` requirements/install metadata.[12] | Generic explicit `SKILL.md` analysis only; **no installed OpenClaw adapter**. Managed/profile roots, install metadata and activation semantics need bounded discovery/parsing work, not a broad home-directory crawl |
+| OpenClaw | Skill frontmatter, skill-local supporting files, workspace and shared `.agents/skills`, declared `metadata.openclaw` requirements/install metadata.[12] | Correction: an installed OpenClaw adapter already existed; the earlier review incorrectly described it as absent. Default workspace/shared-root gaps are addressed in the follow-up. Custom/profile roots, install metadata and activation semantics remain outside the verified subset |
 
 The shared user skill gap is not fixed by simply attributing every `.agents` file
 to Codex: Cline and OpenClaw also document shared roots.[14][16][12] Deduplication,

@@ -175,6 +175,13 @@ Only already-actionable instruction contexts can produce active findings from a 
 
 `DRAGON-EXEC-003` separately reports an active Markdown `Run`/`Execute` instruction with a literal `printf %s` or `echo` source, one standard Base64 decoder (`base64 -d`, macOS `base64 -D`, or `base64 --decode`) or hex decoder (`xxd -r -p`), and a directly connected shell or Python-stdin sink. It is `dangerous-execution`, high severity and high confidence for that explicit *instruction*, not proof that it ran or that the decoded bytes are malicious. Its source is `literal encoded input`, its sink is `shell execution` or `Python interpreter execution`; evidence never includes the literal or decoded bytes, and no graph path is asserted. It validates at most 4096 input characters and decoded bytes in memory without executing them. Quoted commands, invalid encodings, variable sources, additional pipeline stages and unrelated interpreters do not match. This does not broaden `DRAGON-EXEC-001` / `002` or MCP-only `DRAGON-OBF-002`; PowerShell `-en` is not included.
 
+Literal encoded pipelines also accept `echo -n TOKEN` and explicit `sh`/`bash`
+stdin selectors `-s` or `-s --`, without script operands or additional flags.
+Syntax-only `-n`, mixed option groups and command-string `-c` do not establish
+decoded-stdin execution. These variants reuse `DRAGON-EXEC-003` and its existing
+bounds, severity/confidence and redacted evidence; see the
+[regression evidence](DISCOVERY_DETECTION_VALIDATION.md).
+
 ## Static MCP security
 
 Recognized `mcpServers` entries are normalized **once** into `Document.servers`. Each server retains its declared name, `stdio`/HTTP/SSE/streamable-HTTP/unknown transport, command and arguments (internally), working directory, remote endpoint, runtime/package/version/pinning, environment/header **names and value origins**, and statically declared tools (name, description, instruction, top-level input-schema fields), prompts and resources. Resource HTTP(S) URIs retain only safe public location; non-HTTP resource URIs retain only their scheme. References, definitions, and safe capability labels are linked into the Agent Attack Graph with provenance. Unknown/omitted metadata is not synthesized. `npx`, `npm exec`, `pnpm dlx`, `yarn dlx`, `uvx`, `pipx`, `python -m`, direct Python/Node/native commands, shells/PowerShell, and visible Docker/Podman/nerdctl `run` image references are classified without launching them. Container tags are mutable; digest references are treated as pinned; version ranges and unversioned packages are mutable. This is not package resolution or image verification.

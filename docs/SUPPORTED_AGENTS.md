@@ -7,13 +7,29 @@
 | Agent | Static discovery status | Selected surfaces | Validation and gaps |
 | --- | --- | --- | --- |
 | Claude Code | **Supported subset** | User `.claude` and `~/.claude.json` MCP definitions, project `.claude` and root `.mcp.json`, skills and instructions | Synthetic. Explicit project-local MCP map only for matching project; approval, disabled lists and effective cross-file precedence **not verified**. Real install **not verified**. |
-| Codex | **Supported subset** | User/project `.codex/config.toml`, known instructions/skills, TOML `mcp_servers` | Synthetic. Project trust and effective layered overrides **not verified**; real install **not verified**. |
+| Codex | **Supported subset** | User/project `.codex/config.toml`, known instructions/skills, neutral shared `~/.agents/skills`, TOML `mcp_servers` | Synthetic. Project trust and effective layered overrides **not verified**; real install **not verified**. |
 | Cursor | **Partial** | `.cursor` MCP/settings, project `rules/*.mdc`, Cursor-owned user/project skills | Synthetic. Editor-managed rules, shared `.agents` ownership and activation **not verified**. Plain `.md` rule support is **not claimed**; real install **not verified**. |
-| Cline | **Partial** | Known `.cline` MCP/settings, selected project rules/skills | Synthetic and prior metadata-only observation; **real artifact scan not verified**. Credential-bearing `providers.json`, histories and databases are excluded; hooks/plugins/workflows are not full coverage. |
+| Cline | **Partial** | Known `.cline` MCP/settings, selected project rules/skills, neutral shared `~/.agents/skills` | Synthetic and prior metadata-only observation; **real artifact scan not verified**. Credential-bearing `providers.json`, histories and databases are excluded; hooks/plugins/workflows are not full coverage. |
 | Hermes Agent | **Partial** | Known user `.hermes/config.yaml`, selected-profile instructions/skills/memories, static `mcp_servers` | Synthetic and [scoped local validation](HERMES_COVERAGE_ATTRIBUTION.md). No default fixed per-root artifact cap; depth, directory, parsing and correlation budgets still apply. Effective configuration merging and live server state are not resolved. |
 | Kilo Code | **Partial** | Known user/project `kilo.json`/`kilo.jsonc`, project rules, static `mcp` | Synthetic; real installation not locally validated. Effective merged configuration and redirected roots are not reconstructed. |
 | Zed Agent | **Partial** | Platform-known user settings and project `.zed/settings.json`, static `context_servers` | Synthetic; real installation not locally validated. Extensions and effective merged settings are excluded. |
 | Goose | **Partial** | Known platform-specific user `config.yaml`, enabled supported `stdio`/`streamable_http` extensions | Synthetic; real installation not locally validated. Disabled, built-in or unsupported extensions do not become active server entries; extensions are **not executed**. |
+| OpenClaw | **Partial** | Default `.openclaw/openclaw.json` strict-JSON subset; managed skills, default workspace skills/instructions/memory, neutral shared `~/.agents/skills` | Synthetic. JSON5-only syntax, custom/profile roots, configured extra directories, installation metadata and effective activation are not resolved. No real OpenClaw state or services were accessed. |
 | Antigravity | **Not supported** (feasibility **partial**) | No agent-specific adapter | Shared `.agents`/`.gemini` locations do not establish Antigravity ownership. Agent-specific discovery and real-install validation **not verified**. |
 
 “Supported subset” means documented files and the parser's recognized schema have synthetic coverage, **not** every product feature. Static inventory includes declared MCP definitions, not proof of a successfully started server. User-level opt-in may read local configuration; do not use it to infer a product's active policy. See the [dated source ledger](AGENT_COVERAGE_REVIEW.md) for per-surface provenance and version caveats. More agents have bounded selectors in the [technical reference](REFERENCE.md#installed-agent-environments-opt-in); this table answers the specifically reviewed set only.
+
+## Shared user skills and OpenClaw defaults
+
+Installed-agent discovery includes `~/.agents/skills` when no agent filter is
+given, or when selecting Codex, Cline or OpenClaw. This is a neutral shared
+location, not an inferred installed product: artifact origins retain `agent: null`.
+Physical duplicates are scanned once while their source locations are retained.
+An explicit project/directory scan does not implicitly add user-level roots.
+
+OpenClaw discovery uses the existing adapter and bounded selectors for
+`~/.openclaw/skills`, `~/.openclaw/workspace/skills` and
+`~/.openclaw/workspace/.agents/skills`, plus known instruction names in the
+default workspace. It does not crawl arbitrary adjacent state or follow a
+configuration's redirected roots. See [scope, upstream sources and regression
+evidence](DISCOVERY_DETECTION_VALIDATION.md) for exact limits and validation.

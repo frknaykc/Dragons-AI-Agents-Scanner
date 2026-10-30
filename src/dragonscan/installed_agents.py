@@ -43,6 +43,7 @@ class Location:
     allowed_dirs: tuple[str, ...] = ()
     max_depth: int = MAX_DEPTH
     max_artifacts: int | None = None
+    skill_dirs: tuple[str, ...] = ("skills",)
 
 
 @dataclass(frozen=True)
@@ -52,6 +53,25 @@ class AgentSpec:
     project_files: tuple[tuple[str, ArtifactKind, SourceFormat], ...] = ()
     project_at_root_only: bool = False
     strict_project: bool = False
+
+
+# A neutral discovery group, not an installed product or inferred consumer.
+_SHARED_SKILLS = AgentSpec(
+    "Shared skills",
+    (
+        Location(
+            ".agents/skills",
+            (),
+            project=False,
+            scan_without_marker=True,
+            require_artifact=True,
+            strict_user=True,
+            max_depth=6,
+            skill_dirs=(".",),
+        ),
+    ),
+)
+_SHARED_SKILL_CONSUMERS = frozenset({"Codex", "Cline", "OpenClaw"})
 
 
 SPECS = (
@@ -121,12 +141,27 @@ SPECS = (
                 ("openclaw.json", "AGENTS.md", "SOUL.md", "workspace", "skills"),
                 extra=(
                     ("openclaw.json", ArtifactKind.AGENT_CONFIG, SourceFormat.JSON),
+                    ("workspace/AGENTS.md", ArtifactKind.INSTRUCTIONS, SourceFormat.MARKDOWN),
+                    ("workspace/SOUL.md", ArtifactKind.SOUL, SourceFormat.MARKDOWN),
+                    ("workspace/MEMORY.md", ArtifactKind.MEMORY, SourceFormat.MARKDOWN),
                     ("workspace/TOOLS.md", ArtifactKind.INSTRUCTIONS, SourceFormat.MARKDOWN),
                     ("workspace/IDENTITY.md", ArtifactKind.INSTRUCTIONS, SourceFormat.MARKDOWN),
                     ("workspace/USER.md", ArtifactKind.INSTRUCTIONS, SourceFormat.MARKDOWN),
                     ("workspace/HEARTBEAT.md", ArtifactKind.INSTRUCTIONS, SourceFormat.MARKDOWN),
+                    ("workspace/BOOT.md", ArtifactKind.INSTRUCTIONS, SourceFormat.MARKDOWN),
+                    ("workspace/BOOTSTRAP.md", ArtifactKind.INSTRUCTIONS, SourceFormat.MARKDOWN),
                 ),
                 memory_dirs=("workspace/memory",),
+                strict_user=True,
+                allowed_dirs=(
+                    "skills",
+                    "workspace/skills",
+                    "workspace/.agents/skills",
+                    "workspace/memory",
+                ),
+                skill_dirs=("skills", "workspace/skills", "workspace/.agents/skills"),
+                # Three root components plus six nested skill levels.
+                max_depth=9,
             ),
         ),
     ),
@@ -478,8 +513,11 @@ def _spec_artifact(path: Path, root: Path, spec: AgentSpec, location: Location) 
     for name, kind, source_format in location.extra:
         if relative == Path(name):
             return Artifact(path, kind, source_format, spec.kind)
-    if path.name == "SKILL.md" and relative.is_relative_to("skills"):
-        return Artifact(path, ArtifactKind.SKILL, SourceFormat.MARKDOWN, spec.kind)
+    if path.name == "SKILL.md" and any(
+        relative.is_relative_to(directory) for directory in location.skill_dirs
+    ):
+        ecosystem = None if spec is _SHARED_SKILLS else spec.kind
+        return Artifact(path, ArtifactKind.SKILL, SourceFormat.MARKDOWN, ecosystem)
     if (
         spec.kind == "Cursor"
         and location.project
@@ -509,13 +547,14 @@ def classify_agent_config(path: Path) -> Artifact | None:
 
     Product-specific directory components are required. The auth-bearing Claude
     user file is recognized only immediately inside the selected home directory.
-    Other instruction aliases and agents retain their existing discovery policy.
+    OpenClaw also reuses its verified workspace aliases. Other instruction aliases
+    and agents retain their existing discovery policy.
     """
     if path.name == ".claude.json" and path.parent == Path.home().absolute():
         _safe_mode(path, path.parent)
         return Artifact(path, ArtifactKind.MCP_CONFIG, SourceFormat.JSON, "Claude Code")
     for spec in SPECS:
-        if spec.kind not in {"Cline", "Claude Code", "Codex", "Cursor", "Hermes Agent"}:
+        if spec.kind not in {"Cline", "Claude Code", "Codex", "Cursor", "Hermes Agent", "OpenClaw"}:
             continue
         locations = (
             *spec.locations,
@@ -526,10 +565,14 @@ def classify_agent_config(path: Path) -> Artifact | None:
             ),
         )
         for location in locations:
-            if not location.user or not any(
-                path.name == Path(name).name
-                and kind in {ArtifactKind.AGENT_CONFIG, ArtifactKind.MCP_CONFIG, ArtifactKind.SOUL}
-                for name, kind, _ in location.extra
+            if not location.user or (
+                spec.kind != "OpenClaw"
+                and not any(
+                    path.name == Path(name).name
+                    and kind
+                    in {ArtifactKind.AGENT_CONFIG, ArtifactKind.MCP_CONFIG, ArtifactKind.SOUL}
+                    for name, kind, _ in location.extra
+                )
             ):
                 continue
             components = Path(location.relative).parts
@@ -537,11 +580,15 @@ def classify_agent_config(path: Path) -> Artifact | None:
                 if root.parts[-len(components) :] != components:
                     continue
                 artifact = _spec_artifact(path, root, spec, location)
-                if artifact is not None and artifact.kind in {
-                    ArtifactKind.AGENT_CONFIG,
-                    ArtifactKind.MCP_CONFIG,
-                    ArtifactKind.SOUL,
-                }:
+                if artifact is not None and (
+                    spec.kind == "OpenClaw"
+                    or artifact.kind
+                    in {
+                        ArtifactKind.AGENT_CONFIG,
+                        ArtifactKind.MCP_CONFIG,
+                        ArtifactKind.SOUL,
+                    }
+                ):
                     _safe_mode(path, root.parents[len(components) - 1])
                     return artifact
     return None
@@ -577,7 +624,11 @@ def _allowed_user_directory(path: Path, *, root: Path, location: Location) -> bo
         if len(parts) <= 2:
             return True
         parts = parts[2:]
-    return parts[0] in location.allowed_dirs and parts[0] != "profiles"
+    relative = Path(*parts)
+    return parts[0] != "profiles" and any(
+        relative.is_relative_to(directory) or Path(directory).is_relative_to(relative)
+        for directory in location.allowed_dirs
+    )
 
 
 def _evidence(artifacts: tuple[Artifact, ...]) -> tuple[str, ...]:
@@ -749,9 +800,10 @@ def discover_installed(
     artifacts: list[Artifact] = []
     origins: list[ArtifactOrigin] = []
     counted_paths: set[Path] = set()
-    for spec in SPECS:
-        if agent is not None and spec.kind != agent:
-            continue
+    specs = tuple(spec for spec in SPECS if agent is None or spec.kind == agent)
+    if agent is None or agent in _SHARED_SKILL_CONSUMERS:
+        specs = (*specs, _SHARED_SKILLS)
+    for spec in specs:
         for location in (*spec.locations, *PLATFORM_LOCATIONS.get(system, {}).get(spec.kind, ())):
             if not location.user or (location.platforms and system not in location.platforms):
                 continue
@@ -834,6 +886,8 @@ def discover_installed(
                         )
             except DiscoveryError as exc:
                 status, diagnostic = "diagnostic", str(exc)
+            if spec is _SHARED_SKILLS and status == "not_found":
+                continue
             environments.append(
                 InstalledEnvironment(
                     spec.kind,
@@ -856,7 +910,12 @@ def discover_installed(
                 artifacts.append(artifact)
                 origins.append(
                     ArtifactOrigin(
-                        artifact.path, "installed_agent", spec.kind, root, source, scope="user"
+                        artifact.path,
+                        "installed_agent",
+                        None if spec is _SHARED_SKILLS else spec.kind,
+                        root,
+                        source,
+                        scope="user",
                     )
                 )
     # Claude Code stores user-scope MCP servers beside, not inside, ~/.claude/.

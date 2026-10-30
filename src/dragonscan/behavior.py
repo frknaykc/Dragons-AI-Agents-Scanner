@@ -89,7 +89,7 @@ def literal_encoded_pipeline(command: str) -> str | None:
         source, decoder, interpreter = (shlex.split(part) for part in command.split("|"))
     except ValueError:
         return None
-    if len(source) == 3 and source[:2] == ["printf", "%s"]:
+    if len(source) == 3 and source[:2] in (["printf", "%s"], ["echo", "-n"]):
         token = source[2]
     elif len(source) == 2 and source[0] == "echo":
         token = source[1]
@@ -111,7 +111,9 @@ def literal_encoded_pipeline(command: str) -> str | None:
         return None
     if not decoded or len(decoded) > 4096 or not interpreter:
         return None
-    if interpreter in (["sh"], ["bash"], ["zsh"]):
+    if interpreter in (["sh"], ["bash"], ["zsh"]) or (
+        interpreter[0] in {"sh", "bash"} and interpreter[1:] in (["-s"], ["-s", "--"])
+    ):
         return "shell execution"
     if _PYTHON_STDIN.fullmatch(interpreter[0]) and interpreter[1:] in (
         [],

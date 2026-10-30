@@ -729,8 +729,9 @@ class Scanner:
             )
             if environment.status == "discovered"
             and any(
-                origin.agent == environment.agent
+                (origin.agent is None or origin.agent == environment.agent)
                 and origin.environment == environment.root
+                and origin.source == environment.source
                 and origin.scope == environment.scope
                 and origin.scanned_artifact is not None
                 and any(
