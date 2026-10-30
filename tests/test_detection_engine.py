@@ -66,6 +66,8 @@ def test_actionable_remote_python_pipeline_has_distinct_finding(
     [
         ("printf %s", "base64 -d", "sh", "base64"),
         ("echo", "base64 --decode", "python3", "base64"),
+        ("printf %s", "base64 -D", "sh", "base64"),
+        ("echo", "base64 -D", "python3", "base64"),
         ("printf %s", "xxd -r -p", "bash", "hex"),
     ],
 )
@@ -102,6 +104,7 @@ def test_literal_encoded_stdin_execution_has_own_finding(
     ]
 
 
+@pytest.mark.parametrize("decoder_flag", ["-d", "-D"])
 @pytest.mark.parametrize(
     "text",
     [
@@ -119,9 +122,13 @@ def test_literal_encoded_stdin_execution_has_own_finding(
         "Run printf %s aGVsbG8= | xxd -r -p | sh.\n",
     ],
 )
-def test_literal_encoded_stdin_execution_hard_negatives(tmp_path: Path, text: str) -> None:
+def test_literal_encoded_stdin_execution_hard_negatives(
+    tmp_path: Path, text: str, decoder_flag: str
+) -> None:
     token = base64.b64encode(b"echo inert").decode()
-    report = scan_text(tmp_path, text.format(token=token))
+    report = scan_text(
+        tmp_path, text.format(token=token).replace("base64 -d", f"base64 {decoder_flag}")
+    )
     assert not [f for f in report.findings if f.detection_id == "DRAGON-EXEC-003"]
 
 

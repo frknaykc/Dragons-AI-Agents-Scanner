@@ -97,7 +97,7 @@ def literal_encoded_pipeline(command: str) -> str | None:
         return None
     if not 1 <= len(token) <= 4096:
         return None
-    if decoder in (["base64", "-d"], ["base64", "--decode"]):
+    if decoder in (["base64", "-d"], ["base64", "-D"], ["base64", "--decode"]):
         try:
             decoded = base64.b64decode(token, validate=True)
         except (binascii.Error, ValueError):

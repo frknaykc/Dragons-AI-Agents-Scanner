@@ -414,7 +414,8 @@ def _kilo_servers(
         url = config.get("url")
         env = config.get("environment", {})
         if (
-            config.get("enabled", True) is not True
+            not isinstance(kind, str)
+            or config.get("enabled", True) is not True
             or not isinstance(env, dict)
             or not all(
                 isinstance(key, str) and isinstance(value, str) for key, value in env.items()
@@ -757,7 +758,8 @@ def _agent_mcp_servers(
         remote_types = {"http", "streamable-http", "sse"} if agent == "Claude Code" else {None}
         local_types = {None, "stdio"} if agent == "Claude Code" else {None}
         valid = (
-            type(config.get("enabled", True)) is bool
+            (transport is None or isinstance(transport, str))
+            and type(config.get("enabled", True)) is bool
             and type(config.get("disabled", False)) is bool
             and isinstance(args, list)
             and all(isinstance(item, str) for item in args)
