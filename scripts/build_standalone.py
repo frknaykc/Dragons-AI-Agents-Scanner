@@ -2,10 +2,16 @@
 
 import os
 import platform
+import shutil
 import subprocess
 import sys
 import tomllib
 from pathlib import Path
+
+if not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from scripts.standalone_licenses import create_notices, notice_directory, verify_notices
 
 ROOT = Path(__file__).resolve().parents[1]
 ARCHITECTURES = {
@@ -38,6 +44,11 @@ def main() -> None:
         version, os.environ.get("GITHUB_REF_TYPE", ""), os.environ.get("GITHUB_REF_NAME", "")
     )
     name = artifact_name(sys.platform, platform.machine(), version)
+    binary = ROOT / "dist" / name
+    notices = notice_directory(binary)
+    if notices.exists():
+        verify_notices(binary, notices)
+        shutil.rmtree(notices)
     subprocess.run(
         [
             sys.executable,
@@ -63,7 +74,8 @@ def main() -> None:
     )
     if not (ROOT / "dist" / name).is_file():
         raise RuntimeError(f"bundler did not produce expected artifact: {name}")
-    print(f"Built dist/{name}")
+    create_notices(binary, ROOT, ROOT / "build" / "standalone" / "license-cache")
+    print(f"Built dist/{name} with verified adjacent {name}.licenses notices")
 
 
 if __name__ == "__main__":

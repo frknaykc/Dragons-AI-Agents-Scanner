@@ -8,7 +8,9 @@ from types import SimpleNamespace
 import pytest
 from textual.app import App
 from textual.content import Content
+from textual.pilot import Pilot
 from textual.widgets import Button, Input, Select, SelectionList, Static, Tree
+from textual.widgets.tree import TreeNode
 
 from dragonscan.models import (
     Artifact,
@@ -716,10 +718,48 @@ def test_results_severity_breakdown_uses_actual_findings(tmp_path: Path) -> None
     asyncio.run(run())
 
 
+async def _settle_results(pilot: Pilot[None]) -> None:
+    # pause() drains messages, but not focus-triggered ancestor scroll animations.
+    # Pilot snapshots mouse coordinates BEFORE its own pause; wait before targeting.
+    await pilot.pause()
+    await asyncio.wait_for(pilot.wait_for_scheduled_animations(), timeout=5)
+    await pilot.pause()
+
+
+async def _result_node_offset(pilot: Pilot[None], tree: Tree, node: TreeNode) -> tuple[int, int]:
+    await _settle_results(pilot)
+    tree.scroll_to_node(node, animate=False)
+    await _settle_results(pilot)
+    x = tree.content_region.x + 2
+    y = tree.content_region.y + node.line - tree.scroll_offset.y
+    hit, _ = pilot.app.get_widget_at(x, y)
+    meta = pilot.app.screen.get_style_at(x, y).meta
+    parent = pilot.app.query_one("#results-content")
+    # Bounded geometry-only evidence if a native CI renderer targets a different row.
+    trace = {
+        "tree_region": tree.region,
+        "content_region": tree.content_region,
+        "scroll": tree.scroll_offset,
+        "parent_scroll": parent.scroll_y,
+        "parent_target": parent.scroll_target_y,
+        "cursor_line": tree.cursor_line,
+        "wanted_line": node.line,
+        "point": (x, y),
+        "hit_id": hit.id,
+        "hit_line": meta.get("line"),
+        "focused_id": pilot.app.focused.id if pilot.app.focused else None,
+    }
+    assert node.line >= 0 and hit is tree, trace
+    assert tree.get_node_at_line(meta.get("line", -1)) is node, trace
+    return x - tree.region.x, y - tree.region.y
+
+
 @pytest.mark.parametrize("long_target", (False, True))
+@pytest.mark.parametrize("size", ((80, 24), (120, 48)))
 def test_results_tree_groups_shared_artifacts_and_updates_detail_on_selection(
     tmp_path: Path,
     long_target: bool,
+    size: tuple[int, int],
 ) -> None:
     if long_target:
         tmp_path = tmp_path / ("nested-target-" * 20)
@@ -760,11 +800,11 @@ def test_results_tree_groups_shared_artifacts_and_updates_detail_on_selection(
         ),
     )
 
-    async def run(size: tuple[int, int]) -> None:
+    async def run() -> None:
         app = ScanApp()
         async with app.run_test(size=size) as pilot:
             app._finish(report, evaluate(report), None)
-            await pilot.pause()
+            await _settle_results(pilot)
             tree = app.query_one("#findings-tree", Tree)
             assert [str(node.label) for node in tree.root.children] == [
                 "Agent1",
@@ -783,22 +823,26 @@ def test_results_tree_groups_shared_artifacts_and_updates_detail_on_selection(
             critical.expand()
             leaf = critical.children[0]
             assert "DRAGON-001" in str(leaf.label)
+            # Expanded nodes get their visible line numbers during the next render.
+            await _settle_results(pilot)
             tree.select_node(leaf)
-            await pilot.pause()
+            await _settle_results(pilot)
+            assert tree.cursor_node is leaf
             detail = str(app.query_one("#finding-content", Static).render())
             assert all(
                 phrase in detail
                 for phrase in ("DRAGON-001", "CONFIDENCE", "High", "EVIDENCE", "Why this matters")
             ), detail
             assert str(shared) in detail
-            await pilot.hover(tree, offset=(3, 1))
-            await pilot.pause()
+            assert await pilot.hover(tree, offset=await _result_node_offset(pilot, tree, agent))
+            await _settle_results(pilot)
             assert str(app.query_one("#finding-content", Static).render()).startswith("Agent1")
-            await pilot.click(tree, offset=(3, 1))
-            await pilot.pause()
+            assert tree.cursor_node is leaf  # Hover previews without changing selection.
+            assert await pilot.click(tree, offset=await _result_node_offset(pilot, tree, agent))
+            await _settle_results(pilot)
             assert not agent.is_expanded
-            await pilot.click(tree, offset=(3, 1))
-            await pilot.pause()
+            assert await pilot.click(tree, offset=await _result_node_offset(pilot, tree, agent))
+            await _settle_results(pilot)
             assert agent.is_expanded
             tree.move_cursor(leaf)
             await pilot.pause()
@@ -820,8 +864,116 @@ def test_results_tree_groups_shared_artifacts_and_updates_detail_on_selection(
                 assert app.query_one("#results-layout").has_class("stacked")
                 assert "CONFIDENCE" in str(app.query_one("#finding-content", Static).render())
 
-    for size in ((80, 24), (120, 48)):
-        asyncio.run(run(size))
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("size", ((80, 24), (120, 48)))
+def test_results_hover_keyboard_focus_scroll_resize_and_reentry(
+    tmp_path: Path, size: tuple[int, int]
+) -> None:
+    path = tmp_path / "SKILL.md"  # Metadata only: never read or execute an artifact.
+    finding = Finding(
+        detection_id="DRAGON-001",
+        category="test",
+        title="Inert interaction fixture",
+        severity=Severity.CRITICAL,
+        confidence=Confidence.HIGH,
+        classification=Classification.SUSPICIOUS,
+        artifact=path,
+        explanation="Test explanation",
+        evidence="Test evidence",
+        remediation="Test remediation",
+        detector="test",
+    )
+
+    async def run() -> None:
+        app = ScanApp()
+        async with app.run_test(size=size) as pilot:
+            for entry in range(2):
+                report = ScanReport(
+                    tmp_path,
+                    (Artifact(path, ArtifactKind.SKILL, SourceFormat.MARKDOWN),),
+                    (finding,),
+                    artifact_origins=tuple(
+                        ArtifactOrigin(
+                            path,
+                            "installed_agent",
+                            f"Run{entry}-Agent{i}",
+                            tmp_path,
+                            scanned_artifact=path,
+                        )
+                        for i in range(12)
+                    ),
+                )
+                app._finish(report, evaluate(report), None)
+                await _settle_results(pilot)
+                tree = app.query_one("#findings-tree", Tree)
+                agent = tree.root.children[-1]
+                agent.expand_all()
+                await _settle_results(pilot)
+                severity = agent.children[0]
+                leaf = severity.children[0]
+                tree.move_cursor(leaf)
+                await _settle_results(pilot)
+                assert tree.scroll_y > 0
+                assert tree.cursor_node is leaf
+                assert "DRAGON-001" in str(app.query_one("#finding-content", Static).render())
+
+                # Real keyboard events, followed by hover, must not change the cursor.
+                await pilot.press("up")
+                await _settle_results(pilot)
+                assert tree.cursor_node is severity
+                assert str(app.query_one("#finding-content", Static).render()).startswith(
+                    "Critical"
+                )
+                selector = app.query_one("#export-format", Select)
+                app.set_focus(selector, scroll_visible=False)
+                offset = await _result_node_offset(pilot, tree, leaf)
+                assert await pilot.hover(tree, offset=offset)
+                await _settle_results(pilot)
+                assert app.focused is selector
+                assert tree.cursor_node is severity
+                assert "DRAGON-001" in str(app.query_one("#finding-content", Static).render())
+                app.set_focus(tree, scroll_visible=False)
+                await pilot.press("down")
+                await _settle_results(pilot)
+                assert tree.cursor_node is leaf
+
+                # Resize in both directions, then target a scrolled, rendered row.
+                resized = (120, 48) if app.size.width == 80 else (80, 24)
+                await pilot.resize_terminal(*resized)
+                offset = await _result_node_offset(pilot, tree, agent)
+                assert await pilot.hover(tree, offset=offset)
+                await _settle_results(pilot)
+                assert str(app.query_one("#finding-content", Static).render()).startswith(
+                    f"Run{entry}-Agent"
+                )
+                assert tree.cursor_node is leaf
+
+                # Exercise the original race explicitly: pointer targeting must wait for
+                # a real scheduled ancestor scroll, not merely an idle message queue.
+                if app.size.width == 80:
+                    parent = app.query_one("#results-content")
+                    assert parent.max_scroll_y >= 2
+                    parent.scroll_to(y=0, animate=False, immediate=True)
+                    await _settle_results(pilot)
+                    completed = asyncio.Event()
+                    parent.scroll_to(y=2, on_complete=completed.set)
+                    assert not completed.is_set()
+                    offset = await _result_node_offset(pilot, tree, agent)
+                    assert completed.is_set()
+                    assert parent.scroll_y == parent.scroll_target_y
+                    assert await pilot.hover(tree, offset=offset)
+                    await _settle_results(pilot)
+                    assert str(app.query_one("#finding-content", Static).render()).startswith(
+                        f"Run{entry}-Agent"
+                    )
+
+                await pilot.press("ctrl+r")
+                await _settle_results(pilot)
+                assert app.stage == "target"
+
+    asyncio.run(run())
 
 
 def test_results_tree_keeps_agent_paths_without_findings_and_diagnostics(tmp_path: Path) -> None:

@@ -14,6 +14,7 @@ import importlib.metadata
 import json
 import os
 import platform
+import runpy
 import shutil
 import socket
 import subprocess
@@ -21,6 +22,7 @@ import sys
 import tarfile
 import tomllib
 import zipfile
+from collections.abc import Callable
 from pathlib import Path
 from types import FrameType
 from typing import Any
@@ -34,6 +36,8 @@ SAFE_TESTS = (
     "test_sarif.py",
     "test_shared_openclaw_discovery.py",
     "test_mcp_schema_types.py",
+    "test_private_output.py",
+    "test_standalone_licenses.py",
 )
 DENIED = frozenset(
     {
@@ -212,7 +216,9 @@ def package_inventory(source: Path, output: Path) -> list[dict[str, Any]]:
     return records
 
 
-def scan_smokes(executable: Path, runtime: Path) -> dict[str, Any]:
+def scan_smokes(
+    executable: Path, runtime: Path, inspect_permissions: Callable[[Path], str]
+) -> dict[str, Any]:
     env = clean_environment(runtime)
     benign = runtime / "benign" / "SKILL.md"
     benign.parent.mkdir()
@@ -279,6 +285,7 @@ def scan_smokes(executable: Path, runtime: Path) -> dict[str, Any]:
             0,
         )
         report = json.loads(destination.read_text(encoding="utf-8"))
+        checks["export-" + fmt]["permissions"] = inspect_permissions(destination)
         if fmt == "sarif":
             assert report["version"] == "2.1.0"
             assert any(r["ruleId"] == "DRAGON-EXEC-003" for r in report["runs"][0]["results"])
@@ -300,6 +307,13 @@ def scan_smokes(executable: Path, runtime: Path) -> dict[str, Any]:
 def validate(source: Path, output: Path, commit: str) -> None:
     output.mkdir(parents=True, exist_ok=False)
     commands: list[dict[str, Any]] = []
+    permissions = runpy.run_path(str(source / "tests/report_permissions.py"))
+
+    def inspect_permissions(path: Path) -> str:
+        permissions["assert_private"](path)
+        if sys.platform == "win32":
+            return str(permissions["windows_sddl"](path))
+        return oct(path.stat().st_mode & 0o777)
 
     def command(args: list[str], env: dict[str, str] | None = None, cwd: Path = source) -> None:
         result = subprocess.run(
@@ -340,11 +354,24 @@ def validate(source: Path, output: Path, commit: str) -> None:
     )
     bin_dir = "Scripts" if sys.platform == "win32" else "bin"
     console = "dragonscan.exe" if sys.platform == "win32" else "dragonscan"
-    wheel_smokes = scan_smokes(runtime_venv / bin_dir / console, output / "wheel-home")
-    command([sys.executable, str(source / "scripts/build_standalone.py")])
+    wheel_smokes = scan_smokes(
+        runtime_venv / bin_dir / console, output / "wheel-home", inspect_permissions
+    )
+    try:
+        command([sys.executable, str(source / "scripts/build_standalone.py")])
+    finally:
+        # Retain binaries and even incomplete notices if packaging itself fails.
+        for artifact in (source / "dist").glob("dragonscan-*"):
+            if artifact.is_file():
+                shutil.copy2(artifact, output / artifact.name)
+            elif artifact.is_dir() and artifact.name.endswith(".licenses"):
+                shutil.copytree(artifact, output / artifact.name)
+    (binary,) = (path for path in (source / "dist").glob("dragonscan-*") if path.is_file())
+    licenses = runpy.run_path(str(source / "scripts/standalone_licenses.py"))
+    notices = licenses["notice_directory"](binary)
+    license_manifest = licenses["verify_notices"](output / binary.name)
     command([sys.executable, "-m", "scripts.smoke_standalone"])
-    (binary,) = (source / "dist").glob("dragonscan-*")
-    native_smokes = scan_smokes(binary, output / "binary-home")
+    native_smokes = scan_smokes(binary, output / "binary-home", inspect_permissions)
     # Replace only the disposable build environment's editable install, then test the wheel.
     command(
         ["uv", "pip", "install", "--offline", "--no-deps", "--python", sys.executable, str(wheel)]
@@ -368,7 +395,6 @@ def validate(source: Path, output: Path, commit: str) -> None:
         "version"
     ]
     assert importlib.metadata.version("dragons-ai-agent-scanner") == version
-    shutil.copy2(binary, output / binary.name)
     summary = {
         "commit": commit,
         "platform": sys.platform,
@@ -385,10 +411,20 @@ def validate(source: Path, output: Path, commit: str) -> None:
         },
         "tui": "installed wheel headless regression; not native terminal visual acceptance",
         "version_option": "NOT SUPPORTED",
-        "status": "PASS",
+        "functional_status": "PASS",
+        "licenses": {
+            "integrity": "PASS",
+            "directory": notices.name,
+            "manifest_sha256": hashlib.sha256((notices / "manifest.json").read_bytes()).hexdigest(),
+            "unresolved_obligations": license_manifest["unresolved_obligations"],
+            "compliance": "FAIL" if license_manifest["unresolved_obligations"] else "PASS",
+        },
+        "status": "FAIL" if license_manifest["unresolved_obligations"] else "PASS",
     }
     (output / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print(json.dumps(summary, indent=2))
+    if summary["status"] != "PASS":
+        raise SystemExit("Release blocked: unresolved standalone license obligations")
 
 
 def main() -> None:

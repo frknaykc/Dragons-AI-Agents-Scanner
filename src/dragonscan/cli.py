@@ -16,6 +16,7 @@ from dragonscan.dynamic_mcp import DynamicPolicy
 from dragonscan.installed_agents import SPECS
 from dragonscan.models import ScanReport, Severity, Target
 from dragonscan.policy import PolicyResult, evaluate
+from dragonscan.private_output import write_private_report
 from dragonscan.reporting import json_report, sarif_report, terminal_report
 from dragonscan.scanner import Scanner
 from dragonscan.scanner import scan as scan_target
@@ -159,9 +160,7 @@ def _save_installed_report(report: ScanReport, policy: PolicyResult) -> Path:
     directory = Path(tempfile.mkdtemp(prefix="dragonscan-", dir=Path.home()))
     destination = directory / "scan.json"
     try:
-        descriptor = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            handle.write(json_report(report, policy) + "\n")
+        write_private_report(destination, json_report(report, policy) + "\n")
         return destination
     except BaseException:
         destination.unlink(missing_ok=True)
@@ -518,19 +517,10 @@ def scan(
     if output is None:
         click.echo(text, color=use_color if output_format == "terminal" else False)
     else:
-        temporary: Path | None = None
         try:
-            with tempfile.NamedTemporaryFile(
-                mode="w", encoding="utf-8", dir=output.parent, prefix=".dragonscan-", delete=False
-            ) as handle:
-                temporary = Path(handle.name)
-                handle.write(text + "\n")
-            os.replace(temporary, output)
+            write_private_report(output, text + "\n", overwrite=True)
         except OSError:
             click.echo("Report output failed", err=True)
             raise SystemExit(3) from None
-        finally:
-            if temporary is not None:
-                temporary.unlink(missing_ok=True)
     if policy.exit_code:
         raise SystemExit(policy.exit_code)

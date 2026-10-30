@@ -275,12 +275,31 @@ def test_tag_must_match_package_version() -> None:
         validate_tag(VERSION, "tag", "v0.0.0")
 
 
-def test_sorted_checksums_reject_unexpected_files_and_symlinks(tmp_path: Path) -> None:
+@pytest.fixture
+def checksum_notices(monkeypatch):
+    """Isolate filename/checksum policy; actual notice verification is tested separately."""
+
+    def create(binary):
+        directory = checksum_module.notice_directory(binary)
+        directory.mkdir()
+        (directory / "manifest.json").write_bytes(b"inert manifest")
+
+    monkeypatch.setattr(checksum_module, "verify_notices", lambda binary: {"files": {}})
+    return create
+
+
+def test_sorted_checksums_reject_unexpected_files_and_symlinks(
+    tmp_path: Path, checksum_notices
+) -> None:
     names = [f"dragonscan-{VERSION}-{arch}" for arch in ("linux-x86_64", "macos-arm64")]
     for name in reversed(names):
         (tmp_path / name).write_bytes(name.encode("ascii"))
+        checksum_notices(tmp_path / name)
     sums = checksums(tmp_path, VERSION).splitlines()
-    assert sums == [f"{hashlib.sha256(name.encode()).hexdigest()}  {name}" for name in names]
+    paths = sorted([*names, *(name + ".licenses/manifest.json" for name in names)])
+    assert sums == [
+        f"{hashlib.sha256((tmp_path / name).read_bytes()).hexdigest()}  {name}" for name in paths
+    ]
     (tmp_path / "unexpected.txt").write_text("x", encoding="utf-8")
     with pytest.raises(ValueError, match="unexpected"):
         checksums(tmp_path, VERSION)
@@ -291,16 +310,20 @@ def test_sorted_checksums_reject_unexpected_files_and_symlinks(tmp_path: Path) -
         checksums(tmp_path, VERSION)
 
 
-def test_release_checksums_require_every_native_artifact(tmp_path: Path) -> None:
+def test_release_checksums_require_every_native_artifact(tmp_path: Path, checksum_notices) -> None:
     names = {artifact_name(system, machine, VERSION) for system, machine in ARCHITECTURES}
     for name in sorted(names)[:-1]:
         (tmp_path / name).write_bytes(name.encode("ascii"))
+        checksum_notices(tmp_path / name)
     with pytest.raises(ValueError, match="missing release binaries"):
         checksums(tmp_path, VERSION, require_all=True)
     last = sorted(names)[-1]
     (tmp_path / last).write_bytes(last.encode("ascii"))
+    checksum_notices(tmp_path / last)
     lines = checksums(tmp_path, VERSION, require_all=True).splitlines()
-    assert [line.split("  ", 1)[1] for line in lines] == sorted(names)
+    assert [line.split("  ", 1)[1] for line in lines] == sorted(
+        [*names, *(name + ".licenses/manifest.json" for name in names)]
+    )
 
 
 def test_staging_copies_only_native_binary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -312,9 +335,18 @@ def test_staging_copies_only_native_binary(tmp_path: Path, monkeypatch: pytest.M
     (tmp_path / "dist").mkdir()
     (tmp_path / "dist" / name).write_bytes(b"binary")
     (tmp_path / "dist" / "unexpected.txt").write_bytes(b"secret")
+    notices = tmp_path / "dist" / (name + ".licenses")
+    notices.mkdir()
+    (notices / "manifest.json").write_bytes(b"inert manifest")
+    verified = []
+    monkeypatch.setattr(stage_module, "verify_notices", lambda path: verified.append(path))
     stage_module.main()
-    assert [file.name for file in (tmp_path / "release-staging").iterdir()] == [name]
+    assert sorted(file.name for file in (tmp_path / "release-staging").iterdir()) == [
+        name,
+        name + ".licenses",
+    ]
     assert (tmp_path / "release-staging" / name).read_bytes() == b"binary"
+    assert verified == [tmp_path / "dist" / name, tmp_path / "release-staging" / name]
 
 
 def test_docker_build_context_and_runtime_policy() -> None:

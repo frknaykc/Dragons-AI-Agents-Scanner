@@ -6,6 +6,7 @@ from pathlib import Path
 
 from click.testing import CliRunner
 from pytest import MonkeyPatch
+from report_permissions import assert_private
 from textual.widgets import Input, Select, SelectionList, Static, Tree
 
 from dragonscan.cli import main
@@ -118,10 +119,11 @@ def test_tui_path_scan_and_private_json_export(tmp_path: Path) -> None:
             await pilot.press("ctrl+e")
             await pilot.pause()
             assert json.loads(output.read_text())["target"] == str(target)
-            assert output.stat().st_mode & 0o777 == 0o600
+            assert_private(output)
+            output.write_text("existing-report-sentinel")
             await pilot.press("ctrl+e")
             await pilot.pause()
-            assert json.loads(output.read_text())["target"] == str(target)
+            assert output.read_text() == "existing-report-sentinel"
 
     asyncio.run(run())
 
@@ -212,6 +214,7 @@ def test_tui_findings_expand_and_sarif_export(tmp_path: Path) -> None:
             await pilot.press("ctrl+e")
             await pilot.pause()
             assert json.loads(destination.read_text())["version"] == "2.1.0"
+            assert_private(destination)
 
     asyncio.run(run())
 

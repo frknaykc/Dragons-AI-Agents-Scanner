@@ -1,6 +1,5 @@
 """Local-only interactive scanner and report browser."""
 
-import os
 import subprocess
 import sys
 import unicodedata
@@ -20,6 +19,7 @@ from dragonscan.discovery import DiscoveryError, discover
 from dragonscan.installed_agents import SPECS
 from dragonscan.models import ArtifactKind, Diagnostic, Finding, ScanReport, Severity, Target
 from dragonscan.policy import PolicyResult, evaluate
+from dragonscan.private_output import write_private_report
 from dragonscan.report_context import INTERPRETATION, context_rows
 from dragonscan.reporting import json_report, risk_label, sarif_report, terminal_report
 from dragonscan.scanner import Scanner
@@ -1360,15 +1360,9 @@ class ScanApp(App[None]):
             if fmt == "sarif"
             else terminal_report(self.report, self.policy)
         )
-        created = False
         try:
-            descriptor = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            created = True
-            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-                handle.write(text + "\n")
+            write_private_report(destination, text + "\n")
         except OSError:
-            if created:
-                destination.unlink(missing_ok=True)
             self.query_one("#status", Static).update(
                 "Export failed; choose a new writable file path."
             )
