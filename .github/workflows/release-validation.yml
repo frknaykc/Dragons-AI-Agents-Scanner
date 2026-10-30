@@ -55,7 +55,9 @@ jobs:
           enable-cache: 'false'
       - name: Provision reviewed locked dependencies (network allowed only here)
         working-directory: subject
-        run: uv sync --locked --python 3.12.12 --group standalone
+        run: |
+          uv sync --locked --python 3.12.12 --group standalone
+          uv run --locked --offline python scripts/provision_runtime_licenses.py --cache build/standalone/license-cache
       - name: Offline package, executable and guarded installed-wheel acceptance
         env:
           SOURCE_SHA: ${{ inputs.source_sha }}
@@ -73,6 +75,7 @@ jobs:
             ${{ runner.temp }}/dragons-validation/audit.json
             ${{ runner.temp }}/dragons-validation/tests.xml
             ${{ runner.temp }}/dragons-validation/commands.json
+            ${{ runner.temp }}/dragons-validation/SHA256SUMS
             ${{ runner.temp }}/dragons-validation/command-*.log
             ${{ runner.temp }}/dragons-validation/*.whl
             ${{ runner.temp }}/dragons-validation/*.tar.gz

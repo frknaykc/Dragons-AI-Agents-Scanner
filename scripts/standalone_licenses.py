@@ -22,6 +22,16 @@ import zlib
 from pathlib import Path
 from typing import Any
 
+# Reviewed original upstream bytes, provisioned explicitly before an offline build.
+CPYTHON_NOTICES_URL = "https://raw.githubusercontent.com/python/cpython/v3.12.12/Doc/license.rst"
+PBS_SOURCE_URL = (
+    "https://codeload.github.com/astral-sh/python-build-standalone/tar.gz/refs/tags/20260211"
+)
+SOURCE_DIGESTS = {
+    CPYTHON_NOTICES_URL: "341832873fd316a37927e79385093fbbfd40a467428480835fe435a80cadf4e5",
+    PBS_SOURCE_URL: "a70d814140fb061d5724c477aeecfdf263e890d3a3515546763adc727f929628",
+}
+
 # Exact bytes from https://raw.githubusercontent.com/yaml/libyaml/0.2.5/License
 LIBYAML_0_2_5 = (
     b"Copyright (c) 2017-2020 Ingy d\xc3\xb6t Net\n"
@@ -87,7 +97,11 @@ def archive_inventory(binary: Path) -> dict[str, list[str]]:
         # Windows CArchive can store copied distribution metadata as type 'b'.
         # These are attribution/metadata files, not additional native libraries;
         # the distribution's actual Python/native modules still require notices.
-        if kind == b"b" and not normalized.split("/")[0].endswith((".dist-info", ".egg-info")):
+        if (
+            kind == b"b"
+            and normalized != "base_library.zip"
+            and not normalized.split("/")[0].endswith((".dist-info", ".egg-info"))
+        ):
             native.add(normalized)
         if kind != b"z" and name != "base_library.zip":
             continue
@@ -169,11 +183,21 @@ def cached_source(url: str, cache: Path) -> bytes | None:
     unresolved, not replaced with fabricated/generic license text.
     """
     target = cache / digest(url.encode())
+    if target.is_symlink():
+        raise LicenseError("symlinked license source cache")
     if not target.is_file():
+        if target.exists():
+            raise LicenseError("license source cache is not a regular file")
         return None
-    data = target.read_bytes()
+    expected = SOURCE_DIGESTS.get(url)
+    if expected is None:
+        raise LicenseError(f"offline license source is not pinned: {url}")
+    with target.open("rb") as source:
+        data = source.read(8 * 1024 * 1024 + 1)
     if not data.strip() or len(data) > 8 * 1024 * 1024:
         raise LicenseError(f"invalid/oversized offline license source: {url}")
+    if digest(data) != expected:
+        raise LicenseError(f"offline license source checksum mismatch: {url}")
     return data
 
 

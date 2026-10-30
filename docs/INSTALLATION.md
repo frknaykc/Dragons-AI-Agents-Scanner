@@ -38,6 +38,8 @@ The sdist and wheel build and local-wheel `uvx` help command were verified offli
 
 Standalone builds now produce an adjacent `<binary>.licenses/` directory. Keep it beside the executable when copying or distributing a build: `THIRD_PARTY_NOTICES.txt` indexes the original license texts, and `manifest.json` records the binary checksum, archive-derived package inventory, package versions and outstanding native-runtime obligations. Staging verifies both the executable and notice files; `SHA256SUMS` includes both. Notice integrity is not redistribution clearance: unresolved runtime/source/relink or platform redistributable obligations block release acceptance.
 
+For the reviewed CPython 3.12.12 / PBS 20260211 runtime, explicitly provision supplemental notices before building: `uv run --offline python scripts/provision_runtime_licenses.py --cache build/standalone/license-cache`. **This provisioning command accesses the network**, even though uv's dependency resolution is offline. It downloads only digest-pinned upstream license sources; existing corrupt caches are rejected, not replaced. Packaging itself remains offline. Other runtime versions require a separate source review and matching pins. See [runtime license review](RUNTIME_LICENSE_REVIEW.md) for provenance and unresolved release conditions.
+
 The repository also contains a [Dockerfile](../Dockerfile) for a locally built image. Building it needs package downloads unless cached. Run without network and mount the target read-only; containers do not sandbox the explicitly consented dynamic MCP mode. See the [technical reference](REFERENCE.md#distribution-not-published).
 
 ## First scan and exports

@@ -206,7 +206,10 @@ def test_checksums_include_real_verified_notices_and_reject_tampering(built):
         checksum_module.checksums(binary.parent, "0.1.0")
 
 
-def test_inventory_reads_pyz_and_native_entries_without_running_code(tmp_path) -> None:
+@pytest.mark.parametrize("library_kind", [b"x", b"b"])
+def test_inventory_reads_pyz_and_native_entries_without_running_code(
+    tmp_path, library_kind
+) -> None:
     pyz = (
         b"PYZ\0"
         + b"test"
@@ -231,7 +234,7 @@ def test_inventory_reads_pyz_and_native_entries_without_running_code(tmp_path) -
         ("textual-8.2.8.dist-info\\licenses\\LICENSE", b"Original notice", b"b", False),
         ("dragons_ai_agent_scanner-0.1.0.dist-info/RECORD", b"metadata", b"b", False),
         ("example.egg-info/PKG-INFO", b"Name: example", b"b", False),
-        ("base_library.zip", library.getvalue(), b"x", True),
+        ("base_library.zip", library.getvalue(), library_kind, True),
     ]:
         encoded = name.encode() + b"\0"
         stored = zlib.compress(payload) if compressed else payload

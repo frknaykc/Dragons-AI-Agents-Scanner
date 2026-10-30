@@ -38,6 +38,7 @@ SAFE_TESTS = (
     "test_mcp_schema_types.py",
     "test_private_output.py",
     "test_standalone_licenses.py",
+    "test_runtime_license_provision.py",
 )
 DENIED = frozenset(
     {
@@ -370,6 +371,10 @@ def validate(source: Path, output: Path, commit: str) -> None:
     licenses = runpy.run_path(str(source / "scripts/standalone_licenses.py"))
     notices = licenses["notice_directory"](binary)
     license_manifest = licenses["verify_notices"](output / binary.name)
+    # Generate checksums while dist contains only the binary and its sidecar.
+    # Retain them even if a later test or license acceptance gate fails.
+    command([sys.executable, "-m", "scripts.checksums", str(source / "dist")])
+    shutil.copy2(source / "dist" / "SHA256SUMS", output / "SHA256SUMS")
     command([sys.executable, "-m", "scripts.smoke_standalone"])
     native_smokes = scan_smokes(binary, output / "binary-home", inspect_permissions)
     # Replace only the disposable build environment's editable install, then test the wheel.

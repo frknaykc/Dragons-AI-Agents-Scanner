@@ -31,6 +31,8 @@ jobs:
           enable-cache: 'false'
       - name: Install locked development and build dependencies
         run: uv sync --locked --python 3.12.12 --group standalone
+      - name: Provision pinned upstream runtime license sources (network)
+        run: uv run --locked --offline python scripts/provision_runtime_licenses.py --cache build/standalone/license-cache
       - name: Test full scanner suite
         run: uv run --locked --group standalone pytest -q -rs
       - name: Build native executable
