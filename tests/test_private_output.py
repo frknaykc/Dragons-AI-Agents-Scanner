@@ -5,14 +5,36 @@ import errno
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+import report_permissions
 from click.testing import CliRunner
 from report_permissions import assert_private, set_windows_dacl, windows_sddl
 
 from dragonscan import cli, private_output
 from dragonscan.models import ScanReport
 from dragonscan.policy import evaluate
+
+
+@pytest.mark.parametrize("alias", ["LA", "S-1-5-21-100-200-300-500"])
+@pytest.mark.parametrize("invalid", [None, "wrong-owner", "extra-grant", "inherited"])
+def test_permission_inspection_compares_full_sid_without_relaxing_acl(monkeypatch, alias, invalid):
+    sid = "S-1-5-21-100-200-300-500"
+    sddl = f"O:{alias}D:P(A;;FA;;;{alias})(A;;FA;;;SY)(A;;FA;;;BA)"
+    if invalid == "extra-grant":
+        sddl += "(A;;FR;;;WD)"
+    if invalid == "inherited":
+        sddl = sddl.replace("D:P", "D:")
+    actual_owner = "S-1-5-21-100-200-300-1001" if invalid == "wrong-owner" else sid
+    monkeypatch.setattr(report_permissions, "os", SimpleNamespace(name="nt"))
+    monkeypatch.setattr(report_permissions, "windows_security", lambda path: (sddl, actual_owner))
+    monkeypatch.setattr(report_permissions, "windows_process_sid", lambda: sid)
+    if invalid:
+        with pytest.raises(AssertionError):
+            assert_private(Path("inert.json"))
+    else:
+        assert_private(Path("inert.json"))
 
 
 @pytest.mark.parametrize("failure", ["security-query", "acl-mismatch", "crt-transfer"])

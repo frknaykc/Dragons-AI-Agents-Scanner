@@ -7,7 +7,8 @@ from ctypes import wintypes
 from pathlib import Path
 
 
-def windows_sddl(path: Path) -> str:
+def windows_security(path: Path) -> tuple[str, str]:
+    """Return SDDL and the full owner SID; SDDL may abbreviate it as LA/SY."""
     advapi = ctypes.WinDLL("advapi32", use_last_error=True)
     kernel = ctypes.WinDLL("kernel32", use_last_error=True)
     advapi.GetNamedSecurityInfoW.argtypes = [
@@ -29,12 +30,16 @@ def windows_sddl(path: Path) -> str:
         ctypes.POINTER(wintypes.DWORD),
     ]
     advapi.ConvertSecurityDescriptorToStringSecurityDescriptorW.restype = wintypes.BOOL
+    advapi.ConvertSidToStringSidW.argtypes = [wintypes.LPVOID, ctypes.POINTER(wintypes.LPWSTR)]
+    advapi.ConvertSidToStringSidW.restype = wintypes.BOOL
     kernel.LocalFree.argtypes = [wintypes.HLOCAL]
     kernel.LocalFree.restype = wintypes.HLOCAL
     security = wintypes.LPVOID()
+    owner = wintypes.LPVOID()
     text = wintypes.LPWSTR()
+    owner_text = wintypes.LPWSTR()
     result = advapi.GetNamedSecurityInfoW(
-        str(path), 1, 5, None, None, None, None, ctypes.byref(security)
+        str(path), 1, 5, ctypes.byref(owner), None, None, None, ctypes.byref(security)
     )
     if result:
         raise ctypes.WinError(result)
@@ -43,12 +48,20 @@ def windows_sddl(path: Path) -> str:
             security, 1, 5, ctypes.byref(text), None
         ):
             raise ctypes.WinError(ctypes.get_last_error())
-        assert text.value is not None
-        return text.value
+        if not advapi.ConvertSidToStringSidW(owner, ctypes.byref(owner_text)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        assert text.value is not None and owner_text.value is not None
+        return text.value, owner_text.value
     finally:
+        if owner_text:
+            kernel.LocalFree(ctypes.cast(owner_text, wintypes.HLOCAL))
         if text:
             kernel.LocalFree(ctypes.cast(text, wintypes.HLOCAL))
         kernel.LocalFree(security)
+
+
+def windows_sddl(path: Path) -> str:
+    return windows_security(path)[0]
 
 
 def set_windows_dacl(path: Path, sddl: str) -> None:
@@ -138,9 +151,9 @@ def assert_private(path: Path) -> None:
     if os.name != "nt":
         assert path.stat().st_mode & 0o777 == 0o600
         return
-    sddl = windows_sddl(path)
+    sddl, owner_sid = windows_security(path)
     owner, dacl = sddl.removeprefix("O:").split("D:")
-    assert owner == windows_process_sid(), sddl
+    assert owner_sid == windows_process_sid(), sddl
     assert dacl.startswith("P("), sddl  # protected, no inherited permissions
     aces = re.findall(r"\(([^)]+)\)", dacl)
     assert len(aces) == 3, sddl
