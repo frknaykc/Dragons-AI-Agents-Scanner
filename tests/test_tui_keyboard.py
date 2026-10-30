@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from textual import events
 from textual.app import App
 from textual.content import Content
 from textual.pilot import Pilot
@@ -199,7 +200,43 @@ def test_target_cards_support_pointer_and_arrow_selection() -> None:
         asyncio.run(run(size))
 
 
-def test_target_details_reveal_fields_and_support_click_to_continue(tmp_path: Path) -> None:
+def test_target_details_reveal_fields_and_support_click_to_continue(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Geometry/state only: never include user input or scanned content in traces.
+    from dragonscan.tui import ModeChoice
+
+    original = ModeChoice.on_click
+
+    def trace(app: ScanApp, phase: str, offset: tuple[int, int]) -> None:
+        mode = app.query_one("#mode")
+        target = app.query_one("#target")
+        print(
+            "target-pointer",
+            phase,
+            tuple(app.size),
+            offset,
+            tuple(mode.region),
+            target.scroll_y,
+            target.scroll_target_y,
+            app.mode,
+            app.detail,
+            app.focused.id if app.focused else None,
+        )
+
+    def clicked(widget: ModeChoice, event: events.Click) -> None:
+        assert isinstance(widget.app, ScanApp)
+        trace(widget.app, "delivered", (event.x, event.y))
+        original(widget, event)
+        trace(widget.app, "handled", (event.x, event.y))
+
+    monkeypatch.setattr(ModeChoice, "on_click", clicked)
+
+    async def click(pilot: Pilot[None], offset: tuple[int, int]) -> None:
+        assert isinstance(pilot.app, ScanApp)
+        trace(pilot.app, "requested", offset)
+        await pilot.click("#mode", offset=offset)
+
     async def run(size: tuple[int, int]) -> None:
         app = ScanApp()
         async with app.run_test(size=size) as pilot:
@@ -208,9 +245,9 @@ def test_target_details_reveal_fields_and_support_click_to_continue(tmp_path: Pa
             stride = 2 if size[1] >= 32 else 1
             assert not app.query_one("#agent-detail").display
             assert not app.query_one("#path-detail").display
-            await pilot.click("#mode", offset=(3, 1 + stride))
+            await click(pilot, (3, 1 + stride))
             assert app.mode == "agent" and app.detail is None
-            await pilot.click("#mode", offset=(3, 1 + stride))
+            await click(pilot, (3, 1 + stride))
             await pilot.pause()
             agent = app.query_one("#agent", Select)
             assert app.detail == "agent" and app.focused is agent
@@ -218,8 +255,8 @@ def test_target_details_reveal_fields_and_support_click_to_continue(tmp_path: Pa
             assert not app.query_one("#path-detail").display
             await pilot.press("escape")
             assert app.detail is None and not app.query_one("#agent-detail").display
-            await pilot.click("#mode", offset=(3, 1 + stride * 2))
-            await pilot.click("#mode", offset=(3, 1 + stride * 2))
+            await click(pilot, (3, 1 + stride * 2))
+            await click(pilot, (3, 1 + stride * 2))
             await pilot.pause()
             path = app.query_one("#path", Input)
             assert app.detail == "path" and app.focused is path
