@@ -83,8 +83,12 @@ def archive_inventory(binary: Path) -> dict[str, list[str]]:
             raise LicenseError("invalid archive entry bounds")
         name = toc[position + 18 : position + length].rstrip(b"\0").decode("utf-8")
         position += length
-        if kind == b"b":
-            native.add(name.replace("\\", "/"))
+        normalized = name.replace("\\", "/")
+        # Windows CArchive can store copied distribution metadata as type 'b'.
+        # These are attribution/metadata files, not additional native libraries;
+        # the distribution's actual Python/native modules still require notices.
+        if kind == b"b" and not normalized.split("/")[0].endswith((".dist-info", ".egg-info")):
+            native.add(normalized)
         if kind != b"z" and name != "base_library.zip":
             continue
         payload = data[start + offset : start + offset + size]

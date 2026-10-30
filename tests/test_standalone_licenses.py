@@ -227,6 +227,10 @@ def test_inventory_reads_pyz_and_native_entries_without_running_code(tmp_path) -
         ("PYZ.pyz", pyz, b"z", False),
         ("yaml/_yaml.so", b"inert native fixture", b"b", False),
         ("libpython.so", b"inert runtime fixture", b"b", False),
+        ("click-8.5.0.dist-info/METADATA", b"Name: click", b"b", False),
+        ("textual-8.2.8.dist-info\\licenses\\LICENSE", b"Original notice", b"b", False),
+        ("dragons_ai_agent_scanner-0.1.0.dist-info/RECORD", b"metadata", b"b", False),
+        ("example.egg-info/PKG-INFO", b"Name: example", b"b", False),
         ("base_library.zip", library.getvalue(), b"x", True),
     ]:
         encoded = name.encode() + b"\0"
