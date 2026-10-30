@@ -182,14 +182,13 @@ def test_target_cards_support_pointer_and_arrow_selection() -> None:
             assert " 01  " not in choices
             assert "Recently used" not in choices
             assert "System directory" not in choices
-            stride = 2 if size[1] >= 32 else 1
-            assert await pilot.click("#mode", offset=(3, 1 + stride * 2))
+            await _click_target(pilot, 2)
             assert app.mode == "path"
             assert app.focused is app.query_one("#mode")
             assert "chosen local path" in str(app.query_one("#target-notice", Static).render())
             await pilot.press("up")
             assert app.mode == "agent"
-            assert await pilot.click("#mode", offset=(3, 1))
+            await _click_target(pilot, 0)
             assert app.mode == "all"
             assert "supported local agent locations" in str(
                 app.query_one("#target-notice", Static).render()
@@ -198,6 +197,22 @@ def test_target_cards_support_pointer_and_arrow_selection() -> None:
 
     for size in ((80, 24), (120, 48)):
         asyncio.run(run(size))
+
+
+async def _click_target(pilot: Pilot[None], index: int) -> None:
+    # Escape/focus can update scroll state before the compositor updates regions.
+    # Pilot computes screen coordinates before its own pause: settle FIRST.
+    await pilot.pause()
+    await asyncio.wait_for(pilot.wait_for_scheduled_animations(), timeout=5)
+    await pilot.pause()
+    mode = pilot.app.query_one("#mode")
+    mode.scroll_visible(animate=False)
+    await pilot.pause()
+    stride = 2 if pilot.app.size.height >= 32 else 1
+    offset = (3, 1 + stride * index)
+    hit, _ = pilot.app.get_widget_at(mode.region.x + offset[0], mode.region.y + offset[1])
+    assert hit is mode, (mode.region, hit.id, pilot.app.size)
+    assert await pilot.click(mode, offset=offset)
 
 
 def test_target_details_reveal_fields_and_support_click_to_continue(
@@ -235,7 +250,8 @@ def test_target_details_reveal_fields_and_support_click_to_continue(
     async def click(pilot: Pilot[None], offset: tuple[int, int]) -> None:
         assert isinstance(pilot.app, ScanApp)
         trace(pilot.app, "requested", offset)
-        await pilot.click("#mode", offset=offset)
+        stride = 2 if pilot.app.size.height >= 32 else 1
+        await _click_target(pilot, (offset[1] - 1) // stride)
 
     async def run(size: tuple[int, int]) -> None:
         app = ScanApp()
@@ -283,6 +299,45 @@ def test_target_details_reveal_fields_and_support_click_to_continue(
 
     for size in ((80, 24), (120, 48)):
         asyncio.run(run(size))
+
+
+def test_target_pointer_waits_for_pending_layout_and_repeated_navigation() -> None:
+    async def run() -> None:
+        app = ScanApp()
+        async with app.run_test(size=(80, 24)) as pilot:
+            app._end_splash()
+            for size in ((80, 24), (120, 48), (60, 22), (80, 24)):
+                await pilot.resize_terminal(*size)
+                await _click_target(pilot, 1)
+                await pilot.press("enter")
+                await _settle_results(pilot)
+                assert app.detail == "agent"
+                assert app.focused is app.query_one("#agent")
+                mode = app.query_one("#mode")
+                before = mode.region
+                # Deliberately leave a real layout pending, as the native Escape
+                # trace did. No sleep, renderer mock, or disabled animation.
+                app.action_back_stage()
+                assert app.detail is None
+                await _click_target(pilot, 2)
+                assert app.mode == "path" and app.detail is None
+                assert app.focused is mode
+                if size[1] < 32:
+                    assert mode.region.y != before.y
+                await _click_target(pilot, 2)
+                await _settle_results(pilot)
+                assert app.detail == "path"
+                assert app.focused is app.query_one("#path")
+                await pilot.press("escape")
+                await _settle_results(pilot)
+                assert app.detail is None and app.focused is mode
+                await pilot.press("up", "enter")
+                await _settle_results(pilot)
+                assert app.mode == "agent" and app.detail == "agent"
+                await pilot.press("escape", "left")
+                assert app.mode == "all" and app.detail is None
+
+    asyncio.run(run())
 
 
 def test_title_reflows_on_resize_without_losing_target_focus() -> None:
