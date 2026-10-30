@@ -3,6 +3,7 @@
 import importlib
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -41,3 +42,30 @@ def test_release_selection_excludes_execution_and_network_integrations() -> None
         for word in ("dynamic", "provider", "network", "osv", "distribution", "phase4")
     )
     assert all((ROOT / "tests" / name).is_file() for name in validation.SAFE_TESTS)
+
+
+def test_windows_ipc_exception_requires_exact_stdlib_call_chain(monkeypatch):
+    from asyncio.proactor_events import BaseProactorEventLoop
+
+    def inert_socketpair():
+        pass
+
+    monkeypatch.setattr(validation.sys, "platform", "win32")
+    monkeypatch.setattr(validation.socket, "socketpair", inert_socketpair)
+    caller = SimpleNamespace(
+        f_code=inert_socketpair.__code__,
+        f_back=SimpleNamespace(f_code=BaseProactorEventLoop._make_self_pipe.__code__),
+    )
+    assert validation.is_asyncio_self_pipe("socket.bind", (None, ("127.0.0.1", 0)), caller)
+    assert validation.is_asyncio_self_pipe("socket.connect", (None, ("::1", 1234)), caller)
+    for event, args, frame in (
+        ("socket.connect", (None, ("192.0.2.1", 1234)), caller),
+        ("socket.bind", (None, ("0.0.0.0", 0)), caller),
+        ("socket.getaddrinfo", (None, ("127.0.0.1", 0)), caller),
+        ("subprocess.Popen", (), caller),
+        ("socket.connect", (None, ("127.0.0.1", 1234)), None),
+        ("socket.connect", (), caller),
+    ):
+        assert not validation.is_asyncio_self_pipe(event, args, frame)
+    caller.f_back.f_code = inert_socketpair.__code__
+    assert not validation.is_asyncio_self_pipe("socket.connect", (None, ("127.0.0.1", 1)), caller)

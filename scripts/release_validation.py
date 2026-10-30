@@ -4,7 +4,8 @@ Run with the subject checkout's locked standalone/dev environment. The source
 checkout must be an independently verified commit, never a mixed working tree.
 Network is used only by explicit dependency provisioning outside this script;
 all uv operations here are offline. Scan children receive a synthetic home and
-no provider credentials. The guarded pytest mode forbids network/process calls.
+no provider credentials. The guarded pytest mode forbids network/process calls,
+except Windows asyncio's exact stdlib loopback self-pipe initialization (IPC).
 """
 
 import argparse
@@ -14,12 +15,14 @@ import json
 import os
 import platform
 import shutil
+import socket
 import subprocess
 import sys
 import tarfile
 import tomllib
 import zipfile
 from pathlib import Path
+from types import FrameType
 from typing import Any
 
 SAFE_TESTS = (
@@ -76,6 +79,24 @@ def clean_environment(home: Path) -> dict[str, str]:
     return env
 
 
+def is_asyncio_self_pipe(event: str, args: tuple[object, ...], caller: FrameType | None) -> bool:
+    """Allow only Windows stdlib self-pipe setup, not arbitrary loopback traffic."""
+    if sys.platform != "win32" or event not in ("socket.bind", "socket.connect"):
+        return False
+    if len(args) != 2 or not isinstance(args[1], tuple) or len(args[1]) < 2:
+        return False
+    if args[1][0] not in ("127.0.0.1", "::1"):
+        return False
+    from asyncio.proactor_events import BaseProactorEventLoop
+
+    return (
+        caller is not None
+        and caller.f_code is getattr(socket.socketpair, "__code__", None)
+        and caller.f_back is not None
+        and caller.f_back.f_code is BaseProactorEventLoop._make_self_pipe.__code__
+    )
+
+
 def guarded_tests(source: Path, output: Path) -> None:
     import pytest
 
@@ -83,9 +104,13 @@ def guarded_tests(source: Path, output: Path) -> None:
 
     assert not Path(dragonscan.__file__).resolve().is_relative_to(source / "src")
     blocked: list[str] = []
+    ipc_events: list[str] = []
 
-    def audit(event: str, _args: tuple[object, ...]) -> None:
+    def audit(event: str, args: tuple[object, ...]) -> None:
         if event in DENIED:
+            if is_asyncio_self_pipe(event, args, sys._getframe(1)):
+                ipc_events.append(event)
+                return
             blocked.append(event)
             raise AssertionError(f"Release static tests forbid {event}")
 
@@ -114,6 +139,7 @@ def guarded_tests(source: Path, output: Path) -> None:
         json.dumps(
             {
                 "blocked": blocked,
+                "windows_asyncio_ipc_events": len(ipc_events),
                 "self_checks": len(DENIED),
                 "pytest_exit": int(code),
                 "installed_module": str(Path(dragonscan.__file__).resolve()),

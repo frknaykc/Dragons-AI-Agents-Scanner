@@ -170,6 +170,7 @@ def test_loading_failure_is_counted_without_calling_it_scanned_successfully(tmp_
 
 def test_interactive_all_agents_shows_live_rows_and_existing_summary(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     monkeypatch.setenv("TERM", "xterm-256color")
     root = tmp_path / ".codex"
     root.mkdir()
