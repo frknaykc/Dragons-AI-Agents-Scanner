@@ -44,12 +44,31 @@ CPYTHON_EMBEDDED_NOTICES = {
     "KaRaMeL-NOTICE.txt": (KARAMEL_NOTICE_URL, True),
     "KaRaMeL-LICENSE.txt": (KARAMEL_LICENSE_URL, False),
 }
+LIBFFI_UNIX_URL = "https://raw.githubusercontent.com/libffi/libffi/v3.4.6/LICENSE"
+LIBFFI_WINDOWS_URL = (
+    "https://raw.githubusercontent.com/python/cpython-source-deps/"
+    "16fad4855b3d8c03b5910e405ff3a04395b39a98/LICENSE"
+)
+MPDECIMAL_URL = "https://www.bytereef.org/software/mpdecimal/releases/mpdecimal-4.0.0.tar.gz"
+NCURSES_URL = "https://astral-sh.github.io/mirror/files/ncurses-6.5.tar.gz"
+# Supplements for the reviewed 3.12.12 / 20260211 runtime only. Preserve the
+# vendor candidate collection separately; it contains outdated copyright years.
+RUNTIME_SUPPLEMENTS = (
+    ("libffi", "3.4.6", LIBFFI_UNIX_URL, None, ("linux", "darwin")),
+    ("libffi", "3.4.2", LIBFFI_WINDOWS_URL, None, ("win32",)),
+    ("mpdecimal", "4.0.0", MPDECIMAL_URL, "mpdecimal-4.0.0/COPYRIGHT.txt", ("linux", "darwin")),
+    ("ncurses", "6.5", NCURSES_URL, "ncurses-6.5/COPYING", ("linux",)),
+)
 SOURCE_DIGESTS = {
     CPYTHON_NOTICES_URL: "341832873fd316a37927e79385093fbbfd40a467428480835fe435a80cadf4e5",
     PBS_SOURCE_URL: "a70d814140fb061d5724c477aeecfdf263e890d3a3515546763adc727f929628",
     HACL_NOTICE_URL: "093d7693084af0999d2a13d207311d74b5bdfdc9c08447ed4a979e3f7505ae6b",
     KARAMEL_NOTICE_URL: "d16a59f37a1d4982626870e370889eb9d332a9ad035661b8062f549fc734d061",
     KARAMEL_LICENSE_URL: "c5accbbd8546e94c34aed24afe689a617627d18eed5a6c48277e48db57c23851",
+    LIBFFI_UNIX_URL: "67894089811f93fca47a76f85e017da6f8582d4ba0905963c6e0f1ad6df7a195",
+    LIBFFI_WINDOWS_URL: "a61d06e8f7be57928e71e800eb9273b05cb8868c484108afe41e4305bb320dde",
+    MPDECIMAL_URL: "942445c3245b22730fd41a67a7c5c231d11cb1b9936b9c0f76334fb7d0b4468c",
+    NCURSES_URL: "136d91bc269a9a5785e5f9e980bc76ab57428f604ce3e5a5a90cebc767971cc6",
 }
 
 # Exact bytes from https://raw.githubusercontent.com/yaml/libyaml/0.2.5/License
@@ -221,6 +240,41 @@ def cached_source(url: str, cache: Path) -> bytes | None:
     return data
 
 
+def runtime_supplements(cache: Path) -> tuple[list[dict[str, Any]], list[str]]:
+    """Copy authentic platform-specific notices without extracting source code."""
+    components: list[dict[str, Any]] = []
+    unresolved: list[str] = []
+    for name, version, url, member, platforms in RUNTIME_SUPPLEMENTS:
+        if sys.platform not in platforms:
+            continue
+        original = cached_source(url, cache)
+        if original is None:
+            unresolved.append("Missing reviewed runtime supplement: " + url)
+            continue
+        content = original
+        if member is not None:
+            with tarfile.open(fileobj=io.BytesIO(original), mode="r:gz") as archive:
+                item = archive.getmember(member)
+                if not item.isfile() or not 0 < item.size <= 128 * 1024:
+                    raise LicenseError("invalid runtime supplement member: " + member)
+                stream = archive.extractfile(item)
+                assert stream is not None
+                content = stream.read()
+        if not content.strip():
+            raise LicenseError("empty runtime supplement: " + url)
+        components.append(
+            {
+                "name": "reviewed runtime " + name,
+                "version": version,
+                "scope": "platform-specific PBS 20260211 / CPython 3.12.12 notice supplement",
+                "source": url,
+                "source_sha256": digest(original),
+                "files": {f"{name}-{version}.txt": content},
+            }
+        )
+    return components, unresolved
+
+
 def runtime_notices(cache: Path) -> tuple[list[dict[str, Any]], list[str]]:
     """Keep vendor provenance separate from a claim of exact static-link coverage."""
     version = platform.python_version()
@@ -293,6 +347,10 @@ def runtime_notices(cache: Path) -> tuple[list[dict[str, Any]], list[str]]:
     build = prefix / "BUILD"
     if build.is_file() and re.fullmatch(r"\d{8}", build.read_text().strip()):
         tag = build.read_text().strip()
+        if tag == "20260211" and version == "3.12.12":
+            supplements, missing = runtime_supplements(cache)
+            components.extend(supplements)
+            unresolved.extend(missing)
         url = (
             f"https://codeload.github.com/astral-sh/python-build-standalone/tar.gz/refs/tags/{tag}"
         )

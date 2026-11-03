@@ -49,26 +49,42 @@ def main() -> None:
     if notices.exists():
         verify_notices(binary, notices)
         shutil.rmtree(notices)
-    subprocess.run(
-        [
+    command = [
+        sys.executable,
+        "-m",
+        "PyInstaller",
+        "--onefile",
+        "--noconfirm",
+        "--clean",
+        "--name",
+        name.removesuffix(".exe"),
+        "--paths",
+        str(ROOT / "src"),
+        "--distpath",
+        str(ROOT / "dist"),
+        "--workpath",
+        str(ROOT / "build" / "standalone"),
+        "--specpath",
+        str(ROOT / "build" / "standalone"),
+        str(ROOT / "scripts" / "standalone.py"),
+    ]
+    if sys.platform == "win32":
+        # The reviewed spec excludes only OS-provided UCRT/API-set files.
+        # Other platforms retain their existing generated spec and build flags.
+        command = [
             sys.executable,
             "-m",
             "PyInstaller",
-            "--onefile",
             "--noconfirm",
             "--clean",
-            "--name",
-            name.removesuffix(".exe"),
-            "--paths",
-            str(ROOT / "src"),
             "--distpath",
             str(ROOT / "dist"),
             "--workpath",
             str(ROOT / "build" / "standalone"),
-            "--specpath",
-            str(ROOT / "build" / "standalone"),
-            str(ROOT / "scripts" / "standalone.py"),
-        ],
+            str(ROOT / "scripts" / "standalone_windows.spec"),
+        ]
+    subprocess.run(
+        command,
         cwd=ROOT,
         check=True,
     )

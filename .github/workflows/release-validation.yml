@@ -5,6 +5,10 @@ on:
       source_sha:
         description: Exact reviewed source commit to build and test
         required: true
+      windows_only:
+        description: Run Windows first, before the full same-revision matrix
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -23,6 +27,7 @@ jobs:
             platform: macos-x86_64
           - runner: windows-2022
             platform: windows-x86_64
+        exclude: ${{ fromJSON(inputs.windows_only && '[{"platform":"linux-x86_64"},{"platform":"macos-arm64"},{"platform":"macos-x86_64"}]' || '[]') }}
     runs-on: ${{ matrix.runner }}
     defaults:
       run:

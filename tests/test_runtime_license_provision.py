@@ -101,6 +101,16 @@ def test_reviewed_sources_are_immutable_and_version_specific():
         licenses.KARAMEL_LICENSE_URL: (
             "c5accbbd8546e94c34aed24afe689a617627d18eed5a6c48277e48db57c23851"
         ),
+        licenses.LIBFFI_UNIX_URL: (
+            "67894089811f93fca47a76f85e017da6f8582d4ba0905963c6e0f1ad6df7a195"
+        ),
+        licenses.LIBFFI_WINDOWS_URL: (
+            "a61d06e8f7be57928e71e800eb9273b05cb8868c484108afe41e4305bb320dde"
+        ),
+        licenses.MPDECIMAL_URL: (
+            "942445c3245b22730fd41a67a7c5c231d11cb1b9936b9c0f76334fb7d0b4468c"
+        ),
+        licenses.NCURSES_URL: ("136d91bc269a9a5785e5f9e980bc76ab57428f604ce3e5a5a90cebc767971cc6"),
     }
 
 
