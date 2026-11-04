@@ -2,34 +2,73 @@
 
 ## Replacement candidate
 
+**WHEEL RELEASE READINESS: READY** for the exact artifact pair below, within the
+verification scope recorded here. This is a technical RC acceptance, not
+permission to publish. Review date: 2026-11-04.
+
 The `rc/wheel-0.1.0-docs` branch incorporates wheel-first installation guidance
-into the source README and the installation/CLI guides. This closes the previous
-candidate's source-documentation mismatch once a replacement artifact pair has
-been built and verified. **Replacement artifact acceptance is pending.**
+into the source README and the installation/CLI guides. The replacement wheel's
+embedded README exactly matches that source, including the local-wheel install
+command. The previous source-documentation mismatch is closed.
 
 Only wheel-related documentation is included on top of the reviewed CI harness.
 The scanner, dependencies, package version, CLI/TUI design and benchmark
 expectations are unchanged. Unrelated local changes are excluded. `main` is not
 updated. No tag, GitHub Release or PyPI publication is authorized by this review.
 
-## Required acceptance
+## Accepted identity and evidence
 
-The existing no-publish workflow must receive the exact replacement source SHA.
-One build job produces the wheel and sdist; Linux x86-64, Windows x86-64, macOS
-Intel and macOS Apple Silicon must install that same wheel and verify its hash.
+- Version: `0.1.0`.
+- Exact source and workflow revision: `650e3a04ca5158e6b0c9a33f074757032e81d037`.
+- [Native run 41820775382](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/actions/runs/41820775382): successful.
+- One Ubuntu job built both artifacts; all four native jobs consumed the same
+  wheel and verified its SHA-256 and archive contents against that source.
 
-- Full source tests, Ruff format/lint, mypy and archive-harness tests.
-- Twine strict metadata validation and exact archive membership, README, license,
-  source-module and wheel RECORD checks.
-- Clean installed-wheel CLI/menu, headless TUI, inert scan and JSON/SARIF checks.
-- Installed-wheel tests on each native runner, including Windows target-details
-  click handling, private output permissions and synthetic agent discovery.
-- Separate local uv tool/pip installation checks against the canonical wheel.
+| Artifact | SHA-256 |
+| --- | --- |
+| `dragons_ai_agent_scanner-0.1.0-py3-none-any.whl` | `3e7a6241d7a74cb579ce92a7b2b94bd499091de07a7ab5ca800b3bce2f43542e` |
+| `dragons_ai_agent_scanner-0.1.0.tar.gz` | `22b6577b190cc2b9e4c95eafe4208e567c599eb254a4b05393ea32c75fb4ed39` |
 
-Retain the exact source SHA, run URL, wheel/sdist SHA-256 values and native
-summaries before declaring the replacement candidate ready. A report-only
-follow-up commit does not change the accepted package inputs; identify both
-revisions explicitly rather than attributing a historical build to a newer SHA.
+This acceptance report is a documentation-only follow-up to the built source
+commit. It is not included in either archive; the package inputs are unchanged.
+The artifacts must remain attributed to the exact source SHA above, not to a
+later report commit or an inferred release tag.
+
+## Verified acceptance
+
+| Native platform | Clean install / CLI / headless TUI / scan / JSON-SARIF | Installed-wheel tests |
+| --- | --- | --- |
+| Ubuntu 24.04 x86-64 | PASS | 249 passed, 0 skipped |
+| Windows Server 2022 x86-64 | PASS | 249 passed, 0 skipped |
+| macOS 15 Intel | PASS | 249 passed, 0 skipped |
+| macOS 15 Apple Silicon | PASS | 249 passed, 0 skipped |
+
+- Full exact-source suite: **1935 passed, 1 skipped**, no failures or errors.
+  The seven additional passes relative to the historical product baseline are
+  the unchanged archive-harness tests now included in this branch. The skip is
+  `test_windows_update_preserves_store_without_network` on Linux, not a pass.
+- Separate archive-harness invocation: **7 passed**.
+- Ruff format: **345 files**, PASS; Ruff lint: PASS; mypy: **71 files**, PASS.
+- Twine strict: PASS. Exact archive allowlists: **58 wheel members / 59 sdist
+  members**. README, MIT license, entry point, source modules and RECORD checks
+  passed. Local reinspection of the downloaded pair also passed.
+- Windows target-details click regression passed. Private output permissions,
+  synthetic Codex/OpenClaw discovery and COMPLETE/PARTIAL/FAILED paths passed.
+- Every native audit recorded 13 self-checks and no unexpected blocked event.
+  Windows stdlib asyncio self-pipe IPC was allowed by the existing narrow guard.
+- Fresh local uv tool and venv/pip installations of the canonical wheel passed
+  on macOS Apple Silicon, Python 3.12.13. Both passed help, inert scans, exit-code
+  checks, JSON/SARIF with mode 0600 and synthetic agent discovery. Imports came
+  from isolated site-packages, without development dependencies. `--version`
+  remains unsupported and correctly returns usage exit 2.
+
+The canonical pair, checksums, full CI log, JUnit results, four platform summaries,
+audit records and local installer evidence are retained outside the repository:
+`~/Dragons-validation-evidence/wheel-0.1.0-docs-rc/`.
+Artifacts reside under `native-41820775382/wheel-packages/`.
+The original main worktree's status and relevant document hashes were unchanged.
+The workflow emitted a non-failing Node.js 20 action deprecation warning; updating
+the pinned actions is separate CI maintenance, not a failure of this run.
 
 ## Historical baseline — not replacement-artifact acceptance
 
