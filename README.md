@@ -11,26 +11,20 @@
 
 ## Quick start
 
-You need Python 3.12+, [uv](https://docs.astral.sh/uv/) and a local checkout of this repository.
+Use Python 3.12+ and [uv](https://docs.astral.sh/uv/) to install a local wheel in an isolated tool environment. You do not need a source checkout to run it.
 
 > [!IMPORTANT]
-> Dragons is not published on PyPI or distributed through GitHub Releases. Run the commands below from the repository root.
+> Dragons is not published on PyPI or distributed through GitHub Releases. These commands require the locally built or separately supplied wheel; they do not download a published Dragons release. Standalone executables remain withheld pending redistribution compliance.
 
 ```sh
-uv sync --locked
-uv run dragonscan scan benchmarks/corpus/benign-credential-guide/AGENTS.md
+uv tool install --python 3.12 ./dragons_ai_agent_scanner-0.1.0-py3-none-any.whl
+dragonscan --help
+dragonscan scan ./SKILL.md
 ```
 
-The bundled file is an inert test artifact. Its scan produces:
+Replace the wheel path and `./SKILL.md` with your local files. If uv reports that its tool directory is not on `PATH`, follow its shell-setup instructions and reopen the terminal. Installation may download a compatible Python interpreter and dependencies. Normal scanning works offline without API keys, Docker or an AI provider. **Scanning a target does not install that target's dependencies.**
 
-| Result | Value |
-| --- | --- |
-| Scan status | `COMPLETE` |
-| Security findings | 0 |
-| Policy evaluation | `PASS` |
-| Exit code | 0 |
-
-Replace the example path with a supported file or directory of your own. The first `uv sync` may download this project's locked dependencies. **Scanning a target does not install that target's dependencies.**
+An isolated pip installation is the fallback; see the installation guide. After wheel installation, use `dragonscan` directly wherever the source-checkout examples below show `uv run dragonscan`.
 
 [Installation options](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/blob/main/docs/INSTALLATION.md) · [CLI commands](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/blob/main/docs/CLI_GUIDE.md)
 
