@@ -278,7 +278,7 @@ class SignatureDetector:
                 for server in context.document.servers
                 if server.runtime in {"sh", "bash", "zsh"}
                 and len(server.args) >= 2
-                and server.args[0] in {"-c", "-lc"}
+                and server.args[0] in {"-c", "-lc", "-cl"}
                 and _ENCODED_SHELL.search(server.args[1])
             )
         raise ValueError("unsupported signature indicator")

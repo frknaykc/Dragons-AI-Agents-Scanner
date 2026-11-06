@@ -4,6 +4,8 @@ Review date: 2026-11-04. Public release: [v0.1.0](https://github.com/frknaykc/Dr
 
 The detection changes described below are **unreleased working-tree changes**. They do not change the published wheel or sdist. This review evaluates static evidence, not successful exploitation or general malware-detection accuracy.
 
+Follow-up: [detection accuracy review](DETECTION_ACCURACY_REVIEW.md) documents the stricter stdin contract, SSH public-key correction and remaining frozen benchmark disagreements. The measurements below remain historical; they do not describe the follow-up checkpoint.
+
 ## Published distribution and usability
 
 The public release was accessible without authentication. The annotated tag resolves to the approved source. Its only uploaded assets are the wheel, sdist and `SHA256SUMS`; no standalone executables or private reports were uploaded. Downloaded bytes matched the published checksums:

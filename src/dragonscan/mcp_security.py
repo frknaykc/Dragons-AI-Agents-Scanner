@@ -5,7 +5,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
-from dragonscan.behavior import unnegated_text
+from dragonscan.behavior import remote_shell_pipeline, unnegated_text
 from dragonscan.detection import DetectionContext, DetectionMetadata, finding
 from dragonscan.models import Classification as C
 from dragonscan.models import Confidence as F
@@ -13,7 +13,7 @@ from dragonscan.models import Finding, McpServer, McpTool, SourceRef
 from dragonscan.models import Severity as S
 
 _SENSITIVE = re.compile(
-    r"(?:~?/)?(?:\.ssh/id_rsa|\.aws/credentials|\.env)\b|"
+    r"(?:~?/)?(?:\.ssh/id_rsa\b(?!\.pub\b|-cert\.pub\b)|\.aws/credentials\b|\.env\b)|"
     r"\b(?:credentials?|api[_ -]?keys?|private[_ -]?key|password|tokens?)\b",
     re.I,
 )
@@ -50,10 +50,10 @@ _DOCUMENTATION = re.compile(
     r"\b(?:do not|never|example of|describes? how to|detect|warn about)\b", re.I
 )
 _SHELL = {"sh", "bash", "zsh", "cmd", "cmd.exe", "powershell", "powershell.exe", "pwsh"}
-_FETCH_SHELL = re.compile(r"\b(?:curl|wget)\b[^|\n]*\|\s*(?:sh|bash|zsh)\b", re.I)
 _LINKED_READ_SEND = re.compile(
     r"\b(?:read|retrieve|open|extract)\b[^\n.;]{0,100}"
-    r"(?:\.ssh/id_rsa|\.aws/credentials|\.env\b|credentials?|private[_ -]?key|tokens?)"
+    r"(?:\.ssh/id_rsa\b(?!\.pub\b|-cert\.pub\b)|\.aws/credentials|"
+    r"\.env\b|credentials?|private[_ -]?key|tokens?)"
     r"[^\n.;]{0,100}\b(?:and|then)\s+(?:send|upload|post|transmit)\b"
     r"\s+(?:(?:its|their|the|those)\s+(?:contents?|data)|credentials?|secrets?|tokens?)"
     r"[^\n.;]{0,100}\b(?:https?://|external |remote )",
@@ -223,18 +223,29 @@ class McpDeepDetector:
                     )
         elif indicator == "shell":
             if server.runtime in _SHELL and any(
-                arg.lower() in {"-c", "-lc", "/c", "-command", "-encodedcommand", "-enc"}
+                arg.lower() in {"-c", "-lc", "-cl", "/c", "-command", "-encodedcommand", "-enc"}
                 for arg in server.args[:2]
             ):
                 command_string = server.args[-1] if server.args else ""
+                if server.runtime in {"sh", "bash", "zsh"}:
+                    command_flag = next(
+                        (i for i, arg in enumerate(server.args[:2]) if arg in {"-c", "-lc", "-cl"}),
+                        None,
+                    )
+                    if command_flag is None or len(server.args) <= command_flag + 1:
+                        return
+                    # Subsequent arguments supply $0/$1/etc., not shell code.
+                    command_string = server.args[command_flag + 1]
                 if (
                     "|" in command_string
                     or "$(" in command_string
                     or "`" in command_string
                     or "&&" in command_string
-                    or "-enc" in server.args
-                    or "-EncodedCommand" in server.args
-                ) and not _FETCH_SHELL.search(command_string):
+                    or (
+                        server.runtime not in {"sh", "bash", "zsh"}
+                        and ("-enc" in server.args or "-EncodedCommand" in server.args)
+                    )
+                ) and not remote_shell_pipeline(command_string):
                     yield (
                         server.location,
                         "MCP server uses shell command-string interpretation "

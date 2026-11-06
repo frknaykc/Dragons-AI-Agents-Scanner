@@ -5,7 +5,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import PurePath
 
-from dragonscan.behavior import collect, related_transfer
+from dragonscan.behavior import collect, related_transfer, remote_shell_pipeline
 from dragonscan.models import (
     Classification,
     Confidence,
@@ -38,12 +38,8 @@ class Rule:
 
 
 _SENSITIVE = re.compile(
-    r"(?:~?/)?(?:\.ssh/id_rsa|\.aws/credentials)\b|(?:~?/)?\.env(?![\w.])", re.I
-)
-
-_FETCH_PIPE_SHELL = re.compile(
-    r"\b(?:curl|wget)\b[^\n|]{0,500}https?://[^\s|]+[^\n|]{0,500}\|\s*"
-    r"(?:sh|bash|zsh)\b",
+    r"(?:~?/)?(?:\.ssh/id_rsa\b(?!\.pub\b|-cert\.pub\b)|\.aws/credentials\b)|"
+    r"(?:~?/)?\.env(?![\w.])",
     re.I,
 )
 
@@ -86,10 +82,10 @@ def mcp_fetch_to_shell(document: Document) -> Iterable[Finding]:
         if executable not in {"sh", "bash", "zsh"} or not server.args:
             continue
         # Only shell commands with an explicit command-string flag are assessed here.
-        if server.args[0] not in {"-c", "-lc"}:
+        if server.args[0] not in {"-c", "-lc", "-cl"}:
             continue
         command_text = server.args[1] if len(server.args) > 1 else ""
-        if not _FETCH_PIPE_SHELL.search(command_text):
+        if not remote_shell_pipeline(command_text):
             continue
         yield Finding(
             detection_id="DAAS-002",
