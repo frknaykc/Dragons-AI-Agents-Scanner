@@ -37,6 +37,8 @@ Exit code 0 means the scan completed (findings may be present) without failing a
 
 The terminal format summarizes diagnostic categories in the `Coverage` row rather than printing a separate `WARNING` or `COVERAGE` line for each diagnostic; fatal errors remain bounded details. It groups a status/risk/severity summary and severity-ordered finding blocks; JSON retains every individual diagnostic. ANSI severity/status colors are enabled only on a TTY, disabled for redirected output and by any `NO_COLOR` setting. JSON, SARIF and `--output` files never use terminal colors. Use `--format json --output scan.json` for complete per-artifact diagnostics on large scans. Terminal presentation changes do not affect findings or exit codes.
 
+Terminal stdout respects the destination encoding. Characters that cannot be represented (for example, box-drawing glyphs in a redirected Windows CP1252 stream) are emitted as backslash escapes rather than failing the scan. UTF-8 terminal output, UTF-8 `--output` files, and JSON/SARIF serialization are unchanged.
+
 ## Analysis coverage
 
 JSON adds a top-level `coverage` object; SARIF carries the same object at `runs[0].properties.coverage`. Counts are `discovered`, `attempted`, `loaded`, `parsed`, `fully_analyzed`, `partially_analyzed`, `failed`, `skipped`, `evasion_regions` and `evasion_views`. These are additive fields; finding IDs, severity/confidence, evidence and provenance fields are unchanged. Terminal/TUI summaries distinguish parsed from fully/partially analyzed artifacts.

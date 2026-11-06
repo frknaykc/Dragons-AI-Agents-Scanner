@@ -181,7 +181,10 @@ def test_tui_context_partial_long_scroll_and_navigation(flow_report: ScanReport,
             pane.focus()
             await pilot.press("end")
             await pilot.pause()
-            assert pane.scroll_y > 0
+            # End schedules scrolling after refresh; idle events alone do not
+            # guarantee that the animation has started or reached its target.
+            await asyncio.wait_for(pilot.wait_for_scheduled_animations(), timeout=5)
+            assert pane.scroll_y == pane.max_scroll_y > 0
             tree = app.query_one("#findings-tree", Tree)
             tree.focus()
             await pilot.press("right", "down", "enter")
