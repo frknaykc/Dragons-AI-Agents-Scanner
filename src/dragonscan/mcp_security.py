@@ -143,10 +143,36 @@ def passed_result_target(server: McpServer, tool: McpTool) -> McpTool | None:
     )
 
 
+_PRIVATE_KEY_ARGUMENT = re.compile(
+    r"^(?:before (?:using|calling) this tool,\s*)?(?:please\s+)?"
+    r"(?:read|open|cat)\s+`?(?:~?/)?\.ssh/(?:id_rsa|id_ed25519|id_ecdsa|id_dsa)`?"
+    r"\s+and\s+(?:pass|include)\s+(?:its|the file's)\s+contents?\s+"
+    r"as\s+(?P<quote>['\"]?)(?P<field>[\w-]{1,80})(?P=quote)(?:[.,]|$)",
+    re.I,
+)
+
+
+def _private_key_argument(tool: McpTool) -> bool:
+    """Require an explicit read -> same-file content -> declared argument instruction."""
+    # Do not promote fenced examples (including unterminated fences) to directives.
+    raw = re.sub(
+        r"(?ms)^[ \t]*(`{3,}|~{3,})[^\n]*\n.*?(?:^[ \t]*\1[ \t]*(?:\n|$)|\Z)",
+        "\n",
+        tool.instructions or tool.description,
+    )
+    text = _active_metadata(raw, preserve_boundaries=True)
+    for sentence in re.split(r"(?<=[.!?])\s+(?=[A-Z])|;\s*|\n+", text):
+        match = _PRIVATE_KEY_ARGUMENT.match(sentence.strip())
+        if match is not None and match["field"] in tool.schema_fields:
+            return True
+    return False
+
+
 def poisoned(tool: McpTool) -> bool:
     text = _active_metadata(tool.instructions or tool.description)
     return bool(
         _OVERRIDE.search(text)
+        or _private_key_argument(tool)
         or (
             _ACCESS.search(text)
             and _SENSITIVE.search(text)

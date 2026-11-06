@@ -38,6 +38,11 @@ _SHELL_WRAPPER = re.compile(
 
 def remote_python_pipeline(command: str) -> bool:
     """Recognize a literal HTTP fetch whose stdout is Python's program input."""
+    return _remote_stdin_pipeline(command, shell=False)
+
+
+def _remote_stdin_pipeline(command: str, *, shell: bool) -> bool:
+    """Require a literal stdout fetch and an interpreter that consumes program stdin."""
     command = command.strip().removesuffix(".")
     wrapper = _SHELL_WRAPPER.fullmatch(command)
     if wrapper is not None:
@@ -54,9 +59,21 @@ def remote_python_pipeline(command: str) -> bool:
         interpreter = shlex.split(interpreter_text)
     except ValueError:
         return False
-    if not fetch or not interpreter or not _PYTHON_STDIN.fullmatch(interpreter[0]):
+    if not fetch or not interpreter:
         return False
-    if interpreter[1:] not in ([], ["-"], ["-u"], ["-u", "-"]):
+    if shell:
+        if interpreter[0] not in {"sh", "bash", "zsh"} or interpreter[1:] not in (
+            [],
+            ["-s"],
+            ["-s", "--"],
+        ):
+            return False
+    elif not _PYTHON_STDIN.fullmatch(interpreter[0]) or interpreter[1:] not in (
+        [],
+        ["-"],
+        ["-u"],
+        ["-u", "-"],
+    ):
         return False
     args = fetch[1:]
     urls = [arg for arg in args if re.fullmatch(r"https?://[^/\s]+(?:/\S*)?", arg)]
@@ -368,6 +385,66 @@ def shell_accesses(document: Document) -> tuple[ShellAccess, ...]:
             command = ""
         previous = block
     return tuple(accesses)
+
+
+@dataclass(frozen=True)
+class ShellExecution:
+    """A direct fenced execution instruction, not a prose or cross-file flow fact."""
+
+    kind: str
+    location: SourceRef
+    source: str
+    sink: str
+    capabilities: tuple[str, ...]
+
+
+def shell_executions(document: Document) -> tuple[ShellExecution, ...]:
+    """Inspect literal pipelines only after an unambiguous adjacent run directive."""
+    if document.artifact.kind not in _INSTRUCTION_KINDS:
+        return ()
+    results: list[ShellExecution] = []
+    for previous, block in zip(document.blocks, document.blocks[1:], strict=False):
+        if (
+            block.kind != "code"
+            or (block.language or "").lower() not in {"sh", "bash", "shell", "zsh"}
+            or block.location.line is None
+            or previous.kind not in {"paragraph", "list_item"}
+            or not re.fullmatch(
+                r"(?:(?:first|then|next)[,:]?\s+)?(?:please\s+)?(?:run|execute)\s+"
+                r"(?:this|the following)\s+(?:(?:setup|installation)\s+)?"
+                r"commands?\s*:",
+                previous.text.strip(),
+                re.I,
+            )
+        ):
+            continue
+        for offset, text in enumerate(block.text.splitlines(), 1):
+            kind = ""
+            source = ""
+            sink = ""
+            capabilities: tuple[str, ...] = ("network-fetch", "command-execution")
+            if _remote_stdin_pipeline(text, shell=True):
+                kind, source, sink = "remote_execution", "remote download", "shell execution"
+            elif remote_python_pipeline(text):
+                kind = "remote_python_execution"
+                source, sink = "remote HTTP(S) code source", "Python interpreter execution"
+            else:
+                encoded_sink = literal_encoded_pipeline(text)
+                if encoded_sink is not None:
+                    kind = "literal_encoded_execution"
+                    source, sink = "literal encoded input", encoded_sink
+                    capabilities = ("command-execution",)
+            if kind:
+                results.append(
+                    ShellExecution(
+                        kind,
+                        replace(block.location, line=block.location.line + offset),
+                        source,
+                        sink,
+                        capabilities,
+                    )
+                )
+    return tuple(results)
 
 
 def segment_text(text: str, index: int) -> str:

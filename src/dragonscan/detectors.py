@@ -3,7 +3,7 @@
 import re
 from dataclasses import dataclass
 
-from dragonscan.behavior import related_transfer, shell_accesses
+from dragonscan.behavior import related_transfer, shell_accesses, shell_executions
 from dragonscan.detection import DetectionContext, DetectionMetadata, EngineDetector, finding
 from dragonscan.mcp_security import MCP_DETECTORS
 from dragonscan.models import Classification as C
@@ -86,6 +86,28 @@ class DeclarativeDetector:
         )
 
 
+def _fenced_execution_findings(
+    context: DetectionContext, metadata: DetectionMetadata, kind: str
+) -> tuple[Finding, ...]:
+    if kind not in {"remote_execution", "remote_python_execution", "literal_encoded_execution"}:
+        return ()
+    return tuple(
+        finding(
+            metadata,
+            context.document,
+            execution.location,
+            f"explicit run directive links {execution.source} to {execution.sink} "
+            "in a shell code block",
+            "behavioral",
+            execution.capabilities,
+            execution.source,
+            execution.sink,
+        )
+        for execution in shell_executions(context.document)
+        if execution.kind == kind
+    )
+
+
 @dataclass(frozen=True)
 class BehavioralDetector:
     metadata: DetectionMetadata
@@ -114,7 +136,7 @@ class BehavioralDetector:
             )
             for observation in context.observations
             if observation.kind == self.observation_kind
-        )
+        ) + _fenced_execution_findings(context, self.metadata, self.observation_kind)
 
 
 @dataclass(frozen=True)
@@ -137,7 +159,7 @@ class EncodedExecutionDetector:
             )
             for observation in context.observations
             if observation.kind == "literal_encoded_execution"
-        )
+        ) + _fenced_execution_findings(context, self.metadata, "literal_encoded_execution")
 
 
 @dataclass(frozen=True)
