@@ -192,7 +192,7 @@
           "id": "DRAGON-EXEC-002",
           "artifact": "exec-network-python/SKILL.md",
           "line": 3,
-          "source": "remote HTTP(S) content",
+          "source": "remote HTTP(S) code source",
           "sink": "Python interpreter execution"
         }
       ]
@@ -453,9 +453,10 @@
         },
         {
           "id": "DRAGON-PATH-002",
-          "artifact": "chain-structured-load/settings.json",
+          "artifact": "chain-structured-load/kilo.jsonc",
           "path_edges": [
             "loads",
+            "defines",
             "fetches",
             "executes"
           ]
