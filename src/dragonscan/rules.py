@@ -5,7 +5,12 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import PurePath
 
-from dragonscan.behavior import collect, related_transfer, remote_shell_pipeline
+from dragonscan.behavior import (
+    collect,
+    related_transfer,
+    remote_shell_pipeline,
+    shell_command_string,
+)
 from dragonscan.models import (
     Classification,
     Confidence,
@@ -81,11 +86,8 @@ def mcp_fetch_to_shell(document: Document) -> Iterable[Finding]:
         executable = PurePath(server.command.replace("\\", "/")).name.lower()
         if executable not in {"sh", "bash", "zsh"} or not server.args:
             continue
-        # Only shell commands with an explicit command-string flag are assessed here.
-        if server.args[0] not in {"-c", "-lc", "-cl"}:
-            continue
-        command_text = server.args[1] if len(server.args) > 1 else ""
-        if not remote_shell_pipeline(command_text):
+        command_text = shell_command_string(server.args)
+        if command_text is None or not remote_shell_pipeline(command_text):
             continue
         yield Finding(
             detection_id="DAAS-002",

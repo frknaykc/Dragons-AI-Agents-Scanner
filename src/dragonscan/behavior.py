@@ -36,6 +36,18 @@ _SHELL_WRAPPER = re.compile(
 )
 
 
+def shell_command_string(args: tuple[str, ...]) -> str | None:
+    """Select code only from supported POSIX shell command-string invocations.
+
+    Accept -c/-lc/-cl, optionally after a separate -l. Never search past
+    operands, -- or unsupported prefixes. Later arguments are positional data.
+    """
+    index = 1 if args[:1] == ("-l",) else 0
+    if len(args) <= index + 1 or args[index] not in {"-c", "-lc", "-cl"}:
+        return None
+    return args[index + 1]
+
+
 def remote_python_pipeline(command: str) -> bool:
     """Recognize a literal HTTP fetch whose stdout is Python's program input."""
     return _remote_stdin_pipeline(command, shell=False)
