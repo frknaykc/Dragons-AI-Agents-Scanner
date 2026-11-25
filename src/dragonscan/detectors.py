@@ -16,7 +16,7 @@ from dragonscan.models import Confidence as F
 from dragonscan.models import Finding
 from dragonscan.models import Severity as S
 
-_MARKDOWN = ("instructions", "skill", "memory", "soul")
+_MARKDOWN = ("instructions", "skill", "memory", "soul", "agent_config")
 _MCP = ("mcp_config", "agent_config")
 _OBSERVATION_KINDS = frozenset(
     {

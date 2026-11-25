@@ -34,6 +34,35 @@ default workspace. It does not crawl arbitrary adjacent state or follow a
 configuration's redirected roots. See [scope, upstream sources and regression
 evidence](DISCOVERY_DETECTION_VALIDATION.md) for exact limits and validation.
 
+### OpenClaw configuration analysis
+
+For recognized `.openclaw/openclaw.json` files written in strict JSON, Dragons
+routes documented `mcp.servers.<name>` connections through its existing MCP
+analysis: local `command`/`args`/`env`, or remote `url`/`headers` with
+`streamable-http` or `sse` transport (including the documented `type: "http"`
+alias). `enabled: false` entries are inactive. Command and argument boundaries,
+source locations and credential redaction are retained; nothing is executed.
+Legacy `mcpServers` analysis remains available. Conflicting legacy/native names
+are not merged: the legacy entry is retained and native coverage is reported
+as partial. Unsupported connection fields also produce a coverage diagnostic;
+authentication flows, filters and effective runtime activation are not simulated.
+
+The instruction detectors analyze text at
+`channels.telegram.groups.<group>.systemPrompt` and
+`channels.telegram.groups.<group>.topics.<topic>.systemPrompt` as separate
+instruction contexts. Findings refer to the original JSON field location,
+including strings containing escaped newlines. Empty strings add no instruction;
+invalid values or malformed supported containers report partial coverage.
+Similar-looking fields elsewhere are not promoted to instructions or executable
+configuration, and sources/sinks in different prompt fields are not correlated
+as adjacent prose.
+
+JSON5 remains unsupported: JSON5-only syntax fails parsing rather than reporting
+complete analysis. These field routes do not expand discovery, resolve custom
+configuration paths, follow `$include`, or access real OpenClaw services.
+Field contracts: [MCP configuration](https://docs.openclaw.ai/gateway/config-extensions)
+and [Telegram group/topic configuration](https://docs.openclaw.ai/gateway/config-channels/personal-messaging).
+
 ## Automatic discovery versus explicit selection
 
 The following distinctions apply to the nine reviewed ecosystems. **Path** means

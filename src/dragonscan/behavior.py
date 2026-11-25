@@ -7,7 +7,7 @@ import shlex
 from dataclasses import dataclass, replace
 
 from dragonscan.detection import Observation
-from dragonscan.models import Document, SourceRef
+from dragonscan.models import ArtifactKind, Document, SourceFormat, SourceRef
 
 _INSTRUCTION_KINDS = frozenset({"instructions", "skill", "memory", "soul"})
 _SENTENCE = re.compile(r"(?<=[.!?])\s+(?=[A-Z])|\n+|;\s*")
@@ -528,7 +528,10 @@ def write_target(text: str, kind: str) -> str | None:
 
 def collect(document: Document) -> tuple[Observation, ...]:
     """Only actionable prose is promoted; code, quotations and references remain data."""
-    if document.artifact.kind not in _INSTRUCTION_KINDS:
+    if document.artifact.kind not in _INSTRUCTION_KINDS and not (
+        document.artifact.kind == ArtifactKind.AGENT_CONFIG
+        and document.artifact.ecosystem == "OpenClaw"
+    ):
         return ()
     observed: list[Observation] = []
     for index, instruction in enumerate(document.instructions):
@@ -547,7 +550,10 @@ def collect(document: Document) -> tuple[Observation, ...]:
             actionable = _IMPERATIVE.search(sentence)
             if not actionable and link_source is None:
                 continue
-            line = instruction.line + instruction.text[:offset].count("\n")
+            # JSON escapes describe logical newlines, not physical source lines.
+            line = instruction.line
+            if instruction.location.source_format == SourceFormat.MARKDOWN:
+                line += instruction.text[:offset].count("\n")
             location = replace(instruction.location, line=line)
 
             def add(
@@ -641,6 +647,12 @@ def related_transfer(
     sources = [item for item in observations if item.kind == "sensitive_access"]
     for sink in observations:
         if sink.kind != "external_transfer" or sink.location.line is None:
+            continue
+        # Different structured prompt fields are not adjacent prose instructions.
+        if (
+            source.location.source_format != SourceFormat.MARKDOWN
+            and source.context != sink.context
+        ):
             continue
         if not 0 <= sink.location.line - source.location.line <= 2:
             continue

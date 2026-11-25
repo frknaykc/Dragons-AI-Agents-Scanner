@@ -117,7 +117,7 @@ BUILTIN_RULES = (
         "data-exfiltration",
         Severity.HIGH,
         Confidence.MEDIUM,
-        ("instructions", "skill", "memory", "soul"),
+        ("instructions", "skill", "memory", "soul", "agent_config"),
         credential_exfiltration,
         "Sensitive-file read and external send in adjacent instructions.",
         "Remove the instruction and review its origin.",

@@ -263,6 +263,7 @@ class Scanner:
                             "unsupported Goose",
                             "unsupported Kilo",
                             "unsupported Zed",
+                            "unsupported OpenClaw",
                             "Zed extension",
                             "Zed context server missing",
                         )

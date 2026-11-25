@@ -28,6 +28,7 @@ from dragonscan.models import (
     ArtifactKind,
     ConfigEntry,
     Document,
+    Instruction,
     McpContent,
     McpSecretRef,
     McpServer,
@@ -749,14 +750,24 @@ def _agent_mcp_servers(
         if not isinstance(name, str) or not name or not isinstance(config, dict):
             diagnostics.append(f"unsupported {agent} MCP server schema; server skipped")
             continue
-        if config.get("enabled") is False and agent in {"Hermes Agent", "Codex"}:
+        if config.get("enabled") is False and agent in {"Hermes Agent", "Codex", "OpenClaw"}:
             continue
         command, url = config.get("command"), config.get("url")
         args, env = config.get("args", []), config.get("env", {})
         headers = config.get("headers", config.get("http_headers", {}))
         transport = config.get("transport", config.get("type"))
-        remote_types = {"http", "streamable-http", "sse"} if agent == "Claude Code" else {None}
+        remote_types: set[str | None] = (
+            {"http", "streamable-http", "sse"} if agent == "Claude Code" else {None}
+        )
         local_types = {None, "stdio"} if agent == "Claude Code" else {None}
+        if agent == "OpenClaw":
+            remote_types = {None, "streamable-http", "sse"}
+            headers = config.get("headers", {})
+            if "type" in config:
+                if config["type"] != "http" or "transport" in config:
+                    diagnostics.append("unsupported OpenClaw MCP transport; server skipped")
+                    continue
+                transport = "streamable-http"
         valid = (
             (transport is None or isinstance(transport, str))
             and type(config.get("enabled", True)) is bool
@@ -872,6 +883,91 @@ def _agent_mcp_servers(
             if edge.subject is None or any(s.name == edge.subject for s in servers)
         )
     return servers, edges, (*diagnostics, *notes)
+
+
+def _openclaw_servers(
+    artifact: Artifact, data: dict[str, Any], locations: dict[tuple[str | int, ...], SourceRef]
+) -> tuple[tuple[McpServer, ...], tuple[Relationship, ...], tuple[str, ...]]:
+    """Route documented mcp.servers without interpreting other nested MCP-like objects."""
+    legacy, edges, notes = _servers(artifact, data, locations)
+    if "mcp" not in data:
+        return legacy, edges, notes
+    mcp = data["mcp"]
+    if not isinstance(mcp, dict):
+        return legacy, edges, (*notes, "unsupported OpenClaw MCP schema; analysis skipped")
+    if "servers" not in mcp:
+        return legacy, edges, notes
+    definitions = mcp["servers"]
+    diagnostics = list(notes)
+    if isinstance(definitions, dict):
+        definitions = dict(definitions)
+        for server in legacy:
+            if server.name in definitions:
+                del definitions[server.name]
+                diagnostics.append("unsupported OpenClaw duplicate MCP name; native server skipped")
+        supported = {
+            "command",
+            "args",
+            "env",
+            "url",
+            "transport",
+            "type",
+            "headers",
+            "enabled",
+            "requestTimeoutMs",
+            "connectionTimeoutMs",
+            "supportsParallelToolCalls",
+        }
+        for config in definitions.values():
+            if isinstance(config, dict) and config.get("enabled") is not False:
+                if config.keys() - supported:
+                    diagnostics.append(
+                        "unsupported OpenClaw MCP fields; only core connection analyzed"
+                    )
+    mapped = {
+        ("mcpServers", *path[2:]): location
+        for path, location in locations.items()
+        if path[:2] == ("mcp", "servers")
+    }
+    servers, related, warnings = _agent_mcp_servers(
+        artifact, {"mcpServers": definitions}, mapped, "mcpServers"
+    )
+    return (*legacy, *servers), (*edges, *related), (*diagnostics, *warnings)
+
+
+def _openclaw_instructions(
+    data: dict[str, Any], locations: dict[tuple[str | int, ...], SourceRef]
+) -> tuple[tuple[Instruction, ...], tuple[str, ...]]:
+    """Each documented Telegram group/topic prompt is one independent instruction context."""
+    instructions: list[Instruction] = []
+    diagnostics: list[str] = []
+
+    def mapping(value: Any) -> dict[str, Any]:
+        if isinstance(value, dict):
+            return value
+        diagnostics.append("unsupported OpenClaw Telegram prompt container; analysis skipped")
+        return {}
+
+    def prompt(scope: dict[str, Any], prefix: tuple[str | int, ...]) -> None:
+        if "systemPrompt" not in scope:
+            return
+        value = scope["systemPrompt"]
+        location = locations.get((*prefix, "systemPrompt"))
+        if not isinstance(value, str) or location is None or location.line is None:
+            diagnostics.append("unsupported OpenClaw Telegram systemPrompt; analysis skipped")
+        elif value.strip():
+            instructions.append(Instruction(value, location.line, location))
+
+    channels = mapping(data.get("channels", {}))
+    telegram = mapping(channels.get("telegram", {}))
+    groups = mapping(telegram.get("groups", {}))
+    for group_id, value in groups.items():
+        group = mapping(value)
+        prefix: tuple[str | int, ...] = ("channels", "telegram", "groups", group_id)
+        prompt(group, prefix)
+        for topic_id, topic in mapping(group.get("topics", {})).items():
+            prompt(mapping(topic), (*prefix, "topics", topic_id))
+    return tuple(instructions), tuple(diagnostics)
 
 
 def _toml_mcp_locations(
@@ -1020,6 +1116,13 @@ def parse_structured(
             for entry in entries
         )
     locations = {entry.key_path: entry.location for entry in entries}
+    if artifact.ecosystem == "OpenClaw":
+        entries = tuple(
+            replace(entry, value="[redacted]")
+            if entry.key_path[:2] == ("mcp", "servers") and isinstance(entry.value, str)
+            else entry
+            for entry in entries
+        )
     if codex:
         _toml_mcp_locations(artifact, text, locations)
     servers, relationships, mcp_diagnostics = (
@@ -1033,6 +1136,8 @@ def parse_structured(
         if kilo
         else _zed_servers(artifact, data, locations)
         if zed
+        else _openclaw_servers(artifact, data, locations)
+        if artifact.ecosystem == "OpenClaw"
         else _servers(artifact, data, locations)
     )
     relations = list(relationships)
@@ -1043,6 +1148,8 @@ def parse_structured(
         )
     for entry in entries:
         key = entry.key_path[-1]
+        if artifact.ecosystem == "OpenClaw" and entry.key_path[:2] == ("mcp", "servers"):
+            continue
         if (
             (goose and entry.key_path and entry.key_path[0] in {"extensions", "mcpServers"})
             or ((hermes or codex) and entry.key_path and entry.key_path[0] == "mcp_servers")
@@ -1098,8 +1205,12 @@ def parse_structured(
         if artifact.kind == ArtifactKind.DEPENDENCY_MANIFEST
         else ((), ())
     )
+    instructions, prompt_diagnostics = (
+        _openclaw_instructions(data, locations) if artifact.ecosystem == "OpenClaw" else ((), ())
+    )
     return Document(
         artifact,
+        instructions=instructions,
         servers=servers,
         entries=entries,
         relationships=tuple(dict.fromkeys(relations)),
@@ -1108,6 +1219,7 @@ def parse_structured(
             *diagnostics,
             *claude_scope_diagnostics,
             *mcp_diagnostics,
+            *prompt_diagnostics,
             *(
                 ("unsupported Goose mcpServers schema; ignored",)
                 if goose and "mcpServers" in data
