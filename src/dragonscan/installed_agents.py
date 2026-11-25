@@ -71,7 +71,9 @@ _SHARED_SKILLS = AgentSpec(
         ),
     ),
 )
-_SHARED_SKILL_CONSUMERS = frozenset({"Codex", "Cline", "OpenClaw"})
+_SHARED_SKILL_CONSUMERS = frozenset(
+    {"Codex", "Cline", "OpenClaw", "Goose", "Kilo Code", "Zed Agent"}
+)
 
 
 SPECS = (
@@ -91,7 +93,7 @@ SPECS = (
         (
             Location(
                 ".codex",
-                ("config.toml", "AGENTS.md", "skills"),
+                ("config.toml", "AGENTS.md", "AGENTS.override.md", "skills"),
                 (("config.toml", ArtifactKind.AGENT_CONFIG, SourceFormat.TOML),),
             ),
         ),
@@ -518,13 +520,10 @@ def _spec_artifact(path: Path, root: Path, spec: AgentSpec, location: Location) 
     ):
         ecosystem = None if spec is _SHARED_SKILLS else spec.kind
         return Artifact(path, ArtifactKind.SKILL, SourceFormat.MARKDOWN, ecosystem)
-    if (
-        spec.kind == "Cursor"
-        and location.project
-        and path.suffix.lower() == ".mdc"
-        and relative.is_relative_to("rules")
-    ):
-        return Artifact(path, ArtifactKind.INSTRUCTIONS, SourceFormat.MARKDOWN, spec.kind)
+    if spec.kind == "Cursor" and location.project and relative.is_relative_to("rules"):
+        if path.suffix.lower() == ".mdc":
+            return Artifact(path, ArtifactKind.INSTRUCTIONS, SourceFormat.MARKDOWN, spec.kind)
+        return None
     if path.suffix.lower() != ".md":
         return None
     if any(relative.is_relative_to(directory) for directory in location.memory_dirs):
@@ -547,8 +546,8 @@ def classify_agent_config(path: Path) -> Artifact | None:
 
     Product-specific directory components are required. The auth-bearing Claude
     user file is recognized only immediately inside the selected home directory.
-    OpenClaw also reuses its verified workspace aliases. Other instruction aliases
-    and agents retain their existing discovery policy.
+    OpenClaw also reuses its verified workspace aliases, and Cursor its project rules.
+    Other instruction aliases and agents retain their existing discovery policy.
     """
     if path.name == ".claude.json" and path.parent == Path.home().absolute():
         _safe_mode(path, path.parent)
@@ -565,13 +564,19 @@ def classify_agent_config(path: Path) -> Artifact | None:
             ),
         )
         for location in locations:
-            if not location.user or (
-                spec.kind != "OpenClaw"
-                and not any(
-                    path.name == Path(name).name
-                    and kind
-                    in {ArtifactKind.AGENT_CONFIG, ArtifactKind.MCP_CONFIG, ArtifactKind.SOUL}
-                    for name, kind, _ in location.extra
+            cursor_rule = (
+                spec.kind == "Cursor" and location.project and path.suffix.lower() == ".mdc"
+            )
+            if not cursor_rule and (
+                not location.user
+                or (
+                    spec.kind != "OpenClaw"
+                    and not any(
+                        path.name == Path(name).name
+                        and kind
+                        in {ArtifactKind.AGENT_CONFIG, ArtifactKind.MCP_CONFIG, ArtifactKind.SOUL}
+                        for name, kind, _ in location.extra
+                    )
                 )
             ):
                 continue
@@ -582,6 +587,7 @@ def classify_agent_config(path: Path) -> Artifact | None:
                 artifact = _spec_artifact(path, root, spec, location)
                 if artifact is not None and (
                     spec.kind == "OpenClaw"
+                    or cursor_rule
                     or artifact.kind
                     in {
                         ArtifactKind.AGENT_CONFIG,

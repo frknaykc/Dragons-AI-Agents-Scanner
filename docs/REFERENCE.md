@@ -4,6 +4,13 @@
 
 ## Current scope
 
+Instruction discovery also recognizes `AGENTS.override.md`, `.hermes.md`,
+`HERMES.md` and legacy `.cursorrules`. Cursor `.cursor/rules/**/*.mdc` files
+retain their Markdown/frontmatter parser when selected directly; standalone
+`.mdc` files require explicit selection. Discovery inventories base and override
+instructions without simulating runtime precedence. See the
+[per-ecosystem path, syntax and semantic limits](SUPPORTED_AGENTS.md#automatic-discovery-versus-explicit-selection).
+
 `dragonscan scan PATH` accepts a local file, directory, or supported local archive. It recognizes `SKILL.md`, `AGENTS.md`, `SOUL.md`, `MEMORY.md`, `CLAUDE.md`, `mcp.json`, `.mcp.json`, `mcp-config.json`, and `claude_desktop_config.json` (case-insensitive). Within `.claude`, `.codex`, `.cursor`, `.gemini`, `.windsurf` and `.openclaw` trees it also recognizes `config`/`settings` JSON, YAML or TOML files and `hooks.json`; `.claude-plugin/plugin.json` is plugin metadata. Python/Node dependency manifests and supported lockfiles are recognized by name in local directory scans (see below). Explicit `config`/`settings` files are accepted even without ecosystem context. Other unrelated JSON/YAML/TOML files are ignored in directory scans; explicit unsupported files produce an error. Ecosystem is reported for recognized Python/Node dependency artifacts or when an agent directory context identifies it; `package.json` under `skills/` retains its previous agent ecosystem classification. A generic config with a top-level `mcpServers` object is reclassified as MCP configuration after parsing.
 
 Files are read locally as UTF-8, up to 1 MiB each; symlinks and binary/NUL data are rejected. Markdown, JSON, YAML, TOML and selected line-oriented dependency files are parsed as inert data; neither fenced code nor MCP commands are run by default. YAML aliases and unsafe tags are rejected, and structured nesting/node counts are bounded. A target that cannot be loaded or has no parsable supported artifacts fails; a malformed artifact alongside successfully parsed material is a recoverable warning and makes the scan partial. These diagnostics are not security findings. Default scanning does not fetch URLs, launch servers, execute decoded payloads, or install referenced packages. Bounded Base64/hex content may be decoded in memory for static matching only. Detections are **static indications**, not proof of compromise or execution. An exceptional, separately consented local MCP process inspection is described below.
