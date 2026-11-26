@@ -9,7 +9,7 @@
 - [ ] **P2 · İsteğe bağlı runtime denetimi ve bağımsız doğrulama**
 - [ ] **P3 · Onaylanan platformlar ve ileri entegrasyonlar**
 
-İlk adım **DSE-001**: yerel değişikliklerle `origin/main` arasından doğrulanacak kaynak ve corpus sürümlerini seçmek. Aşağıdaki ön inceleme bir fazı kapatmaz. Eski `benchmarks/phase*` sonuçları bu fazların tamamlandığını göstermez.
+**DSE-001 devam ediyor.** [Checkpoint–main karşılaştırması](docs/DSE-001-KARSILASTIRMA.md) tamamlandı. Geliştirme tabanı yerel projedir; GitHub’a özgü düzeltmeler aynı `main` dalında korunur. DSE-001'in kabulü için bu ortak sürümün sonuçları esas alınır. Aşağıdaki ön inceleme ve eski `benchmarks/phase*` sonuçları bir fazı kapatmaz.
 
 **Nasıl güncellenir?** Aşağıdaki görevleri bağımlılık sırasıyla ele al. “Önkoşul” sütunundaki sayılar `DSE-` görev numaralarıdır. Bir görev doğrulandığında aynı değişiklikte görev kutusunu işaretle ve satıra kanıt kaydının yolunu ekle. Kayıtta snapshot, çalıştırılan komutlar, sonuçlar ve kapsam sınırları bulunmalı. Tüm zorunlu görevler ve fazın kapanış ölçütü doğrulanınca yukarıdaki faz kutusunu `[x]` yap. Engelli veya ertelenmiş işi işaretleme; nedenini ve devam koşulunu ilgili satıra yaz. Kapsam değişikliği kullanıcı kararı gerektirir.
 
