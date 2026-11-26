@@ -57,3 +57,16 @@ Her iki klonda Ruff biçim/lint, mypy (`src scripts`), geliştirme dışı real-
 2. Her kod klonunda, `DATA` değişkeni sırayla **her iki klonun mutlak yolunu** gösterirken `python -m scripts.benchmark "$DATA/benchmarks/corpus/manifest.json" --format json > "$OUT/corpus.json"` ve `python -m scripts.benchmark_gate "$OUT/corpus.json"` çalıştır. Her koşu için repo dışında ayrı `OUT` dizini kullan. Phase 6 için `python -m scripts.phase6_evaluation "$DATA/benchmarks/phase6-v2/manifest.json"` çalıştır.
 3. Her klonun kendi verisiyle `pytest -q -rs`, `ruff format --check .`, `ruff check .`, `mypy src scripts`; `scripts.benchmark` ile `realworld` ve `holdout` manifestleri; `python -m scripts.semantic_benchmark benchmarks/semantic/corpus/manifest.json --format json` ve `python scripts/performance_baseline.py --smoke` çalıştır. Dağıtım derlemesi için `uv build --offline --out-dir "$OUT/dist"` kullan.
 4. DSE-001'i kapatmak için birleşik `main` adayının commit/tree/lock kimliğini kaydet ve kapıları o ağaçta çalıştır. İki ayrı dalda alınan sonuçları birleşik adayın sonucu olarak kullanma.
+
+## Birleşik main kabulü
+
+26 Kasım 2026: Yerel checkpoint ile `26a5700` geçmişleri `main` üzerinde birleştirildi. Yukarıdaki komutlar bu kez tek bir temiz klonda, aynı commit'in kodu ve verisiyle çalıştırıldı. Commit `a150340d52a7bfa88a030bf525291b15e86923d2`, tree `5292a81e4421ca8ef98a5eb9f240f0c65c115de4`; çalışma ağacı kontrollerden sonra temizdi. `uv.lock` özeti yukarıdakiyle aynı; Phase 6 v2 `ground_truth.lock.json` SHA-256: `dbfaa81c29d92728603d0fb338e1bfcc002b2cfae12ae141c666aba735626643`.
+
+| Kontrol | Birleşik sürümde sonuç |
+|---|---|
+| Yazılım kalitesi | Python 3.12.12, macOS arm64: pytest **2580 geçti, 7 atlandı** (6 izole YARA-X, 1 Windows ACL). Ruff format ve lint, `mypy src scripts`, `uv lock --check --offline` geçti. |
+| İki strict doğruluk kapısı | Geliştirme: 48 vakada **50 TP / 0 FP / 0 FN**; 31 zor negatifte hata yok. Phase 6 v2: 36 vakada **24 / 0 / 0**. Önceki kırmızı kapılardan bu veride açık fark kalmadı. |
+| Diğer veri setleri | Real-world **4 / 0 / 0**, negatif holdout **0 / 0 / 0**, Phase 2 v2 **8 / 0 / 0**, interpreter **4 / 0 / 0**. Bunlar bağımsız kör doğruluk ölçümü değildir. |
+| Performans ve derleme | `files:10`, `oversize:1`, `ioc:10`, `graph:20`, `high_branch:50`: **5/5 `ok`**. Çevrimdışı semantik runner ve sdist → wheel derlemesi tamamlandı. |
+
+Yerel doğrulamada uv 0.12.22 kullanıldı. Bu kayıt GitHub CI, diğer işletim sistemleri, canlı sağlayıcı, tam performans profili veya yayımlanmış paket için kabul değildir. DSE-001 kapandı; P0'ın diğer görevleri açık.

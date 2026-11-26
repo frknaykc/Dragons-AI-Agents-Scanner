@@ -9,7 +9,7 @@
 - [ ] **P2 · İsteğe bağlı runtime denetimi ve bağımsız doğrulama**
 - [ ] **P3 · Onaylanan platformlar ve ileri entegrasyonlar**
 
-**DSE-001 devam ediyor.** [Checkpoint–main karşılaştırması](docs/DSE-001-KARSILASTIRMA.md) tamamlandı. Geliştirme tabanı yerel projedir; GitHub’a özgü düzeltmeler aynı `main` dalında korunur. DSE-001'in kabulü için bu ortak sürümün sonuçları esas alınır. Aşağıdaki ön inceleme ve eski `benchmarks/phase*` sonuçları bir fazı kapatmaz.
+**DSE-001 tamamlandı.** Yerel proje ve GitHub’a özgü düzeltmeler aynı `main` dalında birleştirildi. [Birleşik sürümün doğrulama kaydı](docs/DSE-001-KARSILASTIRMA.md#birleşik-main-kabulü). Sırada DSE-002 var; P0 henüz tamamlanmadı.
 
 **Nasıl güncellenir?** Aşağıdaki görevleri bağımlılık sırasıyla ele al. “Önkoşul” sütunundaki sayılar `DSE-` görev numaralarıdır. Bir görev doğrulandığında aynı değişiklikte görev kutusunu işaretle ve satıra kanıt kaydının yolunu ekle. Kayıtta snapshot, çalıştırılan komutlar, sonuçlar ve kapsam sınırları bulunmalı. Tüm zorunlu görevler ve fazın kapanış ölçütü doğrulanınca yukarıdaki faz kutusunu `[x]` yap. Engelli veya ertelenmiş işi işaretleme; nedenini ve devam koşulunu ilgili satıra yaz. Kapsam değişikliği kullanıcı kararı gerektirir.
 
@@ -39,7 +39,7 @@
 
 | Görev | Önkoşul | Teslim ve kabul kanıtı |
 |---|---|---|
-| [ ] DSE-001 · Kaynak seçimi ve tekrarlanabilir başlangıç ölçümü | Yok | Önce yerel çalışma, upstream düzeltmeleri ve corpus/kilit sürümlerini ayır; kullanıcının onayladığı ayrı snapshot üzerinde commit, çalışma ağacı ve lock kimliklerini kaydet. Kalite ve strict doğruluk kapılarını ayrı çalıştır, zor negatifleri ve performans smoke sonuçlarını yeni kayda yaz. İki kırmızı kapıyı yeniden ölç; kalan farklar için vaka, beklenen/gözlenen sonuç ve sonraki görev kaydı oluştur. Başarısız, atlanan ve çalıştırılmayan kontrolleri ayır; ürün kodunu veya tarihsel beklentileri değiştirme. |
+| [x] DSE-001 · Kaynak seçimi ve tekrarlanabilir başlangıç ölçümü | Yok | [Birleşik main kabulü](docs/DSE-001-KARSILASTIRMA.md#birleşik-main-kabulü): `a150340` temiz klonda doğrulandı. Kalite ve iki strict doğruluk kapısı geçti; snapshot, kilitler, zor negatifler, performans ve atlanan kontroller kayıtta. |
 | [ ] DSE-002 · Dinamik MCP başlatma kararı | 001 | Statik bulgular ve gerekli TI eşleşmeleri başlatmadan önce değerlendirilsin. Kritik, doğrulanmış zararlı veya eksik analizde mock `Popen` çağrısı sıfır olmalı. İzolasyonsuz başlatma varsayılan olmasın; CI çıkış politikası değişmesin. |
 | [ ] DSE-003 · Toplam kaynak bütçeleri | 001 | Dosya, bayt, bölge, görünüm ve bulgu limitlerini tarama genelinde uygula. Çok sayıda küçük dosya, 129+ bölge ve iptal örneklerinde sınırlı çıktı ve `incomplete`; BOM örneğinde ham bayt ve metin özetleri ayrılmalı. |
 | [ ] DSE-004 · Skill paketi keşfi | 003 | Seçilen paket kökünde frontmatter, yardımcı dosyalar ve iç içe referansları envantere al. Döngü, kayıp hedef, sınır dışı symlink ve bozuk frontmatter için kapsamı bildir. Doğrudan ve kurulu paket taraması aynı kapsamı vermeli. |
