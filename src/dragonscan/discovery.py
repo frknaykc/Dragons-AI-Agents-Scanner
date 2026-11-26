@@ -8,7 +8,19 @@ from pathlib import Path
 
 from dragonscan.models import Artifact, ArtifactKind, SourceFormat, Target
 
-INSTRUCTION_NAMES = frozenset({"skill.md", "agents.md", "soul.md", "memory.md", "claude.md"})
+INSTRUCTION_NAMES = frozenset(
+    {
+        "skill.md",
+        "agents.md",
+        "agents.override.md",
+        "soul.md",
+        "memory.md",
+        "claude.md",
+        ".hermes.md",
+        "hermes.md",
+        ".cursorrules",
+    }
+)
 MCP_NAMES = frozenset({"mcp.json", ".mcp.json", "mcp-config.json", "claude_desktop_config.json"})
 SKIP_DIRS = frozenset({".git", ".venv", "node_modules", "__pycache__"})
 # Optional policy override; no cumulative artifact cap by default.
@@ -28,6 +40,7 @@ ECOSYSTEM_DIRS = {
 }
 FORMATS = {
     ".md": SourceFormat.MARKDOWN,
+    ".mdc": SourceFormat.MARKDOWN,
     ".json": SourceFormat.JSON,
     ".jsonc": SourceFormat.JSONC,
     ".yaml": SourceFormat.YAML,
@@ -68,7 +81,9 @@ def classify(
         if name == "package.json" and "skills" in (p.lower() for p in path.parent.parts):
             ecosystem = None
         return Artifact(path, ArtifactKind.DEPENDENCY_MANIFEST, dep_format, ecosystem)
-    source_format = FORMATS.get(path.suffix.lower())
+    source_format = (
+        SourceFormat.MARKDOWN if name in INSTRUCTION_NAMES else FORMATS.get(path.suffix.lower())
+    )
     if source_format is None:
         return None
     # Imported here because installed discovery also uses this module's bounded walk.
@@ -77,6 +92,12 @@ def classify(
     known_config = classify_agent_config(path)
     if known_config is not None:
         return known_config
+    if path.suffix.lower() == ".mdc":
+        return (
+            Artifact(path, ArtifactKind.INSTRUCTIONS, SourceFormat.MARKDOWN, "Cursor")
+            if explicit
+            else None
+        )
     ecosystem = next(
         (
             ECOSYSTEM_DIRS[part.lower()]

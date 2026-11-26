@@ -515,6 +515,11 @@ def scan(
         )
     )
     if output is None:
+        # Preserve the destination encoding; escape unsupported terminal glyphs
+        # rather than failing on redirected legacy Windows streams.
+        if output_format == "terminal":
+            encoding = sys.stdout.encoding or "utf-8"
+            text = text.encode(encoding, errors="backslashreplace").decode(encoding)
         click.echo(text, color=use_color if output_format == "terminal" else False)
     else:
         try:

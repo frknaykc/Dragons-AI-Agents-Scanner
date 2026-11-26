@@ -1,7 +1,10 @@
 """Terminal-only UX contracts; scanned text remains inert input."""
 
 import json
+import os
 import re
+import subprocess
+import sys
 from dataclasses import replace
 from pathlib import Path
 
@@ -271,9 +274,39 @@ def test_cli_tty_no_color_and_machine_stdout(
         assert response.stdout.startswith("{")
     file_path = tmp_path / "report.txt"
     output = runner.invoke(cli.main, ["scan", str(tmp_path), "--output", str(file_path)])
-    assert output.exit_code == 0 and not output.stdout and "\x1b[" not in file_path.read_text()
+    assert output.exit_code == 0 and not output.stdout
+    assert "\x1b[" not in file_path.read_text(encoding="utf-8")
     monkeypatch.setattr(cli, "_terminal_color_enabled", lambda: False)
     assert "\x1b[" not in runner.invoke(cli.main, ["scan", str(tmp_path)]).stdout
+
+
+@pytest.mark.parametrize("encoding", ["cp1252", "ascii", "utf-8"])
+@pytest.mark.parametrize("fmt", ["terminal", "json", "sarif"])
+def test_cli_redirected_stdout_encoding(tmp_path: Path, encoding: str, fmt: str) -> None:
+    target = tmp_path / "SKILL.md"
+    target.write_text("Ordinary instructions.\n", encoding="utf-8")
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from dragonscan.cli import main; main()",
+            "scan",
+            str(target),
+            "--format",
+            fmt,
+        ],
+        env={**os.environ, "PYTHONIOENCODING": encoding + ":strict"},
+        capture_output=True,
+        timeout=20,
+    )
+    assert result.returncode == 0, result.stderr.decode("utf-8", errors="backslashreplace")
+    text = result.stdout.decode(encoding)
+    if fmt == "terminal":
+        assert "Dragons Scan" in text and "COMPLETE" in text
+        assert ("╔" in text) if encoding == "utf-8" else ("\\u2554" in text)
+    else:
+        assert isinstance(json.loads(text), dict)
+    assert b"\x1b[" not in result.stdout
 
 
 def test_color_capability(monkeypatch: pytest.MonkeyPatch) -> None:

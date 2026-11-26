@@ -4,7 +4,7 @@ Review date: 2026-11-04. Public release: [v0.1.0](https://github.com/frknaykc/Dr
 
 The detection changes described below are **unreleased working-tree changes**. They do not change the published wheel or sdist. This review evaluates static evidence, not successful exploitation or general malware-detection accuracy.
 
-Follow-up: [2026-11-06 detection accuracy review](DETECTION_ACCURACY_REVIEW.md) records the exact-SHA checkpoint, SSH public-key correction, stricter stdin contract and unchanged frozen benchmark discrepancies. The measurements below remain the historical 2026-11-04 results.
+Follow-up: [detection accuracy review](DETECTION_ACCURACY_REVIEW.md) documents the stricter stdin contract, SSH public-key correction and remaining frozen benchmark disagreements. The measurements below remain historical; they do not describe the follow-up checkpoint.
 
 ## Published distribution and usability
 

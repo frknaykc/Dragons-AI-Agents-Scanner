@@ -4,6 +4,8 @@ import json
 import os
 import signal
 import socket
+import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -31,11 +33,28 @@ from dragonscan.semantic import SemanticProvider
 
 def setup_server(tmp_path: Path, body: str) -> tuple[Path, Path]:
     script = tmp_path / "fake_server.py"
-    script.write_text("#!/usr/bin/env python3\n" + body)
+    # The runner deliberately strips PATH; do not resolve an unrelated system
+    # Python (or an OS developer-tools launcher) inside the test subprocess.
+    script.write_text(f"#!{Path(sys.executable).resolve()}\n" + body, encoding="utf-8")
     script.chmod(0o700)
     config = tmp_path / ".mcp.json"
     config.write_text(json.dumps({"mcpServers": {"test": {"command": str(script)}}}))
     return config, script
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX executable fixtures required")
+def test_fake_server_uses_test_interpreter(tmp_path: Path) -> None:
+    _, script = setup_server(tmp_path, "import sys\nprint(sys.executable)\n")
+    result = subprocess.run(
+        [str(script)],
+        cwd=tmp_path,
+        env={"PATH": "/usr/bin:/bin"},
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=True,
+    )
+    assert Path(result.stdout.strip()).resolve() == Path(sys.executable).resolve()
 
 
 def policy(script: Path) -> DynamicPolicy:
@@ -122,6 +141,8 @@ def test_early_exit_reaps_process(tmp_path: Path) -> None:
     )
     result = Scanner(dynamic_policy=policy(script)).scan(Target(config))
     assert result.dynamic_status == "failed"
+    assert "server early exit" in result.dynamic_diagnostics
+    assert marker.is_file(), result.dynamic_diagnostics
     with pytest.raises(ProcessLookupError):
         os.kill(int(marker.read_text()), 0)
 

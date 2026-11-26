@@ -65,7 +65,7 @@ def test_offline_sdist_contents(tmp_path: Path) -> None:
         prefix = f"dragons_ai_agent_scanner-{VERSION}/"
         assert {prefix + "LICENSE", prefix + "README.md", prefix + "pyproject.toml"} <= set(names)
         assert {
-            prefix + "src/" + str(path.relative_to(ROOT / "src"))
+            prefix + "src/" + path.relative_to(ROOT / "src").as_posix()
             for path in (ROOT / "src" / "dragonscan").glob("*.py")
         } <= set(names)
         assert not any(

@@ -1,23 +1,23 @@
 {
   "schema_version": 1,
-  "manifest_sha256": "a65b25c0b7b5d448cb152c37200310648806a91a7840798da262ee2991fece68",
+  "manifest_sha256": "35ee7d795111ba9cf00e6a5c2daef1e8022aca3a0fd1970de94a6306487a722b",
   "files": {
     "chain-local-load/AGENTS.md": "3bbfb38bea5a91e4ccfdcb43c5468025976d78673f1c2fe2d8a53d17b469c64f",
-    "chain-local-load/migration/SKILL.md": "cfa84188ae77f6c71ef697f7ec08d36dec49f445c99e223e615f3fdd4c20dca9",
+    "chain-local-load/migration/SKILL.md": "3cb5a85bcfb57538312cbc3c26e8ceae6061e7b2298e57793706865cd8b3dff1",
     "chain-passive-reference/AGENTS.md": "41ca8ad12fd7e2c7f45c0fac954a4d5e69864503f971b132f5d73c95c1f7bbdf",
     "chain-passive-reference/migration/SKILL.md": "72675b8152ad49518f7fc591b477ef13a23e158bd7d94bb4fbda193cee721202",
     "chain-safe-load/AGENTS.md": "ecd681086e15d0cf15fe8789dac1ecee276e94ccf92d7b6800a521da61491e18",
     "chain-safe-load/migration/SKILL.md": "39d8081587e6446d2eb47f4569c5545b401bc22b9020444f55af7a10a101aeb8",
-    "chain-structured-load/migration/SKILL.md": "795b4e4769c0b44437efc6c885cf5553350cfb0caa648da50d7c8db397071b9f",
-    "chain-structured-load/settings.json": "5a6507a0886505a027697bec20e20dbd532938370478e66775aae233f8aaeec4",
+    "chain-structured-load/kilo.jsonc": "0f62ee4b8139237d5f2e8f204ce55d24e53665d8b916f040346d2786d7a93b2f",
+    "chain-structured-load/migration/SKILL.md": "a634405488167674b7f42b0812d39713d4834a43c5c2df0ab9ee548735fa6f73",
     "cred-link-leak/SKILL.md": "e99d8d0269a0bb5bcc7a07bfb385942a3d34335413e48f05f77e66f6318fdefb",
     "cred-local-review/SKILL.md": "f30793ca2a8fa3ae0b2d04cd6459df89b5af2b232363732207dad4a03181db01",
     "cred-public-status/SKILL.md": "2bef1b76f71a1615e1a91b761ae7191a04e3d85d4a9dfc752b7cabda8b1f748c",
     "cred-redaction-guide/SKILL.md": "324f73c87d1c803c1306e54f3fa5fec022ee05ead13a55b3cfdf3db4ea87c4f0",
     "exec-download-only/SKILL.md": "8a5db20f200f1d7e1171a6faf30df3ef74687b36b096aaca00a7acfb1c2c37de",
     "exec-fenced-audit/SKILL.md": "3a17a10428f8481e4c54807fef035e44f2161ae228ad0eec70466a1f28c87091",
-    "exec-network-python/SKILL.md": "cd3db69b89e4ec29b852eeb72a76c1652b903807c616c7ce2047c60a04340a6b",
-    "exec-shell-fetch/SKILL.md": "081a2ab933825b65e96d89d62377d330bd06c9537003268b38adc580dc505bd5",
+    "exec-network-python/SKILL.md": "09ddf31862de7b7ab8fe43295636dffc198e0373643ed504e55f43a910da2b62",
+    "exec-shell-fetch/SKILL.md": "c38e21692009f2143c79b565a84b20c3b0b02df0aed2d2704963d39412e30d2f",
     "flow-disconnected-tools/mcp.json": "7073d30114b94cd68f618881f0d765aba6d7add5cd22cd4a5e14521264c2bbc2",
     "flow-redacted-result/mcp.json": "75df219099e3757739d60e190afe651d39da8102122d86a8cc8574dba9ee2922",
     "flow-result-handoff/mcp.json": "b52ad801f33cc40c011e56e44577b2b2d03f9a247d99f955e821dd2126a2a8f5",
@@ -28,7 +28,7 @@
     "mcp-shadow-runner/mcp.json": "3a6476a7b387bb2f4c6489d77f28c25627ca1d5caca51dddccf53939b138c7a7",
     "obf-bidi-directive/SKILL.md": "fd4bae922aae032f35659df8463b7f596313c27afec6f835d56604c49ae2c1d3",
     "obf-encoding-doc/SKILL.md": "cfd13b796ec79ed1237dcd92d687db918317588a64dbba75c728adca76cb5f38",
-    "obf-literal-shell/SKILL.md": "0f5d496ba78ee100d5cc279cbd112def34c242f59c37ea1a99e03dd7b2e0d8ab",
+    "obf-literal-shell/SKILL.md": "23e7d42c9dfe9c6c9e05e85db39e6665f161130c3b7f49c0ff764eb033c12836",
     "obf-print-only/SKILL.md": "2ad0b4d7f8a707ce1174bf2bad768467450eec51bb0c8a7668f5c3bab959dffd",
     "persist-next-session/SKILL.md": "8bdad03b491b6f036000e139b90a9504dc4823ccddb2a313c83483a8c64dd7a1",
     "persist-output-report/SKILL.md": "bc5dc4b06ece6e8c2a681effdcf5e6c6b7906d6d2bff9396bbe9cd4c4556a056",
@@ -613,14 +613,14 @@
     "chain-structured-load": {
       "category": "cross-artifact",
       "artifact_types": [
-        ".json",
+        ".jsonc",
         ".md"
       ],
       "label": "positive",
       "expected_behavior": "Structured configuration explicitly loads a remote-execution instruction.",
-      "expected_evidence": "instructionFile resolves to scanned child.",
+      "expected_evidence": "Kilo Code instructions entry resolves to scanned child.",
       "relationship": {
-        "source": "settings.json",
+        "source": "kilo.jsonc",
         "sink": "shell execution",
         "via": "migration/SKILL.md"
       },
@@ -629,8 +629,8 @@
       "independence": "Fresh scenario text from documented risk contracts, not detector regexes; non-blind author, not an external independent audit",
       "expected_locations": [
         {
-          "artifact": "chain-structured-load/settings.json",
-          "line": null
+          "artifact": "chain-structured-load/kilo.jsonc",
+          "line": 2
         },
         {
           "artifact": "chain-structured-load/migration/SKILL.md",
@@ -769,7 +769,7 @@
       ]
     }
   },
-  "freeze": "User-approved expectation-only revision, frozen before first v2 evaluation. Parent artifacts are byte-identical. No post-observation label edits.",
+  "freeze": "Original v2 freeze: User-approved expectation-only revision, frozen before first v2 evaluation. Parent artifacts are byte-identical. No post-observation label edits. Subsequent user-approved in-place fixture and expectation repair after observing 17 TP / 0 FP / 7 FN at scanner dd3fd13c25fc6d0f5de9d89d9653d470b8cd2844; pre-repair manifest SHA-256 a65b25c0b7b5d448cb152c37200310648806a91a7840798da262ee2991fece68. Five command lines and one configuration artifact were corrected; parent artifacts are no longer byte-identical. No case, finding ID or positive/negative label was removed. This is not an independent or blind accuracy improvement.",
   "source_policy": "Corrected evaluation corpus, not a new independent or blind holdout. Same implementation-aware reviewer and previously observed artifacts. Existing per-case split=holdout is inherited metadata, not independence. All artifacts are original synthetic text; no third-party redistribution or remote acquisition. Scenarios use fictional .invalid endpoints and placeholder packages. Non-blind, implementation-aware author; no claim of external independence.",
   "parent": {
     "corpus_version": "phase6-synthetic-evaluation-1",

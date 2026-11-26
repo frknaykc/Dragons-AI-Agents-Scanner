@@ -1,78 +1,77 @@
-# Detection accuracy review
+# Detection accuracy checkpoint
 
-Review date: 2026-11-06. These changes remain uncommitted and unreleased. They do not alter the published v0.1.0 artifacts.
+This source-only follow-up builds on checkpoint `4412435e92384c2380e77540d86dd5efb95b4659`. It does not change the published v0.1.0 release. Detection accuracy and software-quality gates are separate results; neither passing unit tests nor an explained disagreement changes frozen ground truth.
 
-## Checkpoint
+## Reviewed changes
 
-The earlier five-file detection change is checkpointed at `4412435e92384c2380e77540d86dd5efb95b4659`. It was committed in an isolated worktree based on remote main and pushed normally. [GitHub CI run 42179026087](https://github.com/frknaykc/Dragons-AI-Agents-Scanner/actions/runs/42179026087) completed successfully for that exact SHA. That CI result does **not** cover the subsequent working-tree changes described here.
+The measurements below describe the checkpoint before the corpus corrections in `e596852`. See the [checkpoint comparison](DSE-001-KARSILASTIRMA.md) for results with both fixture versions.
 
-## Execution contract
+- SSH public-key and certificate paths are excluded from private-key evidence across prose, shell evidence, MCP signals and legacy rules. Genuine private-key reads and linked transfers remain detectable.
+- `DRAGON-EXEC-001`, MCP `DAAS-002`, and related graph edges use the same bounded HTTP stdout-to-shell-stdin recognition. A suspicious command alone is not evidence that downloaded bytes execute.
+- Literal shell wrappers and MCP command flags recognize `-c`, `-lc` and `-cl` in their supported positions. General shell argument parsing is not implemented.
+- Supported `wget -O -` routing binds the immediate operand before removing the source URL, regardless of supported option order. Download-to-file and a URL used as the output operand are rejected.
+- Literal encoded payloads piped through a supported decoder into `zsh -s` or `zsh -s --` use the same stdin contract as other supported shells.
+- POSIX MCP command-string inspection reads the argument following the recognized command flag, not trailing `$0`/positional arguments. Those arguments cannot independently establish control operators or encoded execution.
+- A whole literal PowerShell encoded-command instruction retains its executable context in the bounded evasion view. Printed payloads, trailing operands and invalid stdin relationships do not gain remote-execution findings.
 
-Remote-execution findings require a supported literal HTTP(S) fetch whose stdout becomes interpreter program input. The same shell recognizer now serves prose, instructed fences, MCP command metadata, and execution graph relationships.
+Explicitly instructed shell fences and private-key contents passed to a declared MCP tool argument were already included in the parent checkpoint. Their positive and hard-negative tests remain included. No new finding ID, severity/confidence definition, discovery expansion, external service or execution engine is introduced.
 
-- Supported shell stdin forms: `sh`, `bash`, or `zsh`, with no arguments, `-s`, or `-s --`.
-- Supported Python stdin forms retain the existing no-argument, `-`, `-u`, and `-u -` contract.
-- `curl` must write to stdout; `wget` needs a supported explicit stdout option such as `-qO-`.
-- A script operand, interpreter command string, output-file download, ambiguous flags, or unsupported shell syntax does not establish this source-to-sink relationship.
-- The supported command-string flags are `-c`, `-lc`, and the explicitly approved equivalent `-cl`. Generic shell-mediated MCP execution remains distinct from proven remote-code execution.
-- Prose can contain an explicit `, then run ...` clause. Interpreter operands are not discarded as conversational wording. For example, `sh now` specifies a script operand, not program stdin.
-- Instructed fences retain direct findings and locations; this change does not invent fenced cross-file graph edges. Derived evasion evidence likewise does not establish execution graph edges.
+## Execution evidence contract
 
-All 48 finding IDs remain available. Existing severity/confidence metadata and reporting schemas remain unchanged. Removing an unsupported remote-execution match can expose an existing lower-severity generic MCP finding; that is a different finding, not a severity change to the remote-execution rule.
+| Input | Required evidence / boundary |
+| --- | --- |
+| HTTP fetch to shell | One supported literal HTTP(S) source writing stdout, directly piped to a supported shell consuming program stdin. |
+| HTTP fetch to Python | The same source evidence, with a supported Python stdin form; script operands, `-c` and `-m` do not qualify. |
+| Literal encoding to interpreter | A bounded literal payload, supported decoder and unambiguous program-stdin sink. Decoded bytes are never executed. |
+| Download-to-file / script operand | Does not prove execution of downloaded or decoded bytes. |
+| Instructed shell fence | A parsed, active execution directive must bind to the supported shell fence. Findings retain command source lines; a fence alone does not establish cross-file execution edges. |
+| MCP command metadata | Analyze the actual command string, not a trailing argument. General shell mediation (`DRAGON-MCP-004`) is distinct from proven remote stdin execution (`DAAS-002`). |
+| Passive example, quotation or negation | Does not become an active execution instruction merely because it contains a command. |
+| Unseparated trailing prose | May be a script operand. It is not silently discarded to increase recall. |
 
-## Confirmed defects and corrections
+JSON/SARIF projections, redaction, source/sink binding and graph/PATH/FLOW limits remain covered by regression tests. These are static observations, not claims that a command actually ran.
 
-**SSH public-key false positives.** Private-key path patterns matched the basename prefix in `.pub` and `-cert.pub` paths. The relevant credential, shell-read/body and MCP metadata checks now exclude those suffixes. Tests cover RSA, Ed25519, ECDSA and DSA paths, public-key documentation/configuration, private-key reads, private content transfer, and mixed public/private references. This is a path distinction, not a general guarantee that a public-key-related document is safe.
+## Frozen Phase 6 v2 disagreements
 
-**Shell source-to-sink false positives.** Broad fetch/pipe regexes treated file-writing downloads and interpreter script operands as program stdin. The shared bounded recognizer now rejects those relationships without suppressing applicable generic shell findings.
+The parent checkpoint measured **21 TP / 0 FP / 3 FN**. The strict-contract follow-up measures **17 TP / 0 FP / 7 FN**. These are seven expected-finding mismatches across five cases, not seven confirmed detector defects.
 
-**Command flag inconsistency.** `-cl` now follows the supported `-c`/`-lc` paths in wrappers, MCP rules, encoded execution, generic shell detection and graph construction. Positive and hard-negative cases compare IDs, severity/confidence, source/sink and graph edge kinds.
+### Discovery-scope mismatch (one, already present)
 
-**Regression handling.** Strict validation exposed a derived PowerShell view that still included its original encoded-command wrapper. A whole literal encoded command now yields its decoded command as the analysis view, with original evidence provenance. Printed data, extra operands and non-stdin decoded commands have negative coverage. Literal adjacent shell quotes may already resolve in the direct tokenizer, so their unit test no longer requires redundant evasion evidence. The terminal escaping test supplies hostile evidence directly rather than depending on an invalid interpreter token being treated as executable.
+| Case | Missing expected ID | Reason |
+| --- | --- | --- |
+| `chain-structured-load` | `DRAGON-PATH-002` | Generic `settings.json` is outside recognized agent discovery. The loader reference is not discovered. In the follow-up, ambiguous execution in the child skill also independently prevents a proven execution path. |
 
-## Frozen Phase 6 v2 cases
+### Ambiguous execution / ground-truth mismatches (six)
 
-No fixture, manifest expectation or frozen ground truth was changed. Separate inert counterfactuals isolate the causes below.
+| Case | Missing expected ID | History and reason |
+| --- | --- | --- |
+| `exec-network-python` | `DRAGON-EXEC-002` | Already absent at the parent checkpoint. Unseparated words after Python may select a script instead of downloaded stdin. |
+| `obf-literal-shell` | `DRAGON-EXEC-003` | Already absent at the parent checkpoint. Unseparated words after the shell may select a script instead of decoded stdin. |
+| `chain-local-load` | `DRAGON-EXEC-001` | Newly absent under strict validation. The earlier prefix match accepted ambiguous trailing operands as execution. |
+| `chain-local-load` | `DRAGON-PATH-002` | Newly absent because its required execution edge is no longer proven; a load relationship alone is insufficient. |
+| `chain-structured-load` | `DRAGON-EXEC-001` | Newly absent under strict validation of the child skill's ambiguous trailing operands. Separate from the discovery-scope mismatch above. |
+| `exec-shell-fetch` | `DRAGON-EXEC-001` | Newly absent under strict validation; trailing words are not assumed to be harmless commentary. |
 
-| Case | Evidence and conclusion |
-|---|---|
-| `chain-structured-load` | Generic root `settings.json` is outside automatic directory discovery without a recognized ecosystem. The payload also ends with `bash before running diagnostics`, which supplies script operands. Removing only that suffix produces `DRAGON-EXEC-001`, but no load path. A separately generated recognized `.claude/settings.json` example produces both EXEC-001 and PATH-002. This is a discovery boundary plus ambiguous command syntax, not a missing generic detector. |
-| `exec-network-python` | The fixture ends with `python3.12 before checking the report`. A separate command without those operands produces EXEC-002. The frozen expected source label is also `remote HTTP(S) content`, while the existing detector contract uses `remote HTTP(S) code source`; neither contract nor frozen expectation was changed. |
-| `obf-literal-shell` | The fixture ends with `sh to complete initialization`. A separate literal decoder-to-shell command without those operands produces EXEC-003. No arbitrary decoder execution or prose-operand stripping was added. |
+The strict evaluator must still exit **1 / FAIL** for this set. Frozen fixtures, manifests, locks and expectations are not modified. Structured configuration discovery requires a separate ecosystem-specific review; no general `settings.json` discovery is added here.
 
-Strict stdin validation also rejects the trailing operands in `exec-shell-fetch` and `chain-local-load`, and removes the previous standalone shell match in `chain-structured-load`. The frozen metric therefore changes from **21 TP / 0 FP / 3 FN** to **17 TP / 0 FP / 7 FN**. Counts are expected-finding matches, not seven independent broken detectors. These mismatches remain visible; passing unit tests does not mean the frozen benchmark passes.
+The local Phase 2 v2 corpus measures **8 TP / 0 FP / 0 FN**. Its untracked fixtures/results are deliberately not added to this checkpoint. The committed original Phase 2 corpus remains **8 TP / 0 FP / 1 FN**. These sets must not be confused.
 
-## Verification
+The existing development corpus also has a known strict-gate disagreement: **49 TP / 1 FP / 1 FN**. Its `mcp-poisoning` case expects `DAAS-002` for plain `wget`, which writes to a file rather than stdout. The follow-up reports generic shell mediation (`DRAGON-MCP-004`), producing the extra/missing-ID pair under the frozen labels. The existing `benchmark_gate.py` remains unchanged and fails. No broader production accuracy claim follows from these synthetic sets.
 
-- Initial accuracy RED: 50 failures and 53 passes, including 34 public-key failures and 16 shell source-to-sink failures. The flag-order extension also had a recorded failing run before implementation.
-- Final full local suite: **2168 passed, 7 skipped**. The new accuracy module contributes **141 passing cases**.
-- Process/network-guarded static selection: **1160 passed**, 14 audit self-checks, zero blocked attempts during tests. Audit hooks are tripwires, not an OS sandbox.
-- Ruff formatting, Ruff lint, `mypy src scripts`, and `git diff --check` passed.
-- The built-in inventory matches the checkpoint inventory: **48 IDs**.
-- JSON/SARIF evidence and location assertions, graph/PATH/FLOW, MCP, evasion, CLI and headless TUI regressions passed. No new manual native-terminal visual acceptance was performed.
+## Validation and scope
 
-Selected deterministic results:
+Pre-commit validation of the isolated source on native macOS Apple Silicon with Python 3.12.12: **2257 passed, 1 skipped**; Ruff format/lint, `mypy src scripts` and `git diff --check` passed. This is the complete suite for the scoped checkout, not the larger user's working tree with unrelated local packaging and experimental tests. Ten deterministic benchmark sets (including the external local-only Phase 2 v2 set) were measured twice with identical summaries. Both the Phase 6 v2 strict evaluator and the existing corpus gate returned **1 / FAIL**, as documented above.
 
-| Corpus | TP | FP | FN |
-|---|---:|---:|---:|
-| Phase 2 v2 | 8 | 0 | 0 |
-| Interpreter | 4 | 0 | 0 |
-| Phase 3 | 14 | 0 | 0 |
-| Main corpus | 49 | 1 | 1 |
-| Phase 6 v2 | 17 | 0 | 7 |
+`tests/test_detection_accuracy.py` and `tests/test_execution_stdin_regressions.py` supply independent inert positives and hard negatives; they do not execute target commands or start target MCP servers. The full repository suite additionally uses controlled repository-owned fake MCP subprocesses. No live Semantic AI/OSV service or real user agent configuration is used.
 
-The main corpus retains an expected DAAS-002 for plain `wget URL | bash`. The scanner now reports MCP-004 instead, which the frozen expectations count as one FP and one FN. The unit test records that exact discrepancy rather than relabelling the corpus. Legacy Phase 2 remains 8/0/1 and legacy Phase 6 measures 15/2/7. Synthetic results do not establish general real-world accuracy.
+At the original detection checkpoint, the test-only `detection-checkpoint.yml` workflow targeted the same event SHA on Linux x86-64, Windows x86-64, macOS Intel and macOS Apple Silicon. It checked the native architecture, full tests, Ruff, mypy and the 48-ID inventory. Strict accuracy jobs remained visibly failed; they used neither `continue-on-error` nor replacement expectations. Consequently the overall workflow could be red even when all independent source-quality/native-test jobs passed. Existing quality/release workflows were unchanged. No standalone executable was built or uploaded by this workflow.
 
-## Safety and repository state
+The checkpoint excludes root `AGENTS.md`, private semantic results, frozen benchmark material, local outputs, experimental YARA-X work and unrelated packaging/release edits. Headless TUI tests are automated acceptance, not manual visual review. Exact-SHA CI results must be inspected before declaring the checkpoint ready for main-integration approval.
 
-Tests used inert target text and controlled repository test fixtures. No real MCP server or scanned command was launched; semantic AI, OSV and other live intelligence services were not used. Benchmark runs used process/network audit tripwires. The full suite includes the separately authorized controlled fake-server integration tests; the guarded static selection excludes them.
+## Current checkpoint CI and native Apple Silicon acceptance
 
-The 97 baseline files outside the checkpoint-owned set and all 64 frozen Phase 2 v2 / Phase 6 v2 files retain their recorded hashes. This includes pre-existing user/private work; no private installed-agent configuration was inspected. No dependency, detection engine, release, tag, PyPI upload or additional commit/push was introduced. Local main was not reset or rebased to the checkpoint.
+The test-only `detection-checkpoint.yml` workflow now runs native full tests on GitHub-hosted Linux x86-64, Windows x86-64 and macOS Intel. Repeated hosted ARM64 runner-allocation failures prompted removal of only the macOS Apple Silicon matrix entry. Source-quality checks, the 48-ID inventory, both strict accuracy gates and their failure behavior are unchanged. Distribution workflows are unaffected; this workflow builds or uploads no standalone executables.
 
-The development delta covers six scanner modules (`behavior`, `rules`, `detectors`, `mcp_security`, `attack_graph`, `evasion`), the new accuracy test module, four existing unit-test modules, and this review/link. The original user changes remain separate.
+Native Apple Silicon validation is a separate **local, manual acceptance control**, not a GitHub check or an inferred PASS. Use a clean isolated worktree at the exact SHA tested by all three hosted platforms and an isolated Python 3.12 environment. Record the commit, macOS version, `uname -m` (`arm64`), Python version and `platform.machine()` (`arm64`), and verify `sysctl -in sysctl.proc_translated` is `0` (not Rosetta).
 
-## Follow-up priorities
-
-1. Define any desired natural-language command-boundary support separately, with hard negatives for genuine script operands. Keep the frozen mismatches until a reviewed contract justifies a change.
-2. Specify ecosystem-aware structured configuration discovery and load-reference behavior before expanding generic filename coverage.
-3. Extend independent holdout evidence for interpreter/source options and metadata contexts; review these uncommitted changes before another checkpoint.
+Run full offline pytest, the existing corpus strict gate, the frozen Phase 6 v2 strict evaluator, the external local-only Phase 2 v2 evaluation, Ruff format/lint, `mypy src scripts` and the 48-ID inventory. Verify manifest/ground-truth lock integrity and unchanged benchmark inputs. Keep command exit codes, full test/skip summaries and benchmark results as separate local evidence tied to that SHA; do not commit local-only fixtures or private reports. A newer commit requires fresh local and hosted evidence. Hosted green status alone does not satisfy this control, and this documentation does not attest that a particular revision passed it.

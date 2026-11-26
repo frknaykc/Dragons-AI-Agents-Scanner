@@ -5,7 +5,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
-from dragonscan.behavior import remote_shell_pipeline, unnegated_text
+from dragonscan.behavior import remote_shell_pipeline, shell_command_string, unnegated_text
 from dragonscan.detection import DetectionContext, DetectionMetadata, finding
 from dragonscan.models import Classification as C
 from dragonscan.models import Confidence as F
@@ -222,30 +222,38 @@ class McpDeepDetector:
                         None,
                     )
         elif indicator == "shell":
-            if server.runtime in _SHELL and any(
-                arg.lower() in {"-c", "-lc", "-cl", "/c", "-command", "-encodedcommand", "-enc"}
-                for arg in server.args[:2]
-            ):
-                command_string = server.args[-1] if server.args else ""
+            if server.runtime in _SHELL and server.args:
+                encoded = False
                 if server.runtime in {"sh", "bash", "zsh"}:
-                    command_flag = next(
-                        (i for i, arg in enumerate(server.args[:2]) if arg in {"-c", "-lc", "-cl"}),
-                        None,
-                    )
-                    if command_flag is None or len(server.args) <= command_flag + 1:
+                    selected = shell_command_string(server.args)
+                    if selected is None:
                         return
-                    # Subsequent arguments supply $0/$1/etc., not shell code.
-                    command_string = server.args[command_flag + 1]
+                    command_string = selected
+                    if remote_shell_pipeline(command_string):
+                        return  # The dedicated remote-execution rule has stronger evidence.
+                else:
+                    # Windows shells consume the command remainder, not just the last
+                    # argv item. Recognize only explicit, bounded option prefixes.
+                    index = 0
+                    if server.runtime in {"cmd", "cmd.exe"}:
+                        flags = {"/c"}
+                    else:
+                        flags = {"-c", "-command", "-enc", "-encodedcommand"}
+                        if server.args[0].lower() in {"-noprofile", "-noninteractive"}:
+                            index = 1
+                    if len(server.args) <= index + 1 or server.args[index].lower() not in flags:
+                        return
+                    encoded = server.args[index].lower() in {"-enc", "-encodedcommand"}
+                    if encoded and len(server.args) != index + 2:
+                        return  # Do not reinterpret ambiguous encoded invocations.
+                    command_string = " ".join(server.args[index + 1 :])
                 if (
                     "|" in command_string
                     or "$(" in command_string
                     or "`" in command_string
                     or "&&" in command_string
-                    or (
-                        server.runtime not in {"sh", "bash", "zsh"}
-                        and ("-enc" in server.args or "-EncodedCommand" in server.args)
-                    )
-                ) and not remote_shell_pipeline(command_string):
+                    or encoded
+                ):
                     yield (
                         server.location,
                         "MCP server uses shell command-string interpretation "

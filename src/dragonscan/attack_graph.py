@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from dragonscan.behavior import fetch_shell_url, segment_text, write_target
+from dragonscan.behavior import fetch_shell_url, segment_text, shell_command_string, write_target
 from dragonscan.detection import Observation
 from dragonscan.mcp_references import extract as extract_tool_references
 from dragonscan.mcp_security import (
@@ -366,13 +366,12 @@ def build_graph(
                             "credential reference",
                         )
                         edge(ref, server_id, "authenticates_with", header.location, "mcp_metadata")
-            if (
-                server.runtime not in {"sh", "bash", "zsh"}
-                or len(server.args) < 2
-                or server.args[0] not in {"-c", "-lc", "-cl"}
-            ):
+            if server.runtime not in {"sh", "bash", "zsh"}:
                 continue
-            remote = external(fetch_shell_url(server.args[1]) or "")
+            command_text = shell_command_string(server.args)
+            if command_text is None:
+                continue
+            remote = external(fetch_shell_url(command_text) or "")
             if remote is None:
                 continue
             server_id = node("mcp_server", str(path) + ":" + server.name, "MCP server")

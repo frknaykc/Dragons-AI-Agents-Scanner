@@ -3,7 +3,12 @@
 import re
 from dataclasses import dataclass
 
-from dragonscan.behavior import related_transfer, shell_accesses, shell_executions
+from dragonscan.behavior import (
+    related_transfer,
+    shell_accesses,
+    shell_command_string,
+    shell_executions,
+)
 from dragonscan.detection import DetectionContext, DetectionMetadata, EngineDetector, finding
 from dragonscan.mcp_security import MCP_DETECTORS
 from dragonscan.models import Classification as C
@@ -11,7 +16,7 @@ from dragonscan.models import Confidence as F
 from dragonscan.models import Finding
 from dragonscan.models import Severity as S
 
-_MARKDOWN = ("instructions", "skill", "memory", "soul")
+_MARKDOWN = ("instructions", "skill", "memory", "soul", "agent_config")
 _MCP = ("mcp_config", "agent_config")
 _OBSERVATION_KINDS = frozenset(
     {
@@ -277,9 +282,8 @@ class SignatureDetector:
                 )
                 for server in context.document.servers
                 if server.runtime in {"sh", "bash", "zsh"}
-                and len(server.args) >= 2
-                and server.args[0] in {"-c", "-lc", "-cl"}
-                and _ENCODED_SHELL.search(server.args[1])
+                and (command_text := shell_command_string(server.args)) is not None
+                and _ENCODED_SHELL.search(command_text)
             )
         raise ValueError("unsupported signature indicator")
 
