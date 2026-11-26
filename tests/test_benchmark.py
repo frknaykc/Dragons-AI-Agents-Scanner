@@ -366,7 +366,7 @@ def test_real_corpus_offline_execution_free_and_same_scanner(tmp_path: Path) -> 
         result = run(root / "manifest.json")
     assert result["status"] == "completed"
     assert result == run(root / "manifest.json")
-    assert result["coverage"]["total_rules"] == 48
+    assert result["coverage"]["total_rules"] == 49
     assert len(result["coverage"]["supported"]) == 38
     assert len(result["coverage"]["semantic_excluded"]) == 5
     assert result["summary"]["benign_cases"] > 0

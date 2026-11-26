@@ -1,0 +1,27 @@
+# Evidence, identity and rule IDs
+
+A static finding describes the scanned artifact, not a successful attack. Terminal finding details, JSON findings and SARIF result properties distinguish `evidence_kind` from `analysis_coverage`. Coverage is the status of the **scan** (`complete`, `partial`, `failed`), not the probability that an individual finding is correct. A partial scan can still have a high-confidence finding. Severity and confidence retain their existing meanings.
+
+- `static_declared`: evidence taken from a dependency declaration, without a reported path or flow. The declaration does not establish that the dependency ran.
+- `static_inferred`: a deterministic interpretation of the artifact or of supported relationships between artifacts. A model annotation does not replace deterministic evidence.
+- `intel_match`: a threat indicator or vulnerability advisory matched an extracted identity. This can add context, not an execution or data-transfer edge.
+- `model_opinion`: a standalone semantic finding. It does not authorize or prove execution.
+
+## Scope and identity
+
+For a local artifact, use its path within the selected scan scope **and** its `raw_sha256`. For an archive include the acquisition identity and member path; for installed discovery retain the environment, scope and origins instead of equating like-named artifacts. A digest alone identifies bytes, not the session, installation, authority, or action. Unknown or unavailable raw identity stays unknown. `text_sha256` identifies parser input, not the bytes approved for execution. A changed digest requires reevaluation; neither an old approval nor a negative feed lookup is authority. See [scan budgets](SCAN_BUDGETS.md).
+
+The CLI policy is a scan result, not enforcement. Only the optional MCP inspector decides whether **it** starts the selected subprocess; it cannot stop other processes. It checks static coverage, deterministic findings and requested intelligence first. A critical finding, high-confidence malicious classification, or exact raw digest with an operator-reviewed malicious record can veto. A mentioned hash, unreviewed feed label, or model opinion cannot grant authority. Separate legacy consent and executable checks still apply. Blocking before launch is not evidence that any behavior in the artifact occurred. Runtime request/observation/enforcement identities are reserved for verified adapters, not emitted by the static finding contract.
+
+The shared keys in [guide §4.B](../Dragons-Security-Engine-Development-Guide-v2.md#4b-shared-dataflow-and-trust-boundaries) are logical identities, not required JSON fields. A package match needs ecosystem, registry or origin where known, name and version; an MCP tool name needs its server identity. A URL occurrence is not evidence of a request to its host. Preserve an unknown component rather than joining on a bare name. A future runtime evidence join also needs trusted adapter provenance, a session and an action or causal link. Neither equal digests nor words in a tool response establish that link. Report what was requested, what was observed and what the enforcing adapter actually did separately.
+
+## Catalogs
+
+`python -m scripts.coverage_inventory --format json` lists actual public producers and the assertions in the chosen benchmark. A public ID is not an assertion of benchmark coverage. The P0 PowerShell rule adds `DRAGON-EXEC-004`; earlier `DRAGON-*` and `DAAS-*` IDs are unchanged.
+
+The [proposal ledger](reference-rule-ledger.csv) lists the 144 short IDs in [guide §15.A](../Dragons-Security-Engine-Development-Guide-v2.md#dse-reference-families). `family_tasks` identifies the tasks responsible for the family, not the implementation status of each proposal. Read the `reason` field against these sources:
+
+- `Ek B` names the public rule in the [assessment inventory](../Dragons-Technical-Assessment-2026-11-26.md#ek-b-ayrıntılı-tespit-kuralı-envanteri). `corpus` names a case in the [development manifest](../benchmarks/corpus/manifest.json) that expects that rule. For example, `PI-001` maps to `DRAGON-PI-001`, asserted by `pi-override`. `revise` identifies an existing rule for which the guide specifies a change; the cited case supports the existing behavior, not every proposed extension.
+- `§15` refers to the [rule backlog](../Dragons-Security-Engine-Development-Guide-v2.md#15-detection-rule-backlog). A `new` entry records a design target, not a finding emitted by the scanner.
+- `rule_id` and `benchmark_case` are machine-checked against the registry and manifest for existing behavior. For `new`, `rule_id` is a proposed ID in §15, not a registered producer. For `deferred`, both fields stay empty and evidence stays `unknown`.
+- §15.A assigns subjects to families, not a separate behavior to every ordinal. Where neither the public catalog nor the design table assigns that ordinal a behavior, the P0 decision is **not to allocate another public ID or credit coverage**. Each deferred row names the closest competing interpretation, the evidence needed to distinguish it and the next `review_task`. The condition can be shared by slots in the same family; it is a criterion for future review, not a claim that the ordinal meant that particular behavior. OBF slots return at DSE-009 for parser work; their original family tasks remain unchanged. Reopen an individual row when a named behavior and distinguishing case can be assigned to it.

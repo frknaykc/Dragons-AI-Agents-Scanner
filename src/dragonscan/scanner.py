@@ -6,13 +6,15 @@ from dataclasses import fields, is_dataclass, replace
 from enum import Enum
 from pathlib import Path
 
+from dragonscan import installed_agents
 from dragonscan.attack_graph import AttackGraph, GraphLimitError, build_graph, node_id
 from dragonscan.behavior import collect
+from dragonscan.catalog import STAGE_IDS
 from dragonscan.correlation import correlate
 from dragonscan.detection import DetectionContext, EngineDetector, Observation
 from dragonscan.detectors import BUILTIN_DETECTORS, SourceSinkDetector
-from dragonscan.discovery import DiscoveryError, discover
-from dragonscan.dynamic_mcp import DynamicPolicy, DynamicResult, available_capabilities
+from dragonscan.discovery import DiscoveryError
+from dragonscan.dynamic_mcp import DynamicPolicy
 from dragonscan.dynamic_mcp import inspect as inspect_mcp
 from dragonscan.evasion import iter_views
 from dragonscan.evasion_graph import annotate_views
@@ -22,7 +24,7 @@ from dragonscan.installed_agents import (
     discover_installed,
     discover_project,
 )
-from dragonscan.loading import LoadError, load_text, load_text_with_bytes
+from dragonscan.loading import LoadError, load_text_with_bytes
 from dragonscan.mcp_correlation import correlate_mcp
 from dragonscan.models import (
     Artifact,
@@ -43,8 +45,10 @@ from dragonscan.parse_errors import ParseError
 from dragonscan.parsing import parse
 from dragonscan.risk import summarize
 from dragonscan.rules import BUILTIN_RULES, Rule
+from dragonscan.scan_budget import BudgetBuffer, FindingBuffer, ScanBudget, ScanLimits, ScanStopped
+from dragonscan.scan_inventory import scan_inventory
 from dragonscan.scan_progress import ScanProgress
-from dragonscan.semantic import SemanticLimits, SemanticProvider
+from dragonscan.semantic import SEMANTIC_IDS, SemanticLimits, SemanticProvider
 from dragonscan.semantic import enrich as enrich_semantic
 from dragonscan.signature_graph import annotate, enrich_correlations
 from dragonscan.signature_packs import load_pack
@@ -52,6 +56,7 @@ from dragonscan.signatures import BUILTIN_SIGNATURES, SignatureEngine
 from dragonscan.supply_chain import analyze as analyze_dependencies
 from dragonscan.target_acquisition import AcquiredTarget
 from dragonscan.threat_intel import INTELLIGENCE_IDS, STORE_NAME, Matcher, load_feeds
+from dragonscan.vulnerability import MAX_FINDINGS as VULNERABILITY_BATCH
 from dragonscan.vulnerability import VULNERABILITY_IDS, IntelligenceProvider
 from dragonscan.vulnerability import enrich as enrich_vulnerabilities
 
@@ -73,8 +78,12 @@ class Scanner:
         intel_feeds: tuple[Path, ...] = (),
         intel_store: Path | None = None,
         progress: Callable[[ScanProgress], None] | None = None,
+        limits: ScanLimits | None = None,
+        cancelled: Callable[[], bool] | None = None,
     ):
         self.progress = progress
+        self.limits = limits or ScanLimits()
+        self.cancelled = cancelled
         # An explicit legacy rule selection keeps the old selection semantics.
         self.rules = tuple(BUILTIN_RULES if rules is None else rules)
         self.vulnerability_provider = vulnerability_provider
@@ -98,14 +107,12 @@ class Scanner:
             for detector in self.detectors
             if isinstance(detector, SourceSinkDetector)
         )
+        identifiers.extend(signature.detection_id for signature in BUILTIN_SIGNATURES)
+        for group in (STAGE_IDS, SEMANTIC_IDS, INTELLIGENCE_IDS, VULNERABILITY_IDS):
+            identifiers.extend(group)
         if len(identifiers) != len(set(identifiers)):
             raise ValueError("duplicate rule ID")
-        reserved = (
-            set(identifiers)
-            | {signature.detection_id for signature in BUILTIN_SIGNATURES}
-            | VULNERABILITY_IDS
-            | INTELLIGENCE_IDS
-        )
+        reserved = set(identifiers)
         loaded, self.pack_diagnostics = (
             load_pack(signature_pack, reserved) if signature_pack is not None else ((), ())
         )
@@ -128,18 +135,23 @@ class Scanner:
         reference_boundaries: dict[Path, Path] | None = None,
         claude_project: Path | None = None,
         progress_agents: tuple[tuple[Path, str], ...] = (),
+        _budget: ScanBudget | None = None,
     ) -> ScanReport:
+        budget = _budget or ScanBudget(self.limits, self.cancelled)
         # A reused scanner must observe the current installed feed, never a stale index.
         intel_feeds, intel_diagnostics = (
-            load_feeds(self.intel_paths) if self.intel_requested else ((), ())
+            load_feeds(self.intel_paths) if self.intel_requested and budget.running() else ((), ())
         )
-        intel_matcher = Matcher(intel_feeds) if self.intel_requested else None
+        intel_matcher = Matcher(intel_feeds, budget=budget) if self.intel_requested else None
         discovery_messages: list[str] = []
         if artifacts is None:
             self._notify(ScanProgress("discover"))
-            artifacts = discover(
-                target, max_artifacts=max_artifacts, limit_diagnostics=discovery_messages
+            artifacts = scan_inventory(
+                target, budget, discovery_messages, max_artifacts=max_artifacts
             )
+        if len(artifacts) > self.limits.max_artifacts:
+            discovery_messages.append("scan artifact budget reached")
+            artifacts = artifacts[: self.limits.max_artifacts]
         self._notify(ScanProgress("ready", artifacts=artifacts, agents=progress_agents))
 
         def boundary_for(path: Path) -> Target:
@@ -169,26 +181,44 @@ class Scanner:
         mcp_scope_hints: list[tuple[Path, str, str]] = []
         intel_digests: dict[Path, str] = {}
         observations_by_path: dict[Path, tuple[Observation, ...]] = {}
-        findings: list[Finding] = []
+        findings = FindingBuffer(budget, self.limits.max_findings)
         graph = None
-        errors: list[str] = list(self.pack_diagnostics)
-        diagnostics: list[Diagnostic] = [
-            Diagnostic("coverage", message) for message in discovery_messages
-        ]
+        errors = BudgetBuffer[str](budget, self.limits.max_diagnostics, "scan error budget reached")
+        errors.extend(self.pack_diagnostics)
+        diagnostics = BudgetBuffer[Diagnostic](
+            budget, self.limits.max_diagnostics, "scan diagnostic budget reached"
+        )
+        diagnostics.extend(Diagnostic("coverage", message) for message in discovery_messages)
         skipped_parse = 0
         fully_analyzed_paths: set[Path] = set()
         for artifact in artifacts:
+            if not budget.running():
+                break
             self._notify(ScanProgress("start", artifact=artifact))
+            if not budget.running():
+                break
             finding_start = len(findings)
             coverage["attempted"] += 1
             diagnostic_start = len(diagnostics)
             try:
+                text, raw = load_text_with_bytes(artifact.path, budget)
+                raw_digest = hashlib.sha256(raw).hexdigest()
+                artifact = replace(
+                    artifact,
+                    raw_sha256=raw_digest,
+                    text_sha256=(
+                        hashlib.sha256(memoryview(raw)[3:]).hexdigest()
+                        if raw.startswith(b"\xef\xbb\xbf")
+                        else raw_digest
+                    ),
+                )
                 if intel_matcher is not None:
-                    text, raw = load_text_with_bytes(artifact.path)
-                    intel_digests[artifact.path] = hashlib.sha256(raw).hexdigest()
-                else:
-                    text = load_text(artifact.path)
+                    intel_digests[artifact.path] = raw_digest
                 coverage["loaded"] += 1
+                if not budget.running():
+                    normalized.append(artifact)
+                    coverage["skipped"] += 1
+                    break
                 document = parse(
                     artifact,
                     text,
@@ -196,6 +226,9 @@ class Scanner:
                     claude_project=claude_project if artifact.path.name == ".claude.json" else None,
                 )
             except LoadError as exc:
+                if budget.reason is not None:
+                    coverage["skipped"] += 1
+                    break
                 coverage["failed"] += 1
                 if artifact.ecosystem in {"Kilo Code", "Zed Agent", "Goose"} and (
                     "exceeds 1 MiB" in str(exc) or "Unicode" in str(exc)
@@ -225,7 +258,7 @@ class Scanner:
                 for server in document.servers
                 if server.config_scope is not None
             )
-            context_bytes = len(text.encode("utf-8"))
+            context_bytes = len(raw)  # Includes any BOM; no second string encoding.
             context_items = sum(
                 len(items)
                 for items in (
@@ -273,13 +306,17 @@ class Scanner:
                 )
                 for diagnostic in document.diagnostics
             )
-            document_findings: list[Finding] = []
+            document_findings = FindingBuffer(budget, self.limits.max_findings - len(findings))
             for rule in self.rules:
-                document_findings.extend(rule.detect(document))
-            observations = collect(document)
+                if not budget.running():
+                    break
+                document_findings.consume(rule.iter_detect(document))
+            observations = collect(document) if budget.running() else ()
             if retain_context:
                 observations_by_path[document.artifact.path] = observations
             for detector in self.detectors:
+                if not budget.running():
+                    break
                 document_findings.extend(
                     detector.detect(
                         DetectionContext(document, observations, tuple(document_findings))
@@ -292,10 +329,14 @@ class Scanner:
                         f"{artifact.path}: private state excluded from raw signature analysis",
                     )
                 )
-            if self.signature_engine is not None and not (
-                artifact.ecosystem == "Claude Code" and artifact.path.name == ".claude.json"
+            if (
+                budget.running()
+                and self.signature_engine is not None
+                and not (
+                    artifact.ecosystem == "Claude Code" and artifact.path.name == ".claude.json"
+                )
             ):
-                document_findings.extend(self.signature_engine.detect(document, text))
+                document_findings.extend(self.signature_engine.detect(document, raw))
                 if self.signature_engine.limit_reason:
                     diagnostics.append(
                         Diagnostic(
@@ -305,7 +346,7 @@ class Scanner:
             # Derived views are evidence only; never add their observations or
             # dependencies to the graph or vulnerability query plan.
             evasion_diagnostics: list[str] = []
-            derived = iter_views(document, evasion_diagnostics, coverage)
+            derived = iter_views(document, evasion_diagnostics, coverage, budget)
             seen = {
                 (
                     f.detection_id,
@@ -316,7 +357,7 @@ class Scanner:
                 )
                 for f in document_findings
             }
-            if document.artifact.path.name == "package.json":
+            if budget.running() and document.artifact.path.name == "package.json":
                 seen.update(
                     (
                         f.detection_id,
@@ -330,7 +371,7 @@ class Scanner:
                     )[1]
                 )
             for view in derived:
-                candidates: list[Finding] = []
+                candidates = FindingBuffer(budget, self.limits.max_findings)
                 if "hidden-html" in view.evidence.chain and view.context == "block-html":
                     hidden = replace(
                         view.document,
@@ -339,33 +380,41 @@ class Scanner:
                         ),
                     )
                     for rule in self.rules:
-                        candidates.extend(rule.detect(hidden))
-                    hidden_observations = collect(hidden)
+                        if not budget.running():
+                            break
+                        candidates.consume(rule.iter_detect(hidden))
+                    hidden_observations = collect(hidden) if budget.running() else ()
                     for detector in self.detectors:
+                        if not budget.running():
+                            break
                         candidates.extend(
                             detector.detect(
                                 DetectionContext(hidden, hidden_observations, tuple(candidates))
                             )
                         )
-                if view.context == "lifecycle-script":
+                if budget.running() and view.context == "lifecycle-script":
                     candidates.extend(
                         analyze_dependencies(
                             boundary_for(view.document.artifact.path), (view.document,)
                         )[1]
                     )
                 for rule in self.rules:
-                    candidates.extend(rule.detect(view.document))
-                observations_view = collect(view.document)
+                    if not budget.running():
+                        break
+                    candidates.consume(rule.iter_detect(view.document))
+                observations_view = collect(view.document) if budget.running() else ()
                 for detector in self.detectors:
+                    if not budget.running():
+                        break
                     candidates.extend(
                         detector.detect(
                             DetectionContext(view.document, observations_view, tuple(candidates))
                         )
                     )
-                if self.signature_engine is not None:
+                if budget.running() and self.signature_engine is not None:
                     candidates.extend(
                         self.signature_engine.detect(
-                            view.document, text, include_artifact_hash=False
+                            view.document, b"", include_artifact_hash=False
                         )
                     )
                     if self.signature_engine.limit_reason:
@@ -436,7 +485,9 @@ class Scanner:
                 else finding
                 for finding in document_findings
             )
-            if any(item.incomplete for item in diagnostics[diagnostic_start:]):
+            if not budget.running() or any(
+                item.incomplete for item in diagnostics[diagnostic_start:]
+            ):
                 coverage["partially_analyzed"] += 1
             else:
                 coverage["fully_analyzed"] += 1
@@ -447,9 +498,11 @@ class Scanner:
                         "processed", artifact=artifact, findings=tuple(findings[finding_start:])
                     )
                 )
+        coverage["bytes_read"] = budget.bytes_read
+        coverage["skipped"] += len(artifacts) - coverage["attempted"]
         self._notify(ScanProgress("correlate"))
         cross_stage_start = len(diagnostics)
-        if self.enable_correlation:
+        if budget.running() and self.enable_correlation:
             if boundaries is None:
                 analyzed, supply_findings, supply_errors = analyze_dependencies(
                     target, tuple(documents)
@@ -465,6 +518,8 @@ class Scanner:
                     groups.setdefault(boundaries[document.artifact.path], []).append(document)
                 documents = []
                 for boundary, group in groups.items():
+                    if not budget.running():
+                        break
                     analyzed, supply_findings, supply_errors = analyze_dependencies(
                         Target(boundary), tuple(group)
                     )
@@ -473,7 +528,7 @@ class Scanner:
                         describe_existing_flow(f, tuple(analyzed)) for f in supply_findings
                     )
                     diagnostics.extend(supply_errors)
-        if self.enable_correlation:
+        if budget.running() and self.enable_correlation:
             try:
                 graph = build_graph(
                     target.path.absolute(),
@@ -481,25 +536,33 @@ class Scanner:
                     observations_by_path,
                     reference_boundaries=reference_boundaries,
                 )
+                budget.checkpoint()
                 graph = annotate(
                     graph,
                     tuple(documents),
                     tuple(f for f in findings if f.evasion is None),
                     self.signature_engine.signatures if self.signature_engine is not None else (),
                 )
+                budget.checkpoint()
                 graph = annotate_views(graph, tuple(documents), tuple(findings))
                 original_findings = tuple(f for f in findings if f.evasion is None)
-                correlated = (
-                    *correlate(graph, tuple(documents), observations_by_path, original_findings),
-                    *correlate_mcp(graph, tuple(documents), original_findings),
+                budget.checkpoint()
+                correlated = correlate(
+                    graph, tuple(documents), observations_by_path, original_findings
                 )
+                if budget.running():
+                    correlated += correlate_mcp(graph, tuple(documents), original_findings)
                 findings.extend(
                     describe_existing_flow(finding, tuple(documents))
                     for finding in enrich_correlations(graph, correlated)
                 )
-                flow_findings, flow_diagnostics = correlate_flows(graph, tuple(documents))
+                flow_findings, flow_diagnostics = (
+                    correlate_flows(graph, tuple(documents)) if budget.running() else ((), ())
+                )
                 findings.extend(enrich_correlations(graph, flow_findings))
                 diagnostics.extend(Diagnostic("coverage", item) for item in flow_diagnostics)
+            except ScanStopped:
+                pass  # finish() records the first stop reason and the incomplete scope.
             except GraphLimitError as exc:
                 diagnostics.append(Diagnostic("coverage", str(exc)))
         if (
@@ -539,36 +602,48 @@ class Scanner:
             mcp_scope_hints=tuple(mcp_scope_hints),
         )
         if self.vulnerability_provider is not None:
-            report, graph = enrich_vulnerabilities(
-                report, tuple(documents), graph, self.vulnerability_provider
-            )
-        if self.semantic_provider is not None:
-            report = enrich_semantic(
-                report, tuple(documents), self.semantic_provider, self.semantic_limits
-            )
-        if self.dynamic_policy.requested:
-            dynamic = (
-                DynamicResult(
-                    "blocked",
-                    ("static scan incomplete; MCP launch skipped",),
-                    mode="legacy_uncontained"
-                    if self.dynamic_policy.allow_uncontained
-                    else "required_isolation",
-                    capabilities=available_capabilities(),
+            # This provider produces an indivisible, bounded batch. Do not
+            # start it when its maximum output cannot be admitted.
+            if (
+                budget.running()
+                and self.limits.max_findings - len(report.findings) < VULNERABILITY_BATCH
+            ):
+                budget.reason = "scan finding budget cannot admit vulnerability batch"
+            if budget.running():
+                report, graph = enrich_vulnerabilities(
+                    report, tuple(documents), graph, self.vulnerability_provider
                 )
-                if report.errors or report.diagnostics
-                else inspect_mcp(tuple(documents), self.dynamic_policy)
-            )
-            report = replace(
-                report,
-                dynamic_status=dynamic.status,
-                dynamic_diagnostics=dynamic.diagnostics,
-                dynamic_observations=dynamic.observations,
-                dynamic_mode=dynamic.mode,
-                dynamic_capabilities=dynamic.capabilities or {},
-                dynamic_timings_ms=dynamic.timings_ms or {},
-            )
-        # Intelligence has no effect on graph, semantic candidate selection or MCP launch.
+            else:
+                report = replace(
+                    report,
+                    vulnerability_status="partial",
+                    vulnerability_diagnostics=(budget.reason or "scan stopped",),
+                )
+        report = budget.finish(report)
+        if self.semantic_provider is not None:
+            remaining_findings = self.limits.max_findings - len(report.findings)
+            if budget.running() and not remaining_findings:
+                budget.reason = "scan finding budget cannot admit semantic analysis"
+            if budget.running():
+                per_candidate = min(self.semantic_limits.max_findings, remaining_findings)
+                limits = replace(
+                    self.semantic_limits,
+                    max_findings=per_candidate,
+                    max_candidates=min(
+                        self.semantic_limits.max_candidates, remaining_findings // per_candidate
+                    ),
+                )
+                report = enrich_semantic(report, tuple(documents), self.semantic_provider, limits)
+            else:
+                report = replace(
+                    report,
+                    semantic_status="partial",
+                    semantic_diagnostics=(budget.reason or "scan stopped",),
+                )
+        report = budget.finish(report)
+        if intel_matcher is not None:
+            intel_matcher.remaining = self.limits.max_findings - len(report.findings)
+        # Finish requested intelligence before the prelaunch gate. A feed label is advisory.
         if intel_matcher is not None:
             intel_findings: list[Finding] = []
             for doc in documents:
@@ -587,6 +662,19 @@ class Scanner:
                 ),
                 intelligence_diagnostics=tuple(dict.fromkeys(intel_diagnostics)),
             )
+        if self.dynamic_policy.requested:
+            report = budget.finish(report)  # Final cancellation/deadline check after intelligence.
+            dynamic = inspect_mcp(tuple(documents), self.dynamic_policy, report)
+            report = replace(
+                report,
+                dynamic_status=dynamic.status,
+                dynamic_diagnostics=dynamic.diagnostics,
+                dynamic_observations=dynamic.observations,
+                dynamic_mode=dynamic.mode,
+                dynamic_capabilities=dynamic.capabilities or {},
+                dynamic_timings_ms=dynamic.timings_ms or {},
+            )
+        report = budget.finish(report)
         self.graph = graph
         self._notify(ScanProgress("finished", report=report))
         return report
@@ -609,13 +697,27 @@ class Scanner:
             raise DiscoveryError(
                 "network enrichment is unavailable during installed-agent discovery"
             )
+        budget = ScanBudget(self.limits, self.cancelled)
         self._notify(ScanProgress("discover"))
+        if not budget.running():
+            return self.scan(
+                target or Target((home or Path.home()).absolute()), artifacts=(), _budget=budget
+            )
+        installed_limit = (
+            max_artifacts if max_artifacts is not None else installed_agents.MAX_ARTIFACTS
+        )
         discovered = discover_installed(
             home=home,
             platform=platform,
             agent=agent,
-            max_entries_per_root=max_entries_per_root,
-            max_artifacts=max_artifacts,
+            max_entries_per_root=(
+                min(max_entries_per_root, 250_000)
+                if max_entries_per_root is not None
+                else installed_agents.MAX_ENTRIES_PER_ROOT
+            ),
+            max_artifacts=min(self.limits.max_artifacts, installed_limit)
+            if installed_limit is not None
+            else self.limits.max_artifacts,
             max_artifacts_per_root=max_artifacts_per_root,
             max_depth=max_depth,
         )
@@ -623,11 +725,12 @@ class Scanner:
         project_messages: list[str] = []
         try:
             explicit = (
-                discover(
+                scan_inventory(
                     target,
+                    budget,
+                    project_messages,
                     installed_project=True,
                     known_artifact=lambda path: classify_project_artifact(target, path),
-                    limit_diagnostics=project_messages,
                 )
                 if target is not None
                 else ()
@@ -649,7 +752,9 @@ class Scanner:
                     resolution="partial",
                 ),
             )
-        project = discover_project(target, explicit) if target is not None else None
+        project = (
+            discover_project(target, explicit) if target is not None and budget.running() else None
+        )
         all_artifacts = (
             *explicit,
             *(project.artifacts if project is not None else ()),
@@ -669,6 +774,8 @@ class Scanner:
         reference_boundaries: dict[Path, Path] = {}
         seen: dict[tuple[object, ...], Path] = {}
         for artifact, origin in zip(all_artifacts, origins, strict=True):
+            if not budget.running():
+                break
             try:
                 info = artifact.path.lstat()
                 identity: tuple[object, ...] = (
@@ -699,9 +806,19 @@ class Scanner:
                 and target is not None
             ):
                 reference_boundaries.setdefault(origin.scanned_artifact, target.path.absolute())
+        if (
+            not unique
+            and budget.reason is None
+            and any(
+                "limit exceeded" in (env.diagnostic or "")
+                for env in (*discovered.environments, *project_diagnostics)
+            )
+        ):
+            budget.reason = "scan inventory limit reached before any artifact was admitted"
         report = self.scan(
             target or Target((home or Path.home()).absolute()),
             artifacts=tuple(unique),
+            _budget=budget,
             boundaries=boundaries,
             reference_boundaries=reference_boundaries,
             progress_agents=tuple(
@@ -722,6 +839,9 @@ class Scanner:
             *project_diagnostics,
             *discovered.environments,
         )
+        incomplete_inventory = (
+            bool(report.coverage.get("budget_stopped")) or len(unique) > self.limits.max_artifacts
+        )
         environments = tuple(
             replace(
                 environment,
@@ -729,20 +849,23 @@ class Scanner:
                 diagnostic=environment.diagnostic or "artifact scan incomplete",
             )
             if environment.status == "discovered"
-            and any(
-                (origin.agent is None or origin.agent == environment.agent)
-                and origin.environment == environment.root
-                and origin.source == environment.source
-                and origin.scope == environment.scope
-                and origin.scanned_artifact is not None
-                and any(
-                    message.startswith(f"{origin.scanned_artifact}:")
-                    for message in (
-                        *report.errors,
-                        *(item.message for item in report.diagnostics),
+            and (
+                incomplete_inventory
+                or any(
+                    (origin.agent is None or origin.agent == environment.agent)
+                    and origin.environment == environment.root
+                    and origin.source == environment.source
+                    and origin.scope == environment.scope
+                    and origin.scanned_artifact is not None
+                    and any(
+                        message.startswith(f"{origin.scanned_artifact}:")
+                        for message in (
+                            *report.errors,
+                            *(item.message for item in report.diagnostics),
+                        )
                     )
+                    for origin in resolved_origins
                 )
-                for origin in resolved_origins
             )
             else environment
             for environment in environments

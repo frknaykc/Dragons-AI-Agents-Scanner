@@ -7,6 +7,7 @@ from dragonscan.evasion import MAX_REGION, iter_views
 from dragonscan.loading import MAX_BYTES
 from dragonscan.models import Target
 from dragonscan.parsing import parse
+from dragonscan.policy import evaluate
 from dragonscan.reporting import json_report, sarif_report, terminal_report
 from dragonscan.scanner import Scanner
 
@@ -197,9 +198,15 @@ def test_comment_views_stay_bounded(tmp_path):
     diagnostics = []
     derived = iter_views(parse(artifact, path.read_text(encoding="utf-8")), diagnostics)
     assert iter(derived) is derived
-    assert sum(1 for _ in derived) == 200
-    assert not diagnostics
-    assert not report.diagnostics
+    assert sum(1 for _ in derived) == 128
+    assert diagnostics == ["scan evasion region limit reached"]
+    assert report.coverage["evasion_regions"] == 128
+    assert report.coverage["evasion_views"] == 128
+    assert report.coverage["fully_analyzed"] == 0
+    assert report.coverage["partially_analyzed"] == 1
+    assert any("region limit reached" in item.message for item in report.diagnostics)
+    assert evaluate(report).scan_status == "partial"
+    assert evaluate(report).exit_code == 3
 
 
 def test_instruction_after_multiline_comment_retains_source_line(tmp_path):

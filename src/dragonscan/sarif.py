@@ -9,9 +9,8 @@ from urllib.parse import quote
 
 from dragonscan.models import Finding, ScanReport, Severity
 from dragonscan.policy import PolicyResult, evaluate
-from dragonscan.report_context import context_data
+from dragonscan.report_context import context_data, evidence_kind, mask_fields, redact_report_text
 from dragonscan.risk import ORDER
-from dragonscan.semantic import redact
 
 _SCHEMA = "https://json.schemastore.org/sarif-2.1.0.json"
 _LEVEL = {
@@ -25,7 +24,7 @@ _LEVEL = {
 
 def _safe(text: str, limit: int = 1024) -> str:
     # Redact before truncation; refuse oversized or incomplete sensitive input.
-    cleaned = redact(text)
+    cleaned = redact_report_text(text, strip_controls=True)
     return cleaned[:limit] if cleaned is not None else "<redacted>"
 
 
@@ -40,7 +39,7 @@ def _uri(report: ScanReport, artifact: Path) -> str | None:
             value = report.acquisition_source + value[len(target) :].replace("\\", "/")
         else:
             return None  # Do not expose an unprojected acquisition workspace path.
-    cleaned = redact(value)
+    cleaned = redact_report_text(value, strip_controls=True)
     if cleaned is None or cleaned != value:
         return None  # Never place a redacted/invalid path in source identity.
     if value.startswith("https://"):
@@ -61,7 +60,7 @@ def _uri(report: ScanReport, artifact: Path) -> str | None:
     if report.acquisition_kind == "archive":
         return artifact.as_uri().replace("%21", "!") if artifact.is_absolute() else None
     physical = artifact.resolve(strict=False)
-    if redact(str(physical)) != str(physical):
+    if redact_report_text(str(physical), strip_controls=True) != str(physical):
         return None
     try:
         return quote(physical.relative_to(Path.cwd().resolve()).as_posix(), safe="/:!")
@@ -69,7 +68,7 @@ def _uri(report: ScanReport, artifact: Path) -> str | None:
         return physical.as_uri().replace("%21", "!")
 
 
-def _result(report: ScanReport, finding: Finding) -> dict[str, Any]:
+def _result(report: ScanReport, finding: Finding, coverage: str) -> dict[str, Any]:
     result: dict[str, Any] = {
         "ruleId": finding.detection_id,
         "level": _LEVEL[finding.severity],
@@ -80,6 +79,8 @@ def _result(report: ScanReport, finding: Finding) -> dict[str, Any]:
             "severity": finding.severity.value,
             "confidence": finding.confidence.value,
             "classification": finding.classification.value,
+            "evidence_kind": evidence_kind(finding),
+            "analysis_coverage": coverage,
         },
     }
     if finding.intelligence is not None:
@@ -172,7 +173,7 @@ def sarif_report(report: ScanReport, policy: PolicyResult | None = None) -> str:
     for finding in report.findings:
         by_id.setdefault(finding.detection_id, []).append(finding)
     rules = [_rule(by_id[identifier]) for identifier in sorted(by_id)]
-    results = [_result(report, finding) for finding in report.findings]
+    results = [_result(report, finding, policy.scan_status) for finding in report.findings]
     results.sort(
         key=lambda item: (
             item["ruleId"],
@@ -190,32 +191,34 @@ def sarif_report(report: ScanReport, policy: PolicyResult | None = None) -> str:
         )
     )
     return json.dumps(
-        {
-            "$schema": _SCHEMA,
-            "version": "2.1.0",
-            "runs": [
-                {
-                    "tool": {"driver": {"name": "Dragons AI Agent Scanner", "rules": rules}},
-                    "results": results,
-                    "invocations": [{"executionSuccessful": not policy.execution_errors}],
-                    "properties": {
-                        "policy": policy.as_dict(),
-                        "coverage": report.coverage,
-                        "diagnostics": [
-                            {
-                                "level": item.level,
-                                "message": item.message,
-                                "artifact": str(item.artifact)
-                                if item.artifact is not None
-                                else None,
-                                "incomplete": item.incomplete,
-                            }
-                            for item in report.diagnostics
-                        ],
-                    },
-                }
-            ],
-        },
+        mask_fields(
+            {
+                "$schema": _SCHEMA,
+                "version": "2.1.0",
+                "runs": [
+                    {
+                        "tool": {"driver": {"name": "Dragons AI Agent Scanner", "rules": rules}},
+                        "results": results,
+                        "invocations": [{"executionSuccessful": not policy.execution_errors}],
+                        "properties": {
+                            "policy": policy.as_dict(),
+                            "coverage": report.coverage,
+                            "diagnostics": [
+                                {
+                                    "level": item.level,
+                                    "message": item.message,
+                                    "artifact": str(item.artifact)
+                                    if item.artifact is not None
+                                    else None,
+                                    "incomplete": item.incomplete,
+                                }
+                                for item in report.diagnostics
+                            ],
+                        },
+                    }
+                ],
+            }
+        ),
         indent=2,
         ensure_ascii=True,
     )

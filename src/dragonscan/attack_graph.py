@@ -22,6 +22,7 @@ from dragonscan.mcp_security import (
 from dragonscan.models import ArtifactKind, Confidence, Document, SourceRef
 from dragonscan.parse_errors import ParseError
 from dragonscan.parse_helpers import safe_url
+from dragonscan.skill_package import one_endpoint
 
 MAX_NODES = 50_000
 MAX_EDGES = 100_000
@@ -76,6 +77,8 @@ def resolve_local(
     """Resolve only selected, regular, non-symlink artifacts inside the target."""
     if (
         not reference
+        or len(reference) > 4096
+        or reference.count("/") > 128
         or "\x00" in reference
         or "\\" in reference
         or "%" in reference
@@ -84,16 +87,25 @@ def resolve_local(
         or ":" in reference.split("/")[0]
     ):
         return Resolution("unsafe")
-    root = boundary.resolve()
+    root = boundary.absolute()
     lexical = Path(os.path.normpath(source.parent / reference))
-    if not lexical.is_relative_to(root):
+    if not lexical.is_relative_to(root) or not source.parent.is_relative_to(root):
         return Resolution("outside")
     current = root
-    if root.is_symlink():
+    if root.is_symlink() or root.is_junction():
         return Resolution("unsafe")
-    for part in lexical.relative_to(root).parts:
-        current = current / part
-        if current.is_symlink():
+    parts = (source.parent / reference).relative_to(root).parts
+    for part in parts:
+        try:
+            # A normalized path could erase an absent or non-directory component.
+            if part == ".." and not current.is_dir():
+                return Resolution("missing")
+            current = current.parent if part == ".." else current / part
+            if not current.is_relative_to(root):
+                return Resolution("outside")
+            if current.is_symlink() or current.is_junction():
+                return Resolution("unsafe")
+        except OSError:
             return Resolution("unsafe")
     # Do not guess how a case-insensitive filesystem might choose between spellings.
     counts = (
@@ -126,6 +138,9 @@ def build_graph(
     # Retain the document multiplicity when detecting ambiguous references.
     case_counts = Counter(str(doc.artifact.path).casefold() for doc in documents)
     root = boundary if boundary.is_dir() else boundary.parent
+    packages = {
+        d.artifact.path: d.artifact.package_root for d in documents if d.artifact.package_root
+    }
 
     def node(kind: str, key: str, label: str, artifact: Path | None = None) -> str:
         identifier = node_id(kind, key)
@@ -166,7 +181,9 @@ def build_graph(
 
     def local(source: Path, target: str) -> tuple[str, Resolution]:
         source_root = reference_boundaries.get(source, root) if reference_boundaries else root
-        resolved = resolve_local(source_root, source, target, known, case_counts)
+        resolved = resolve_local(
+            packages.get(source, source_root), source, target, known, case_counts
+        )
         if resolved.path is not None:
             return artifact_node(resolved.path), resolved
         return (
@@ -178,16 +195,45 @@ def build_graph(
         path = document.artifact.path
         source = artifact_node(path)
         for relation in document.relationships:
-            if relation.kind in {"references_file", "loads_file"}:
+            if relation.kind in {"references_file", "loads_file", "runs_script"}:
                 dest, resolution = local(path, relation.target)
                 edge(
                     source,
                     dest,
-                    "loads" if relation.kind == "loads_file" else "references",
+                    {"loads_file": "loads", "runs_script": "runs_script"}.get(
+                        relation.kind, "references"
+                    ),
                     relation.location,
                     document.artifact.source_format.value,
                     resolution=resolution.status,
                 )
+            elif document.artifact.kind == ArtifactKind.SCRIPT and relation.kind in {
+                "remote_program",
+                "decoded_program",
+            }:
+                encoded = relation.kind == "decoded_program"
+                input_id = (
+                    node(
+                        "encoded_input", f"{path}:{relation.location.line}", "literal encoded input"
+                    )
+                    if encoded
+                    else external(relation.target)
+                )
+                if input_id and relation.subject in {
+                    "shell execution",
+                    "Python interpreter execution",
+                }:
+                    cmd = node(
+                        "command", f"{path}:{relation.location.line}:script", relation.subject
+                    )
+                    edge(
+                        input_id,
+                        cmd,
+                        "decodes_to" if encoded else "fetches",
+                        relation.location,
+                        "script_parser",
+                    )
+                    edge(source, cmd, "executes", relation.location, "script_parser")
             elif relation.kind == "references_url":
                 remote_id = external(relation.target)
                 if remote_id is not None:
@@ -382,6 +428,20 @@ def build_graph(
             edge(server_id, command, "executes", server.location, "mcp_parser")
             edge(remote, command, "fetches", server.location, "mcp_parser")
             edge(server_id, capability, "defines", server.location, "mcp_parser")
+    # Original local observations still drive their own detectors. Promote the
+    # Python/encoded ones into cross-file evidence only for a resolved load;
+    # do this after collecting all directives, independent of discovery order.
+    loaded = {
+        e.target
+        for e in edges
+        if e.kind == "loads"
+        and e.resolution == "resolved"
+        and e.source != e.target
+        and nodes[e.source].kind == nodes[e.target].kind == "artifact"
+    }
+    for document in documents:
+        path = document.artifact.path
+        source = artifact_node(path)
         for obs in observations.get(path, ()):
             if obs.context >= len(document.instructions):
                 continue
@@ -396,6 +456,30 @@ def build_graph(
             if obs.kind == "sensitive_access":
                 secret = node("sensitive_resource", obs.label, obs.label)
                 edge(instruction, secret, "reads", obs.location, "behavior")
+            elif obs.kind in {"remote_python_execution", "literal_encoded_execution"}:
+                if source not in loaded:
+                    continue
+                encoded = obs.kind == "literal_encoded_execution"
+                input_id = (
+                    node(
+                        "encoded_input",
+                        f"{path}:{obs.context}:{obs.segment}",
+                        "literal encoded input",
+                    )
+                    if encoded
+                    else external(one_endpoint(text) or "")
+                )
+                if input_id:
+                    sink = obs.label if encoded else "Python interpreter execution"
+                    cmd = node("command", f"{path}:{obs.context}:{obs.segment}:{obs.kind}", sink)
+                    edge(
+                        input_id,
+                        cmd,
+                        "decodes_to" if encoded else "fetches",
+                        obs.location,
+                        "behavior",
+                    )
+                    edge(instruction, cmd, "executes", obs.location, "behavior")
             elif obs.kind in {"external_transfer", "remote_trust", "remote_execution"}:
                 urls = [match.group() for match in _URL.finditer(text)]
                 endpoint = (

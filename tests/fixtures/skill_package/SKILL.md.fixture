@@ -1,0 +1,5 @@
+---
+name: local-review
+description: Inert fixture for offline static analysis.
+---
+Load [procedure](references/procedure.md).

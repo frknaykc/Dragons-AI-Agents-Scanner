@@ -11,8 +11,9 @@ from dragonscan.dependencies import (
     runtime_dependencies,
 )
 from dragonscan.markdown_parser import parse_markdown
-from dragonscan.models import Artifact, Document, SourceFormat
+from dragonscan.models import Artifact, ArtifactKind, Document, SourceFormat
 from dragonscan.parse_errors import ParseError
+from dragonscan.skill_package import parse_script
 from dragonscan.structured_parser import parse_structured
 
 Parser = Callable[[Artifact, str], Document]
@@ -33,6 +34,13 @@ def parse(
     claude_project: Path | None = None,
 ) -> Document:
     if artifact.source_format == SourceFormat.TEXT:
+        if artifact.kind == ArtifactKind.SCRIPT:
+            return parse_script(artifact, text)
+        if artifact.kind == ArtifactKind.PACKAGE_DATA:
+            return Document(
+                artifact,
+                diagnostics=("skill package data inventoried; content semantics unsupported",),
+            )
         name = artifact.path.name.lower()
         if name == ".npmrc":
             return parse_npmrc(artifact, text)

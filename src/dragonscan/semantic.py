@@ -32,6 +32,7 @@ _CATEGORIES = {
     "persistence_intent": ("DRAGON-SEM-004", "Persistent agent manipulation intent"),
     "sensitive_data_intent": ("DRAGON-SEM-005", "Sensitive data handling intent"),
 }
+SEMANTIC_IDS = frozenset(identifier for identifier, _ in _CATEGORIES.values())
 _MCP_CATEGORIES = frozenset(_CATEGORIES)
 _INSTRUCTION_CATEGORIES = frozenset(_CATEGORIES) - {"tool_poisoning", "behavior_mismatch"}
 _SUSPECT = re.compile(
@@ -136,8 +137,8 @@ class Candidate:
     transformation_confidence: Confidence | None = None
 
 
-def redact(text: str) -> str | None:
-    """Redact entire bounded source before truncating; fail closed on incomplete PEM."""
+def redact_secrets(text: str) -> str | None:
+    """Mask credentials before escaping or truncating text for its destination."""
     if len(text) > 8192:
         return None
     cleaned = _PRIVATE.sub("<REDACTED_PRIVATE_KEY>", text)
@@ -147,7 +148,13 @@ def redact(text: str) -> str | None:
     cleaned = _AUTH.sub("<REDACTED_AUTHORIZATION>", cleaned)
     cleaned = _BEARER.sub("<REDACTED_BEARER>", cleaned)
     cleaned = _SECRET.sub("<REDACTED_SECRET>", cleaned)
-    cleaned = _KEY.sub("<REDACTED_API_KEY>", cleaned)
+    return _KEY.sub("<REDACTED_API_KEY>", cleaned)
+
+
+def redact(text: str) -> str | None:
+    cleaned = redact_secrets(text)
+    if cleaned is None:
+        return None
     # Control/format characters cannot act on terminal or prompt structure.
     return "".join(" " if unicodedata.category(c) in {"Cc", "Cf", "Cs"} else c for c in cleaned)
 

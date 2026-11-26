@@ -34,14 +34,14 @@ def test_hermes_default_discovers_every_supported_skill_ordered_once(
 ) -> None:
     root = tmp_path / ".hermes"
     expected = _skills(root, count)
-    # Unclassified entries must not consume a hidden cumulative default budget.
-    for path in expected:
-        _write(path.parent, "README.md")
-        _write(path.parent, "notes.txt")
+    # Each selected package includes its supporting docs, without duplicate visits.
+    expected = sorted(
+        [*expected, *(_write(p.parent, n) for p in expected for n in ("README.md", "notes.txt"))]
+    )
     result = discover_installed(home=tmp_path, agent="Hermes Agent")
     paths = [item.path for item in result.artifacts]
     assert paths == expected
-    assert len(paths) == len(set(paths)) == count
+    assert len(paths) == len(set(paths)) == count * 3
     assert result.environments[0].resolution == "complete"
     assert result.environments[0].diagnostic is None
 
@@ -64,13 +64,13 @@ def test_scanner_attempts_each_discovered_skill_once_even_with_explicit_overlap(
     root = tmp_path / ".hermes"
     expected = _skills(root, count)
     attempts: list[Path] = []
-    real_load = scanner.load_text
+    real_load = scanner.load_text_with_bytes
 
-    def track_load(path: Path) -> str:
+    def track_load(path: Path, budget):
         attempts.append(path)
-        return real_load(path)
+        return real_load(path, budget)
 
-    monkeypatch.setattr(scanner, "load_text", track_load)
+    monkeypatch.setattr(scanner, "load_text_with_bytes", track_load)
     report = Scanner().scan_installed(Target(root), home=tmp_path, agent="Hermes Agent")
     assert [a.path for a in report.artifacts] == expected
     assert attempts == expected
@@ -110,6 +110,7 @@ def test_hermes_profiles_privacy_symlinks_and_mixed_files(tmp_path: Path) -> Non
     expected = {
         _write(root, "config.yaml", "{}"),
         _write(root, "skills/local/SKILL.md"),
+        _write(root, "skills/local/README.md"),
         _write(root, "profiles/work/skills/local/SKILL.md"),
         _write(root, "profiles/work/memories/MEMORY.md"),
     }
@@ -120,7 +121,6 @@ def test_hermes_profiles_privacy_symlinks_and_mixed_files(tmp_path: Path) -> Non
         "cache/SKILL.md",
         "profiles/work/.env",
         "profiles/work/sessions/SKILL.md",
-        "skills/local/README.md",
     ):
         _write(root, relative, "PRIVATE SYNTHETIC DATA")
     outside = _write(tmp_path, "outside/SKILL.md")
@@ -132,7 +132,10 @@ def test_hermes_profiles_privacy_symlinks_and_mixed_files(tmp_path: Path) -> Non
     result = discover_installed(home=tmp_path, agent="Hermes Agent")
     assert {a.path for a in result.artifacts} == expected
     assert len(result.artifacts) == len(expected)
-    assert result.environments[0].resolution == "complete"
+    assert result.environments[0].resolution == "partial"
+    assert "symlink" in (result.environments[0].diagnostic or "") or "reparse point" in (
+        result.environments[0].diagnostic or ""
+    )
 
 
 def test_unreadable_subtree_retains_other_skills_with_safe_diagnostic(

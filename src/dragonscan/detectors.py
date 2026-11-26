@@ -1,6 +1,5 @@
 """Declarative, behavioral, source/sink and indicator detectors over normalized IR."""
 
-import re
 from dataclasses import dataclass
 
 from dragonscan.behavior import (
@@ -8,6 +7,12 @@ from dragonscan.behavior import (
     shell_accesses,
     shell_command_string,
     shell_executions,
+)
+from dragonscan.command_semantics import (
+    POWERSHELL,
+    literal_encoded_pipeline,
+    selected_command,
+    selected_powershell_execution,
 )
 from dragonscan.detection import DetectionContext, DetectionMetadata, EngineDetector, finding
 from dragonscan.mcp_security import MCP_DETECTORS
@@ -24,17 +29,13 @@ _OBSERVATION_KINDS = frozenset(
         "bypass",
         "remote_execution",
         "remote_python_execution",
+        "powershell_execution",
         "persistence",
         "remote_trust",
         "sensitive_access",
         "external_transfer",
         "bidi",
     }
-)
-
-_ENCODED_SHELL = re.compile(
-    r"\bbase64\s+(?:-d|--decode)\b[^\n|]{0,100}\|\s*(?:sh|bash|zsh)\b",
-    re.I,
 )
 
 
@@ -94,7 +95,12 @@ class DeclarativeDetector:
 def _fenced_execution_findings(
     context: DetectionContext, metadata: DetectionMetadata, kind: str
 ) -> tuple[Finding, ...]:
-    if kind not in {"remote_execution", "remote_python_execution", "literal_encoded_execution"}:
+    if kind not in {
+        "remote_execution",
+        "remote_python_execution",
+        "literal_encoded_execution",
+        "powershell_execution",
+    }:
         return ()
     return tuple(
         finding(
@@ -142,6 +148,28 @@ class BehavioralDetector:
             for observation in context.observations
             if observation.kind == self.observation_kind
         ) + _fenced_execution_findings(context, self.metadata, self.observation_kind)
+
+
+@dataclass(frozen=True)
+class PowerShellDetector(BehavioralDetector):
+    def detect(self, context: DetectionContext) -> tuple[Finding, ...]:
+        results = super().detect(context)
+        return results + tuple(
+            finding(
+                self.metadata,
+                context.document,
+                server.location,
+                self.evidence,
+                "behavioral",
+                ("network-fetch", "command-execution"),
+                self.source,
+                self.sink,
+            )
+            for server in context.document.servers
+            if server.runtime in POWERSHELL
+            and (command := selected_command(server.runtime, server.args))
+            and selected_powershell_execution(command)
+        )
 
 
 @dataclass(frozen=True)
@@ -283,7 +311,7 @@ class SignatureDetector:
                 for server in context.document.servers
                 if server.runtime in {"sh", "bash", "zsh"}
                 and (command_text := shell_command_string(server.args)) is not None
-                and _ENCODED_SHELL.search(command_text)
+                and literal_encoded_pipeline(command_text) == "shell execution"
             )
         raise ValueError("unsupported signature indicator")
 
@@ -446,6 +474,24 @@ BUILTIN_DETECTORS: tuple[EngineDetector, ...] = (
         "instruction directs an HTTP(S) download piped to Python stdin",
         "remote HTTP(S) code source",
         "Python interpreter execution",
+    ),
+    PowerShellDetector(
+        _meta(
+            "DRAGON-EXEC-004",
+            "Remote content directed to PowerShell execution",
+            "dangerous-execution",
+            S.HIGH,
+            F.HIGH,
+            C.RISKY,
+            (*_MARKDOWN, "mcp_config"),
+            "The static command directs remote HTTP(S) content to PowerShell execution; "
+            "no content was retrieved or run.",
+            "Review the remote source offline before authorizing execution.",
+        ),
+        "powershell_execution",
+        "PowerShell command links downloaded content to an execution operand",
+        "remote HTTP(S) content",
+        "PowerShell execution",
     ),
     EncodedExecutionDetector(
         _meta(

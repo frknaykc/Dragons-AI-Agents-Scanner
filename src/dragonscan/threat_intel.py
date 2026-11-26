@@ -23,6 +23,7 @@ from dragonscan.models import (
     Severity,
     SourceRef,
 )
+from dragonscan.scan_budget import ScanBudget
 from dragonscan.semantic import redact
 from dragonscan.signature_ioc import collect_candidates, normalize, public_label
 from dragonscan.signature_models import IndicatorType
@@ -198,7 +199,7 @@ def parse_feed(raw: bytes) -> Feed:
         published = _timestamp(item, "published")
         updated = _timestamp(item, "updated")
         confidence = _metadata(item, "confidence", 16)
-        trust = _metadata(item, "trust", 16)
+        trust = _metadata(item, "trust", len("operator_reviewed"))
         provenance = _metadata(item, "provenance")
         if confidence is not None and confidence not in {"low", "medium", "high"}:
             raise FeedError("invalid confidence")
@@ -400,7 +401,9 @@ def update_feed(url: str, expected_sha256: str, store: Path) -> Feed:
 class Matcher:
     """Index exact records once, then inspect the existing bounded IOC regions."""
 
-    def __init__(self, feeds: tuple[Feed, ...]):
+    def __init__(self, feeds: tuple[Feed, ...], *, budget: ScanBudget | None = None):
+        self.budget = budget
+        self.remaining = budget.limits.max_findings if budget else MAX_MATCHES
         self.feeds = feeds
         self.diagnostics: list[str] = []
         self.index: dict[
@@ -438,10 +441,14 @@ class Matcher:
 
     def detect(self, document: Document, artifact_sha256: str) -> tuple[Finding, ...]:
         self.diagnostics = []
+        if self.budget and not self.budget.running():
+            self.diagnostics.append(self.budget.reason or "scan stopped")
+            return ()
         if not self.index:
             return ()
+        limit = min(MAX_MATCHES, self.remaining) if self.budget else MAX_MATCHES
         matches: dict[
-            tuple[str, str, int | None], tuple[SourceRef, str, list[IntelligenceSource]]
+            tuple[str, str, int | None], tuple[SourceRef, str, set[IntelligenceSource]]
         ] = {}
 
         def priority(name: str) -> tuple[bool, bool, str]:
@@ -464,13 +471,21 @@ class Matcher:
                 return
             key = (kind, value, location.line)
             if key not in matches:
-                matches[key] = (location, context, [])
+                if len(matches) >= limit:
+                    reason = "intelligence hit limit reached"
+                    if self.budget and self.remaining <= MAX_MATCHES:
+                        self.budget.reason = "scan finding budget reached"
+                        reason = self.budget.reason
+                    if reason not in self.diagnostics:
+                        self.diagnostics.append(reason)
+                    return
+                matches[key] = (location, context, set())
             previous_location, previous_context, previous_sources = matches[key]
             # The same URL can appear in overlapping parsed regions on one line.
             # Retain its strongest observed context without multiplying the fact.
             if priority(context) > priority(previous_context):
                 matches[key] = (location, context, previous_sources)
-            previous_sources.extend(sources)
+            previous_sources.update(sources)
 
         selected = regions(document)
         kinds = {
@@ -479,6 +494,8 @@ class Matcher:
             if kind not in {"package", "skill", "plugin", "mcp_server"}
         }
         for region in selected:
+            if self.budget and not self.budget.running():
+                break
             for indicator_kind in sorted(kinds):
                 if indicator_kind in {IndicatorType.SHA256, IndicatorType.SHA1, IndicatorType.MD5}:
                     continue  # Hashes identify the artifact, not arbitrary prose tokens.
@@ -545,6 +562,8 @@ class Matcher:
             and server.runtime in {"npx", "npx.cmd", "npm", "npm.cmd", "uvx"}
         }
         for dependency in document.dependencies:
+            if self.budget and not self.budget.running():
+                break
             if dependency.source != "registry" or dependency.exact_version is None:
                 continue
             ecosystem = {"node": "npm", "python": "PyPI"}.get(dependency.ecosystem)
@@ -561,6 +580,8 @@ class Matcher:
                     (ecosystem, dependency.exact_version, None, None),
                 )
         for server in document.servers:
+            if self.budget and not self.budget.running():
+                break
             if (
                 server.package
                 and server.package_version
@@ -599,10 +620,7 @@ class Matcher:
         findings: list[Finding] = []
         for kind, value, line in sorted(matches, key=lambda key: (key[0], key[1], key[2] or 0)):
             location, context, sources = matches[(kind, value, line)]
-            if len(findings) >= MAX_MATCHES:
-                self.diagnostics.append("intelligence hit limit reached")
-                break
-            sources = sorted(set(sources), key=lambda item: (item.feed_id, item.record_id))
+            ordered_sources = sorted(sources, key=lambda item: (item.feed_id, item.record_id))
             # Feed classification/confidence never sets severity; active context or exact
             # artifact hash determines impact. Multiple feeds do not escalate.
             severity = (
@@ -636,7 +654,13 @@ class Matcher:
                         "Verify the feed and artifact evidence before trusting the artifact."
                     ),
                     detector="threat_intel",
-                    intelligence=IntelligenceEvidence(kind, indicator, context, tuple(sources)),
+                    intelligence=IntelligenceEvidence(
+                        kind, indicator, context, tuple(ordered_sources)
+                    ),
                 )
             )
+        if self.budget:
+            self.remaining -= len(findings)
+            if not self.budget.running() and self.budget.reason not in self.diagnostics:
+                self.diagnostics.append(self.budget.reason or "scan stopped")
         return tuple(findings)

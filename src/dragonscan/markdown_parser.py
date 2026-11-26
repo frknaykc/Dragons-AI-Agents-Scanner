@@ -9,6 +9,7 @@ from markdown_it.rules_inline import StateInline, html_inline
 
 from dragonscan.models import (
     Artifact,
+    ArtifactKind,
     ConfigEntry,
     Document,
     Instruction,
@@ -20,6 +21,7 @@ from dragonscan.models import (
 )
 from dragonscan.parse_errors import ParseError
 from dragonscan.parse_helpers import safe_url
+from dragonscan.skill_package import DATA_SUFFIXES, SCRIPT_SUFFIXES
 
 _URL = re.compile(r"https?://[^\s<>\[\]()]+", re.I)
 _FILE_SUFFIXES = frozenset({".md", ".json", ".yaml", ".yml", ".toml"})
@@ -29,17 +31,94 @@ _LOAD_FILE = re.compile(
     re.I,
 )
 _HTML_SOURCE = re.compile(r"^\s*<(?:!--|/?[A-Za-z][\w:-]*(?:\s|>|/))")
+_PACKAGE_LOAD = re.compile(
+    r"^(?:(?:please|first|then)\s+)?(?:load|include|use|follow)\s+"
+    r"(?:\[[^\[\]\n]+\]\((?P<link>[^()\s]+)\)|`(?P<code>[^`\s]+)`|(?P<plain>[\w./-]+?))\.?$",
+    re.I,
+)
 _MAX_TOKENS = 40_000
 
+_RUN_SCRIPT = re.compile(
+    r"^(?:(?:please|then)\s+)?(?:run|execute)\s+(?P<tick>`?)"
+    r"(?:(?P<runtime>sh|bash|zsh|python3?|node|pwsh\s+-File)\s+)?"
+    r"(?P<path>(?:[\w.-]+/)*[\w.-]+\.[\w]+)(?P=tick)\.?$",
+    re.I,
+)
+_SCRIPT_RUNTIME = {
+    "sh": {".sh"},
+    "bash": {".sh", ".bash"},
+    "zsh": {".sh", ".zsh"},
+    "python": {".py"},
+    "python3": {".py"},
+    "node": {".js", ".cjs", ".mjs"},
+    "pwsh -file": {".ps1"},
+}
 
-def _reference(destination: str, location: SourceRef) -> Relationship | None:
+
+def _skill_metadata(
+    artifact: Artifact, text: str
+) -> tuple[str, tuple[ConfigEntry, ...], tuple[str, ...]]:
+    # Reuse the bounded, duplicate/alias-rejecting data loader, not MCP/config normalization.
+    from dragonscan.structured_parser import _entries, _load
+
+    lines = text.splitlines(keepends=True)
+    if not lines or lines[0].strip() != "---":
+        return text, (), ()
+    end = next((i for i, s in enumerate(lines[1:], 1) if s.strip() == "---"), None)
+    if end is None:
+        # Without an end delimiter even an apparent paragraph may be a YAML scalar.
+        return "", (), ("unclosed skill frontmatter; body boundary unknown",)
+    body = "\n" * (end + 1) + "".join(lines[end + 1 :])
+    if end > 256 or sum(map(len, lines[:end])) > 32_768:
+        return body, (), ("skill frontmatter size limit exceeded",)
+    yaml_artifact = replace(artifact, source_format=SourceFormat.YAML)
+    try:
+        data, node = _load(yaml_artifact, "".join(lines[1:end]))
+        if not isinstance(data, dict):
+            raise ParseError("expected mapping")
+        entries = tuple(
+            replace(
+                item,
+                location=SourceRef(
+                    artifact.path, SourceFormat.MARKDOWN, (item.location.line or 1) + 1
+                ),
+            )
+            for item in _entries(yaml_artifact, data, node)
+            if item.key_path[0]
+            in {"name", "description", "compatibility", "allowed-tools", "metadata"}
+        )
+        if not all(
+            isinstance(data.get(field), str) and data[field].strip()
+            for field in ("name", "description")
+        ) or any(
+            field in data and not isinstance(data[field], expected)
+            for field, expected in (
+                ("compatibility", str),
+                ("allowed-tools", str),
+                ("metadata", dict),
+            )
+        ):
+            return (
+                body,
+                entries,
+                ("unsupported skill frontmatter field type or missing name/description",),
+            )
+        return body, entries, ()
+    except ParseError as exc:
+        if "duplicate YAML mapping key" in str(exc):
+            return body, (), ("duplicate key in skill frontmatter",)
+        return body, (), ("malformed skill frontmatter",)
+
+
+def _reference(destination: str, location: SourceRef, package: bool = False) -> Relationship | None:
     url = safe_url(destination)
     if url is not None:
         return Relationship("references_url", url, location)
     if destination.startswith(("#", "//")) or ":" in destination.split("/")[0]:
         return None
     file_path = destination.split("?", 1)[0].split("#", 1)[0]
-    if PurePosixPath(file_path).suffix.lower() in _FILE_SUFFIXES:
+    suffix = PurePosixPath(file_path).suffix.lower()
+    if suffix in _FILE_SUFFIXES or (package and suffix in SCRIPT_SUFFIXES | DATA_SUFFIXES):
         return Relationship("references_file", file_path, location)
     return None
 
@@ -64,6 +143,8 @@ def parse_markdown(artifact: Artifact, text: str) -> Document:
     frontmatter_end = 0
     frontmatter_diagnostics: tuple[str, ...] = ()
     frontmatter_entries: tuple[ConfigEntry, ...] = ()
+    if artifact.kind == ArtifactKind.SKILL:
+        text, frontmatter_entries, frontmatter_diagnostics = _skill_metadata(artifact, text)
     if cursor_rule:
         lines = text.splitlines()
         if not lines or lines[0].strip() != "---":
@@ -73,7 +154,6 @@ def parse_markdown(artifact: Artifact, text: str) -> Document:
         )
         if not frontmatter_end:
             return Document(artifact, diagnostics=("Cursor rule frontmatter not closed; ignored",))
-        from dragonscan.models import ArtifactKind
         from dragonscan.structured_parser import parse_structured
 
         try:
@@ -154,7 +234,7 @@ def parse_markdown(artifact: Artifact, text: str) -> Document:
             if child.type == "link_open":
                 link = str(child.attrGet("href")) if child.attrGet("href") is not None else None
                 if link:
-                    relation = _reference(link, location)
+                    relation = _reference(link, location, artifact.package_root is not None)
                     if relation is not None:
                         relations.append(relation)
             elif child.type == "link_close":
@@ -212,6 +292,16 @@ def parse_markdown(artifact: Artifact, text: str) -> Document:
         )
         blocks.append(MarkdownBlock(kind, token.content, location, tuple(spans)))
         blocks.extend(comments)
+        if artifact.package_root and kind in {"paragraph", "list_item"}:
+            run = _RUN_SCRIPT.fullmatch(token.content.strip())
+            if run:
+                target = run["path"]
+                suffix = PurePosixPath(target).suffix.lower()
+                runtime = (run["runtime"] or "").lower()
+                if (runtime and suffix in _SCRIPT_RUNTIME.get(runtime, set())) or (
+                    not runtime and "/" in target and suffix in SCRIPT_SUFFIXES
+                ):
+                    relations.append(Relationship("runs_script", target, location))
         if not is_quote and not is_html:
             visible = "".join(
                 span.text
@@ -233,9 +323,15 @@ def parse_markdown(artifact: Artifact, text: str) -> Document:
                     Instruction(visible, start + 1 + leading_lines, instruction_location)
                 )
                 # Only an explicit directive yields a load edge; a hyperlink alone is a reference.
-                load = _LOAD_FILE.match(visible)
-                if load is not None:
-                    relation = _reference(load.group("path"), instruction_location)
+                if artifact.package_root:
+                    # Resolve the actual link destination, never its display text.
+                    load = _PACKAGE_LOAD.fullmatch(token.content.strip())
+                    target = (load["link"] or load["code"] or load["plain"]) if load else None
+                else:
+                    load = _LOAD_FILE.match(visible)
+                    target = load["path"] if load else None
+                if target:
+                    relation = _reference(target, instruction_location)
                     if relation is not None and relation.kind == "references_file":
                         relations.append(
                             Relationship("loads_file", relation.target, instruction_location)

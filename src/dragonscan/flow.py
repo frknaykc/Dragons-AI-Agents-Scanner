@@ -7,6 +7,7 @@ coexistence cannot grant data, control, or execution authority.
 from collections import defaultdict, deque
 from dataclasses import dataclass, replace
 from enum import StrEnum
+from graphlib import CycleError, TopologicalSorter
 from pathlib import Path
 
 from dragonscan.attack_graph import AttackGraph, GraphEdge, GraphLimitError, GraphNode, node_id
@@ -60,6 +61,8 @@ _EDGE_ROLES = {
     "influences": EdgeRole.CONTROL,
     "executes": EdgeRole.EXECUTION,
     "fetches": EdgeRole.EXECUTION,
+    "runs_script": EdgeRole.CONTROL,
+    "decodes_to": EdgeRole.EXECUTION,
     "installs": EdgeRole.EXECUTION,
     "reads": EdgeRole.CAPABILITY,
     "writes": EdgeRole.CAPABILITY,
@@ -150,7 +153,12 @@ class FlowEngine:
                     if f"{reason} relationship blocked" not in self.diagnostics:
                         self.diagnostics.append(f"{reason} relationship blocked")
                 self.adjacency[edge.source].append(edge)
-                if edge.kind == "loads" and edge.resolution == "resolved":
+                if (
+                    edge.kind in {"loads", "runs_script"}
+                    and edge.resolution == "resolved"
+                    and edge.origin == edge.location.source_format.value
+                    and self.nodes[edge.source].kind == self.nodes[edge.target].kind == "artifact"
+                ):
                     self.incoming_loads[edge.target].append(edge)
             for edges in self.adjacency.values():
                 edges.sort(
@@ -201,17 +209,27 @@ class FlowEngine:
                 )
             )
         return (
-            edge.kind == "executes"
-            and edge.resolution == "observed"
-            and edge.origin == "dependency_parser"
-            and source.kind == "package"
-            and target.kind == "command"
-        ) or (
-            edge.kind == "fetches"
-            and edge.resolution == "observed"
-            and edge.origin in {"behavior", "mcp_parser"}
-            and source.kind == "external_resource"
-            and target.kind == "command"
+            (
+                edge.kind == "executes"
+                and edge.resolution == "observed"
+                and edge.origin == "dependency_parser"
+                and source.kind == "package"
+                and target.kind == "command"
+            )
+            or (
+                edge.kind == "fetches"
+                and edge.resolution == "observed"
+                and edge.origin in {"behavior", "mcp_parser", "script_parser"}
+                and source.kind == "external_resource"
+                and target.kind == "command"
+            )
+            or (
+                edge.kind == "decodes_to"
+                and edge.resolution == "observed"
+                and edge.origin in {"behavior", "script_parser"}
+                and source.kind == "encoded_input"
+                and target.kind == "command"
+            )
         )
 
     def paths(
@@ -347,7 +365,14 @@ def describe_existing_flow(finding: Finding, documents: tuple[Document, ...]) ->
     formats = {doc.artifact.path: doc.artifact.source_format for doc in documents}
     kinds = {
         "DRAGON-PATH-001": ("sensitive_local_resource", "external_endpoint"),
-        "DRAGON-PATH-002": ("remote_executable_content", "shell_execution"),
+        "DRAGON-PATH-002": (
+            "literal_encoded_input"
+            if finding.source == "literal encoded input"
+            else "remote_executable_content",
+            "python_execution"
+            if finding.sink == "Python interpreter execution"
+            else "shell_execution",
+        ),
         "DRAGON-PATH-003": ("remote_instruction", "persistent_instruction_file"),
         "DRAGON-PATH-004": ("remote_instruction", "agent_configuration"),
         "DRAGON-MCP-012": ("sensitive_local_resource", "network_egress_capability"),
@@ -362,6 +387,8 @@ def describe_existing_flow(finding: Finding, documents: tuple[Document, ...]) ->
     transitions = {
         "sends_to": "sensitive-local-to-external",
         "fetches": "remote-content-to-execution",
+        "decodes_to": "literal-input-to-execution",
+        "runs_script": "instruction-to-local-script",
         "modifies": "external-instruction-to-persistence",
         "executes": "package-to-process",
     }
@@ -413,6 +440,30 @@ def correlate_flows(
     ]
     if engine.blocked:
         return (), tuple(engine.diagnostics)
+    package_paths = {d.artifact.path for d in documents if d.artifact.package_root}
+    closure: TopologicalSorter[str] = TopologicalSorter()
+    for edge in graph.edges:
+        if (
+            edge.location.path in package_paths
+            and edge.kind in {"loads", "references", "runs_script"}
+            and edge.resolution == "resolved"
+        ):
+            closure.add(edge.source, edge.target)
+    try:
+        closure.prepare()
+    except CycleError:
+        engine.diagnostics.append("skill package reference cycle; repeated traversal stopped")
+    engine.diagnostics.extend(
+        sorted(
+            {
+                f"skill package reference {e.resolution}"
+                for e in graph.edges
+                if e.location.path in package_paths
+                and e.kind in {"references", "loads", "runs_script"}
+                and e.resolution in {"ambiguous", "outside", "missing", "unsafe"}
+            }
+        )
+    )
     findings: list[Finding] = []
     observed = {
         (edge.source, edge.target, edge.kind): edge

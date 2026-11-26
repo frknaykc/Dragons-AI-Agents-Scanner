@@ -1,16 +1,30 @@
 """Observe security behavior once per normalized document, without executing content."""
 
-import base64
-import binascii
 import re
-import shlex
 from dataclasses import dataclass, replace
 
+from dragonscan.command_semantics import (
+    explicit_powershell_execution,
+    powershell_remote_execution,
+)
+from dragonscan.command_semantics import (
+    literal_encoded_pipeline as literal_encoded_pipeline,
+)
+from dragonscan.command_semantics import (
+    remote_python_pipeline as remote_python_pipeline,
+)
+from dragonscan.command_semantics import (
+    remote_shell_pipeline as remote_shell_pipeline,
+)
+from dragonscan.command_semantics import (
+    shell_command_string as shell_command_string,
+)
 from dragonscan.detection import Observation
 from dragonscan.models import ArtifactKind, Document, SourceFormat, SourceRef
+from dragonscan.prompt_clauses import authority_actions, clauses, documentation
 
 _INSTRUCTION_KINDS = frozenset({"instructions", "skill", "memory", "soul"})
-_SENTENCE = re.compile(r"(?<=[.!?])\s+(?=[A-Z])|\n+|;\s*")
+
 _NEGATED = re.compile(
     r"^(?:never|do not|don't|must not|avoid|should not|please do not|"
     r"ensure (?:you )?(?:do not|never))\b",
@@ -30,144 +44,6 @@ _IMPERATIVE = re.compile(
     r"override|disable|bypass|turn off|write|append|modify|edit|overwrite|replace)\b",
     re.I,
 )
-_PYTHON_STDIN = re.compile(r"python(?:3(?:\.\d+)?)?\Z")
-_SHELL_WRAPPER = re.compile(
-    r"(?:sh|bash|zsh)\s+-(?:c|lc|cl)\s+(?P<quote>['\"])(?P<body>[^\n]{1,500})(?P=quote)\Z"
-)
-
-
-def shell_command_string(args: tuple[str, ...]) -> str | None:
-    """Select code only from supported POSIX shell command-string invocations.
-
-    Accept -c/-lc/-cl, optionally after a separate -l. Never search past
-    operands, -- or unsupported prefixes. Later arguments are positional data.
-    """
-    index = 1 if args[:1] == ("-l",) else 0
-    if len(args) <= index + 1 or args[index] not in {"-c", "-lc", "-cl"}:
-        return None
-    return args[index + 1]
-
-
-def remote_python_pipeline(command: str) -> bool:
-    """Recognize a literal HTTP fetch whose stdout is Python's program input."""
-    return _remote_stdin_pipeline(command, shell=False)
-
-
-def remote_shell_pipeline(command: str) -> bool:
-    """Recognize a literal HTTP fetch whose stdout is the shell's program input."""
-    return _remote_stdin_pipeline(command, shell=True)
-
-
-def _remote_stdin_pipeline(command: str, *, shell: bool) -> bool:
-    """Require a literal stdout fetch and an interpreter that consumes program stdin."""
-    command = command.strip().removesuffix(".")
-    wrapper = _SHELL_WRAPPER.fullmatch(command)
-    if wrapper is not None:
-        command = wrapper["body"]
-        if wrapper["quote"] in command:
-            return False
-    if len(command) > 500 or command.count("|") != 1:
-        return False
-    if any(char in command for char in "$`;&<>()\\\n"):
-        return False
-    fetch_text, interpreter_text = command.split("|")
-    try:
-        fetch = shlex.split(fetch_text)
-        interpreter = shlex.split(interpreter_text)
-    except ValueError:
-        return False
-    if not fetch or not interpreter:
-        return False
-    if shell:
-        if interpreter[0] not in {"sh", "bash", "zsh"} or interpreter[1:] not in (
-            [],
-            ["-s"],
-            ["-s", "--"],
-        ):
-            return False
-    elif not _PYTHON_STDIN.fullmatch(interpreter[0]) or interpreter[1:] not in (
-        [],
-        ["-"],
-        ["-u"],
-        ["-u", "-"],
-    ):
-        return False
-    args = fetch[1:]
-    urls = [arg for arg in args if re.fullmatch(r"https?://[^/\s]+(?:/\S*)?", arg)]
-    if len(urls) != 1:
-        return False
-    options = [arg for arg in args if arg != urls[0]]
-    if fetch[0] == "curl":
-        return all(
-            (arg.startswith("-") and not arg.startswith("--") and set(arg[1:]) <= set("fsSL"))
-            or arg in {"--fail", "--silent", "--show-error", "--location"}
-            for arg in options
-        )
-    if fetch[0] == "wget":
-        # Bind -O to its actual next argument before removing the URL. Its
-        # position among other supported options does not change stdout routing.
-        options = []
-        remaining = iter(args)
-        for arg in remaining:
-            if arg == "-O":
-                if next(remaining, None) != "-":
-                    return False
-                options.append("-O-")
-            elif arg != urls[0]:
-                options.append(arg)
-        return any(arg in {"-O-", "-qO-", "--output-document=-"} for arg in options) and all(
-            arg in {"-q", "--quiet", "-O-", "-qO-", "--output-document=-"} for arg in options
-        )
-    return False
-
-
-def literal_encoded_pipeline(command: str) -> str | None:
-    """Recognize one literal source, one decoder and an interpreter reading stdin."""
-    command = command.strip().removesuffix(".")
-    if len(command) > 4200 or command.count("|") != 2:
-        return None
-    if any(char in command for char in "$`;&<>()\\\n"):
-        return None
-    try:
-        source, decoder, interpreter = (shlex.split(part) for part in command.split("|"))
-    except ValueError:
-        return None
-    if len(source) == 3 and source[:2] in (["printf", "%s"], ["echo", "-n"]):
-        token = source[2]
-    elif len(source) == 2 and source[0] == "echo":
-        token = source[1]
-    else:
-        return None
-    if not 1 <= len(token) <= 4096:
-        return None
-    if decoder in (["base64", "-d"], ["base64", "-D"], ["base64", "--decode"]):
-        try:
-            decoded = base64.b64decode(token, validate=True)
-        except (binascii.Error, ValueError):
-            return None
-    elif decoder == ["xxd", "-r", "-p"]:
-        try:
-            decoded = bytes.fromhex(token)
-        except ValueError:
-            return None
-    else:
-        return None
-    if not decoded or len(decoded) > 4096 or not interpreter:
-        return None
-    if interpreter in (["sh"], ["bash"], ["zsh"]) or (
-        interpreter[0] in {"sh", "bash", "zsh"} and interpreter[1:] in (["-s"], ["-s", "--"])
-    ):
-        return "shell execution"
-    if _PYTHON_STDIN.fullmatch(interpreter[0]) and interpreter[1:] in (
-        [],
-        ["-"],
-        ["-u"],
-        ["-u", "-"],
-    ):
-        return "Python interpreter execution"
-    return None
-
-
 _SOURCE_PATTERNS = (
     (
         "SSH private key",
@@ -232,20 +108,6 @@ def credential_link_source(sentence: str) -> str | None:
 
 _PRONOUN = re.compile(
     r"\b(?:it|its|their|them|the (?:file|contents|secrets?|keys?|credentials?|tokens?|data))\b",
-    re.I,
-)
-_OVERRIDE = re.compile(
-    r"\b(?:ignore|disregard|override)\b.{0,60}\b(?:previous|prior|system|developer)\b.{0,40}\b(?:instructions?|rules?|directives?|prompts?)\b",
-    re.I,
-)
-_EARLIER_INSTRUCTIONS = re.compile(
-    r"\s+(?:(?:all|any|every|the)\s+)?earlier\s+"
-    r"(?:(?:safety|system|developer)\s+)?(?:instructions?|rules?|directives?|prompts?)\b",
-    re.I,
-)
-_BYPASS = re.compile(
-    r"\b(?:disable|bypass|turn off)\b.{0,50}"
-    r"\b(?:safety|security|guardrails?|checks?|protections?)\b",
     re.I,
 )
 _PERSIST_WRITE = re.compile(
@@ -438,7 +300,8 @@ def shell_executions(document: Document) -> tuple[ShellExecution, ...]:
     for previous, block in zip(document.blocks, document.blocks[1:], strict=False):
         if (
             block.kind != "code"
-            or (block.language or "").lower() not in {"sh", "bash", "shell", "zsh"}
+            or (block.language or "").lower()
+            not in {"sh", "bash", "shell", "zsh", "powershell", "pwsh"}
             or block.location.line is None
             or previous.kind not in {"paragraph", "list_item"}
             or not re.fullmatch(
@@ -449,6 +312,18 @@ def shell_executions(document: Document) -> tuple[ShellExecution, ...]:
                 re.I,
             )
         ):
+            continue
+        if (block.language or "").lower() in {"pwsh", "powershell"}:
+            if powershell_remote_execution(block.text):
+                results.append(
+                    ShellExecution(
+                        "powershell_execution",
+                        replace(block.location, line=block.location.line + 1),
+                        "remote HTTP(S) content",
+                        "PowerShell execution",
+                        ("network-fetch", "command-execution"),
+                    )
+                )
             continue
         for offset, text in enumerate(block.text.splitlines(), 1):
             kind = ""
@@ -481,8 +356,9 @@ def shell_executions(document: Document) -> tuple[ShellExecution, ...]:
 
 def segment_text(text: str, index: int) -> str:
     """Use the same sentence boundaries as behavior extraction."""
-    parts = _SENTENCE.split(text)
-    return unnegated_text(parts[index]) if 0 <= index < len(parts) else ""
+    return next(
+        (unnegated_text(part) for i, (part, _) in enumerate(clauses(text)) if i == index), ""
+    )
 
 
 def unnegated_text(text: str) -> str:
@@ -498,9 +374,9 @@ def _execution_command(text: str) -> str | None:
     """Extract an explicit run clause, without treating command arguments as prose."""
     directive = _IMPERATIVE.match(text)
     if directive is not None and directive.group().split()[-1].lower() in {"run", "execute"}:
-        return text[directive.end() :].lstrip(" :")
+        return text[directive.end() :].lstrip(" :").removesuffix(".")
     clause = re.search(r",\s*then\s+(?:run|execute)\s+", text, re.I)
-    return text[clause.end() :] if clause is not None else None
+    return text[clause.end() :].removesuffix(".") if clause is not None else None
 
 
 def fetch_shell_url(text: str) -> str | None:
@@ -536,19 +412,14 @@ def collect(document: Document) -> tuple[Observation, ...]:
     observed: list[Observation] = []
     for index, instruction in enumerate(document.instructions):
         # Markdown inline/fenced code and blockquotes are excluded by the parser.
-        start = 0
-        parts: list[tuple[str, int]] = []
-        for match in _SENTENCE.finditer(instruction.text):
-            parts.append((instruction.text[start : match.start()], start))
-            start = match.end()
-        parts.append((instruction.text[start:], start))
-        for segment, (sentence, offset) in enumerate(parts):
+        for segment, (sentence, offset) in enumerate(clauses(instruction.text)):
             sentence = unnegated_text(sentence)
-            if not sentence:
+            if not sentence or documentation(sentence):
                 continue
             link_source = credential_link_source(sentence)
             actionable = _IMPERATIVE.search(sentence)
-            if not actionable and link_source is None:
+            override, bypass = authority_actions(sentence)
+            if not actionable and not (override or bypass) and link_source is None:
                 continue
             # JSON escapes describe logical newlines, not physical source lines.
             line = instruction.line
@@ -568,15 +439,12 @@ def collect(document: Document) -> tuple[Observation, ...]:
 
             if link_source is not None:
                 add("credential_link", link_source, "credential-disclosure", "network-egress")
+            if override:
+                add("override", "prior instructions", "instruction-override")
+            if bypass:
+                add("bypass", "security controls", "security-control-bypass")
             if not actionable:
                 continue
-            if _OVERRIDE.search(sentence) or (
-                actionable.group().split()[-1].lower() in {"ignore", "disregard", "override"}
-                and _EARLIER_INSTRUCTIONS.match(sentence[actionable.end() :])
-            ):
-                add("override", "prior instructions", "instruction-override")
-            if _BYPASS.search(sentence):
-                add("bypass", "security controls", "security-control-bypass")
             if _ACCESS.search(sentence):
                 for label, pattern in _SOURCE_PATTERNS:
                     if pattern.search(sentence):
@@ -598,6 +466,13 @@ def collect(document: Document) -> tuple[Observation, ...]:
                     add("implicit_transfer", "previously read data", "network-egress")
             command = _execution_command(sentence)
             if command is not None:
+                if explicit_powershell_execution(command):
+                    add(
+                        "powershell_execution",
+                        "remote PowerShell content",
+                        "network-fetch",
+                        "command-execution",
+                    )
                 if remote_shell_pipeline(command):
                     add(
                         "remote_execution",

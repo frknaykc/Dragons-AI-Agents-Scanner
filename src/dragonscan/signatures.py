@@ -6,6 +6,7 @@ import hashlib
 import re
 from dataclasses import dataclass
 
+from dragonscan.command_semantics import POWERSHELL, selected_command
 from dragonscan.models import (
     ArtifactKind,
     Classification,
@@ -25,7 +26,7 @@ MAX_DECODE_DEPTH = 1
 MAX_HITS = 256
 _BASE64 = re.compile(r"(?<![A-Za-z0-9+/=])[A-Za-z0-9+/]{24,5460}={0,2}(?![A-Za-z0-9+/=])")
 _HEX = re.compile(r"(?<![0-9a-fA-F])[0-9a-fA-F]{32,8192}(?![0-9a-fA-F])")
-_POWERSHELL = re.compile(r"\bpowershell(?:\.exe)?\b[^\n]{0,120}\s-(?:encodedcommand|enc)\b", re.I)
+
 _ACTIVE = {"mcp_endpoint", "remote_endpoint", "executable_command"}
 
 BUILTIN_SIGNATURES = (
@@ -57,6 +58,7 @@ class Region:
     text: str
     location: SourceRef
     encoding: str | None = None
+    encoded_powershell: bool = False
 
 
 def regions(document: Document) -> tuple[Region, ...]:
@@ -66,7 +68,19 @@ def regions(document: Document) -> tuple[Region, ...]:
             result.append(Region("mcp_endpoint", server.url, server.location))
         if server.command:
             command = " ".join((server.command, *server.args))
-            result.append(Region("executable_command", command, server.location))
+            selected = (
+                selected_command(server.runtime, server.args)
+                if server.runtime in POWERSHELL
+                else None
+            )
+            result.append(
+                Region(
+                    "executable_command",
+                    command,
+                    server.location,
+                    encoded_powershell=bool(selected and selected.encoded),
+                )
+            )
     for relation in document.relationships:
         if relation.kind == "references_url" and relation.subject is None:
             instructions = (
@@ -145,7 +159,7 @@ class SignatureEngine:
         self.limit_reason: str | None = None
 
     def detect(
-        self, document: Document, text: str, *, include_artifact_hash: bool = True
+        self, document: Document, raw: bytes, *, include_artifact_hash: bool = True
     ) -> tuple[Finding, ...]:
         self.limit_reason = None
         output: list[Finding] = []
@@ -158,7 +172,7 @@ class SignatureEngine:
         if include_artifact_hash and any(
             "artifact_hash" in sig.contexts for sig in self.signatures
         ):
-            data = text.encode("utf-8")
+            data = raw
             hashes = {
                 IndicatorType.SHA256: hashlib.sha256(data).hexdigest(),
                 IndicatorType.SHA1: hashlib.sha1(data).hexdigest(),
@@ -209,7 +223,7 @@ class SignatureEngine:
                         signature.pattern == "powershell-encoded-command"
                         and signature.source == "Dragons Built-in"
                     ):
-                        found = _POWERSHELL.search(region.text) is not None
+                        found = region.encoded_powershell
                     else:
                         found = signature.pattern.casefold() in region.text.casefold()
                     if found:

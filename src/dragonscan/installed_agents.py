@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 
+from dragonscan.discovery import MAX_DEPTH as PACKAGE_DEPTH
 from dragonscan.discovery import DiscoveryError, discover_installed_bounded
 from dragonscan.models import (
     Artifact,
@@ -857,6 +858,8 @@ def discover_installed(
                                 else None
                             ),
                             strict_artifact=location.strict_user,
+                            installed_packages=True,
+                            package_depth=PACKAGE_DEPTH if max_depth is None else None,
                         )
                         extras = []
                         for name, kind, source_format in location.extra:

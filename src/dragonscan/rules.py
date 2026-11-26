@@ -8,9 +8,8 @@ from pathlib import PurePath
 from dragonscan.behavior import (
     collect,
     related_transfer,
-    remote_shell_pipeline,
-    shell_command_string,
 )
+from dragonscan.command_semantics import POSIX_SHELL, remote_shell_pipeline, selected_command
 from dragonscan.models import (
     Classification,
     Confidence,
@@ -37,9 +36,12 @@ class Rule:
     tags: tuple[str, ...] = ()
 
     def detect(self, document: Document) -> tuple[Finding, ...]:
+        return tuple(self.iter_detect(document))
+
+    def iter_detect(self, document: Document) -> Iterable[Finding]:
         if document.artifact.kind not in self.artifact_types:
             return ()
-        return tuple(self.detector(document))
+        return self.detector(document)
 
 
 _SENSITIVE = re.compile(
@@ -84,10 +86,10 @@ def credential_exfiltration(document: Document) -> Iterable[Finding]:
 def mcp_fetch_to_shell(document: Document) -> Iterable[Finding]:
     for server in document.servers:
         executable = PurePath(server.command.replace("\\", "/")).name.lower()
-        if executable not in {"sh", "bash", "zsh"} or not server.args:
+        if executable not in POSIX_SHELL or not server.args:
             continue
-        command_text = shell_command_string(server.args)
-        if command_text is None or not remote_shell_pipeline(command_text):
+        selected = selected_command(executable, server.args)
+        if selected is None or not remote_shell_pipeline(selected.text):
             continue
         yield Finding(
             detection_id="DAAS-002",

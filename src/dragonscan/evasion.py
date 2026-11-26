@@ -14,6 +14,7 @@ from urllib.parse import unquote
 
 from dragonscan.loading import MAX_BYTES
 from dragonscan.models import Confidence, Document, EvasionEvidence, McpServer, SourceRef
+from dragonscan.scan_budget import ScanBudget, ScanLimits
 
 MAX_REGION = 4096
 MAX_OUTPUT = 4096
@@ -80,7 +81,13 @@ _BAD_ESCAPE = re.compile(
     r"\\(?:x(?![0-9A-Fa-f]{2})(?:[A-Z]{2}|[0-9A-Fa-f]\b)"
     r"|u(?![0-9A-Fa-f]{4})(?:[A-Z]{4}|[0-9A-Fa-f]{1,3}\b))"
 )
-_ENCODED_DIRECTIVE = re.compile(r"\s*(?:run|execute)\s+(?:encoded|base64)\s*:\s*", re.I)
+# Only a whole, directly selected operand is an instruction in its own right.
+# Preserve surrounding lines for the detector's quotation and negation checks.
+_ENCODED_OPERANDS = re.compile(
+    r"^[ \t]*(?:run|execute)[ \t]+(?:encoded|base64)[ \t]*:[ \t]*"
+    rf"(?P<selected>{_ENCODED.pattern})(?=[ \t]*\r?$)|{_ENCODED.pattern}",
+    re.I | re.M,
+)
 _DIRECT_ENCODED_PREFIX = re.compile(r"\s*(?:run|execute)\s+(?:(?:encoded|base64)\s*:\s*)?", re.I)
 _CONFIG_TEXT_KEYS = frozenset(
     {"description", "instructions", "instruction", "prompt", "systemprompt", "command", "script"}
@@ -146,7 +153,7 @@ def _decode(text: str) -> str | None:
         return None
 
     def substitute(match: re.Match[str]) -> str:
-        token = match.group()
+        token = match.groupdict().get("selected") or match.group()
         try:
             if len(token) % 2 == 0 and re.fullmatch(r"[0-9A-Fa-f]+", token):
                 decoded = _readable(bytes.fromhex(token))
@@ -173,7 +180,18 @@ def _decode(text: str) -> str | None:
         return decoded
 
     result = _HEX_BYTES.sub(_hex_bytes_match, text)
-    result = _ENCODED.sub(substitute, result)
+
+    def operand(match: re.Match[str]) -> str:
+        revealed = substitute(match)
+        if (selected := match["selected"]) is None:
+            return revealed
+        if revealed == selected:
+            return match.group()
+        if re.match(r"(?:run|execute|ignore|override|disregard|disable|bypass)\b", revealed, re.I):
+            return revealed
+        return match.group()[: match.start("selected") - match.start()] + revealed
+
+    result = _ENCODED_OPERANDS.sub(operand, result)
     # A decoded command is executable input, not an argument to the original
     # wrapper. Only unwrap a whole literal payload, never printed data or an
     # encoded argument followed by additional operands.
@@ -193,13 +211,6 @@ def _decode(text: str) -> str | None:
                     if re.match(r"(?:run|execute)\s+", revealed, re.I)
                     else "Run " + revealed
                 )
-    directive = _ENCODED_DIRECTIVE.match(text)
-    if directive is not None:
-        token = _ENCODED.fullmatch(text[directive.end() :].strip())
-        if token is not None:
-            revealed = result[directive.end() :]
-            if re.match(r"(?:run|execute)\s+", revealed, re.I):
-                return revealed
     return result if result != text else None
 
 
@@ -431,7 +442,10 @@ def _document_view(document: Document, kind: str, index: int, value: str) -> Doc
 
 
 def iter_views(
-    document: Document, diagnostics: list[str], statistics: dict[str, int] | None = None
+    document: Document,
+    diagnostics: list[str],
+    statistics: dict[str, int] | None = None,
+    budget: ScanBudget | None = None,
 ) -> Iterator[AnalysisView]:
     """Consume independent parser regions sequentially, preserving their full context.
 
@@ -442,9 +456,16 @@ def iter_views(
     if MAX_REGIONS <= 0:
         diagnostics.append("evasion region limit invalid; analysis unavailable")
         return
+    budget = budget or ScanBudget(ScanLimits(max_regions=MAX_REGIONS), None)
+    statistics = statistics if statistics is not None else {}
     for kind, index, original, location in _regions(document):
-        if statistics is not None:
-            statistics["evasion_regions"] = statistics.get("evasion_regions", 0) + 1
+        if not budget.running():
+            return
+        if statistics.get("evasion_regions", 0) >= budget.limits.max_regions:
+            budget.reason = "scan evasion region limit reached"
+            diagnostics.append(budget.reason)
+            return
+        statistics["evasion_regions"] = statistics.get("evasion_regions", 0) + 1
         if len(original) > MAX_BYTES:
             diagnostics.append("evasion source region exceeds loader bound; region skipped")
             continue
@@ -462,6 +483,8 @@ def iter_views(
         output_limit = MAX_OUTPUT if len(original) <= MAX_REGION else len(original)
         queue: list[tuple[str, tuple[str, ...]]] = [(original, ())]
         for current, chain in queue:
+            if not budget.running():
+                return
             transformed, exceeded_output = _transform(current, output_limit)
             if exceeded_output:
                 diagnostics.append("evasion expansion limit reached; analysis truncated")
@@ -483,6 +506,10 @@ def iter_views(
                     continue
                 if value in seen:
                     continue
+                if statistics.get("evasion_views", 0) >= budget.limits.max_views:
+                    budget.reason = "scan evasion view budget reached"
+                    diagnostics.append(budget.reason)
+                    return
                 seen.add(value)
                 steps = (*chain, name)
                 queue.append((value, steps))
@@ -499,8 +526,7 @@ def iter_views(
                     _excerpt(value, "canonical"),
                 )
                 produced += 1
-                if statistics is not None:
-                    statistics["evasion_views"] = statistics.get("evasion_views", 0) + 1
+                statistics["evasion_views"] = statistics.get("evasion_views", 0) + 1
                 yield AnalysisView(
                     _document_view(document, kind, index, value),
                     evidence,

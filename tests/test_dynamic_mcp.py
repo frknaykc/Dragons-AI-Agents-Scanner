@@ -1,5 +1,6 @@
 """Only controlled, inert local process fixtures are launched by these tests."""
 
+import hashlib
 import json
 import os
 import signal
@@ -7,7 +8,9 @@ import socket
 import subprocess
 import sys
 import time
+from dataclasses import replace
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 from click.testing import CliRunner
@@ -18,15 +21,21 @@ from dragonscan.dynamic_mcp import DynamicPolicy
 from dragonscan.models import (
     Artifact,
     ArtifactKind,
+    Classification,
+    Confidence,
     Document,
     DynamicMcpItem,
+    Finding,
     McpServer,
     McpTool,
+    SemanticEvidence,
+    Severity,
     SourceFormat,
     SourceRef,
     Target,
 )
 from dragonscan.reporting import json_report, terminal_report
+from dragonscan.rules import BUILTIN_RULES
 from dragonscan.scanner import Scanner
 from dragonscan.semantic import SemanticProvider
 
@@ -59,6 +68,106 @@ def test_fake_server_uses_test_interpreter(tmp_path: Path) -> None:
 
 def policy(script: Path) -> DynamicPolicy:
     return DynamicPolicy(True, True, "test", script)
+
+
+@pytest.mark.parametrize(
+    "case", ["critical", "annotated", "confirmed", "partial_feed", "invalid", "allowed"]
+)
+def test_prelaunch_decision_precedes_popen(tmp_path: Path, monkeypatch, case: str) -> None:
+    config, script = setup_server(tmp_path, "pass\n")
+    popen = Mock(side_effect=OSError("test sentinel; never execute"))
+    monkeypatch.setattr(dynamic_mcp.subprocess, "Popen", popen)
+    if case == "invalid":
+        (tmp_path / "AGENTS.md").write_bytes(b"\x00")
+
+    def detect(doc: Document) -> tuple[Finding, ...]:
+        if case not in {"critical", "annotated", "confirmed"}:
+            return ()
+        return (
+            Finding(
+                "TEST-001",
+                "test",
+                "synthetic",
+                Severity.CRITICAL if case in {"critical", "annotated"} else Severity.HIGH,
+                Confidence.HIGH,
+                Classification.MALICIOUS if case == "confirmed" else Classification.RISKY,
+                doc.artifact.path,
+                "synthetic decision fixture",
+                "test",
+                "review",
+                "test",
+                semantic=(
+                    SemanticEvidence(
+                        "fixture",
+                        "local",
+                        "mock",
+                        "scan",
+                        "1",
+                        "prompt_injection",
+                        "detected",
+                        (),
+                        "annotation",
+                    )
+                    if case == "annotated"
+                    else None
+                ),
+            ),
+        )
+
+    rule = replace(
+        BUILTIN_RULES[0],
+        detection_id="TEST-001",
+        artifact_types=(ArtifactKind.MCP_CONFIG,),
+        detector=detect,
+    )
+    scanner = Scanner(
+        rules=(rule,),
+        dynamic_policy=policy(script),
+        intel_feeds=(tmp_path / "missing.json",) if case == "partial_feed" else (),
+    )
+    report = scanner.scan(Target(config if case != "invalid" else tmp_path))
+    if case == "allowed" and os.name == "posix":
+        popen.assert_called_once()
+        assert report.dynamic_status == "failed"  # synthetic launch error, not a policy denial
+    else:
+        popen.assert_not_called()
+        assert report.dynamic_status == "blocked"
+
+
+@pytest.mark.parametrize("trust", ["operator_reviewed", "unverified"])
+def test_exact_feed_match_is_evaluated_before_launch(
+    tmp_path: Path, monkeypatch, trust: str
+) -> None:
+    config, script = setup_server(tmp_path, "pass\n")
+    feed_path = tmp_path / "feed.json"
+    feed_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "feed_id": "local",
+                "feed_version": "1",
+                "records": [
+                    {
+                        "id": "local-1",
+                        "indicator_type": "sha256",
+                        "value": hashlib.sha256(config.read_bytes()).hexdigest(),
+                        "classification": "malicious",
+                        "source": "synthetic",
+                        "trust": trust,
+                    }
+                ],
+            }
+        )
+    )
+    popen = Mock(side_effect=OSError("no real process"))
+    monkeypatch.setattr(dynamic_mcp.subprocess, "Popen", popen)
+    report = Scanner(dynamic_policy=policy(script), intel_feeds=(feed_path,)).scan(Target(config))
+    assert any(f.intelligence is not None for f in report.findings)
+    if trust == "operator_reviewed" or os.name != "posix":
+        popen.assert_not_called()
+        assert report.dynamic_status == "blocked"
+    else:
+        popen.assert_called_once()
 
 
 @pytest.mark.parametrize("semantic", [False, True])

@@ -8,7 +8,13 @@ from pathlib import Path
 
 from dragonscan.models import ArtifactKind, Finding, ScanReport
 from dragonscan.policy import PolicyResult, evaluate
-from dragonscan.report_context import INTERPRETATION, context_data, context_rows
+from dragonscan.report_context import (
+    INTERPRETATION,
+    context_data,
+    context_rows,
+    evidence_kind,
+    mask_fields,
+)
 from dragonscan.risk import summarize
 from dragonscan.sarif import sarif_report as sarif_report
 
@@ -29,6 +35,11 @@ def json_report(report: ScanReport, policy: PolicyResult | None = None) -> str:
             "kind": artifact.kind.value,
             "source_format": artifact.source_format.value,
             "ecosystem": artifact.ecosystem,
+            **(
+                {"raw_sha256": artifact.raw_sha256, "text_sha256": artifact.text_sha256}
+                if artifact.raw_sha256 is not None
+                else {}
+            ),
         }
         for artifact in report.artifacts
     ]
@@ -36,6 +47,7 @@ def json_report(report: ScanReport, policy: PolicyResult | None = None) -> str:
     for finding in report.findings:
         item = {**asdict(finding), "artifact": str(finding.artifact)}
         item.update(context_data(finding))
+        item.update(evidence_kind=evidence_kind(finding), analysis_coverage=policy.scan_status)
         if not finding.path:
             item.pop("path")
             item.pop("taint")
@@ -171,7 +183,7 @@ def json_report(report: ScanReport, policy: PolicyResult | None = None) -> str:
             ],
         }
     # JSON consumers get identical decoded values, but no live bidi/control glyphs.
-    return json.dumps(data, indent=2, ensure_ascii=True)
+    return json.dumps(mask_fields(data), indent=2, ensure_ascii=True)
 
 
 _COLORS = {
@@ -332,6 +344,7 @@ _KIND_LABELS = {
     ArtifactKind.PLUGIN_METADATA: "plugins",
     ArtifactKind.HOOK_CONFIG: "hooks",
     ArtifactKind.SCRIPT: "scripts",
+    ArtifactKind.PACKAGE_DATA: "package data",
     ArtifactKind.DEPENDENCY_MANIFEST: "dependency manifests",
     ArtifactKind.STRUCTURED_CONFIG: "structured configs",
 }
@@ -360,6 +373,7 @@ def terminal_report(
 ) -> str:
     policy = policy or evaluate(report)
     status = policy.scan_status.upper()
+    report = mask_fields(report)
     risk = risk_label(report, policy)
     lines = [
         "Dragons Scan",
@@ -389,7 +403,7 @@ def terminal_report(
         or "No supported artifacts",
     )
     if report_path is not None:
-        lines.append(f"Report      {ascii(str(report_path))}")
+        lines.append(f"Report      {ascii(mask_fields(str(report_path)))}")
     if report.coverage:
         _summary_list(
             lines,
@@ -438,6 +452,8 @@ def terminal_report(
             ("", _safe(finding.title), ""),
             ("Rule", _safe(finding.detection_id), ""),
             ("Category", _safe(finding.category), ""),
+            ("Evidence kind", evidence_kind(finding), ""),
+            ("Scan coverage", policy.scan_status, ""),
             ("Confidence", finding.confidence.value.upper(), ""),
             ("File", f"{ascii(str(finding.artifact))}{location}", ""),
             ("Evidence", ascii(finding.evidence), ""),

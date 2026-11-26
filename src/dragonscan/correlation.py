@@ -38,6 +38,7 @@ class TaintClass(StrEnum):
     EXTERNAL_INSTRUCTION = "externally_supplied_instruction"
     AGENT_POLICY = "agent_policy"
     PERSISTENT_INSTRUCTION = "persistent_instruction"
+    ENCODED_INPUT = "literal_encoded_input"
 
 
 @dataclass(frozen=True)
@@ -89,14 +90,20 @@ def correlate(
     nodes = {node.id: node for node in graph.nodes}
     by_path = {document.artifact.path: document for document in documents}
     by_source: dict[str, list[GraphEdge]] = defaultdict(list)
+    inputs: dict[str, list[GraphEdge]] = defaultdict(list)
     for edge in graph.edges:
         by_source[edge.source].append(edge)
+        if edge.kind in {"decodes_to", "fetches"}:
+            inputs[edge.target].append(edge)
     endpoints = {
         node_id("artifact", str(document.artifact.path))
         for document in documents
         if any(
-            item.kind == "remote_execution" for item in observations.get(document.artifact.path, ())
+            item.kind
+            in {"remote_execution", "literal_encoded_execution", "remote_python_execution"}
+            for item in observations.get(document.artifact.path, ())
         )
+        or any(r.kind in {"decoded_program", "remote_program"} for r in document.relationships)
         or any(
             item.kind == "sensitive_access"
             and related_transfer(item, observations.get(document.artifact.path, ())) is not None
@@ -249,44 +256,61 @@ def correlate(
                         artifact,
                     )
 
-        for instruction in (item for item in obs if item.kind == "remote_execution"):
-            definition = instruction_definition(instruction)
-            if definition is None:
-                continue
-            execute = matching(definition.target, "executes", instruction.location.line, "command")
-            if execute is None:
-                continue
-            fetch = next(
-                (
-                    edge
-                    for edge in graph.edges
-                    if edge.kind == "fetches" and edge.target == execute.target
-                ),
-                None,
-            )
-            if fetch is None or not engine.paths(
-                FlowKind.EXECUTION, fetch.source, fetch.target, max_depth=1
+        for owner in by_source[artifact_id]:
+            script = owner.kind == "executes" and owner.origin == "script_parser"
+            if not script and not (
+                owner.kind == "defines"
+                and owner.origin == "behavior"
+                and nodes[owner.target].kind == "instruction"
             ):
                 continue
+            execute = (
+                owner
+                if script
+                else matching(owner.target, "executes", owner.location.line, "command")
+            )
+            if not execute or execute.resolution != "observed" or execute.origin != owner.origin:
+                continue
+            linked = [
+                e
+                for e in inputs[execute.target]
+                if e.location == execute.location and e.origin == execute.origin
+            ]
+            if len(linked) != 1:
+                continue
+            linked_input = linked[0]
+            if not engine.paths(
+                FlowKind.EXECUTION, linked_input.source, linked_input.target, max_depth=1
+            ):
+                continue
+            encoded = linked_input.kind == "decodes_to"
+            sink_label = nodes[execute.target].label
             flow = TaintFlow(
-                (TaintClass.EXTERNAL_WEB,),
-                "remote content",
-                "shell execution",
-                (fetch, execute),
+                (TaintClass.ENCODED_INPUT if encoded else TaintClass.EXTERNAL_WEB,),
+                "literal encoded input" if encoded else "remote content",
+                "shell execution" if sink_label == "shell command" else sink_label,
+                (linked_input, execute),
                 Confidence.HIGH,
             )
             for route in routes.get(artifact_id, ()):
+                if script and route[-1].kind != "runs_script":
+                    continue
                 start = nodes[route[0].source].artifact
+                if (
+                    script
+                    and document.artifact.package_root
+                    and start != document.artifact.package_root / "SKILL.md"
+                ):
+                    continue
                 if start is not None:
                     emit(
                         "DRAGON-PATH-002",
                         start,
-                        (*route, definition, *flow.transforms),
+                        (*route, *((owner,) if not script else ()), *flow.transforms),
                         flow,
-                        "Loaded remote execution instruction",
+                        "Linked interpreter execution instruction",
                         Severity.HIGH,
-                        "A locally loaded artifact directs a remote download into a shell; "
-                        "the scanner did not download or execute it.",
+                        f"A directive connects {flow.source} to {flow.sink}; nothing was executed.",
                         artifact,
                     )
 

@@ -5,18 +5,28 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
-from dragonscan.behavior import remote_shell_pipeline, shell_command_string, unnegated_text
+from dragonscan.behavior import unnegated_text
+from dragonscan.command_semantics import (
+    POSIX_SHELL,
+    POWERSHELL,
+    has_control,
+    remote_shell_pipeline,
+    selected_command,
+    selected_powershell_execution,
+)
 from dragonscan.detection import DetectionContext, DetectionMetadata, finding
 from dragonscan.models import Classification as C
 from dragonscan.models import Confidence as F
 from dragonscan.models import Finding, McpServer, McpTool, SourceRef
 from dragonscan.models import Severity as S
+from dragonscan.prompt_clauses import authority_actions, clauses, documentation
 
-_SENSITIVE = re.compile(
-    r"(?:~?/)?(?:\.ssh/id_rsa\b(?!\.pub\b|-cert\.pub\b)|\.aws/credentials\b|\.env\b)|"
-    r"\b(?:credentials?|api[_ -]?keys?|private[_ -]?key|password|tokens?)\b",
-    re.I,
+_SENSITIVE_OBJECT = (
+    r"(?:~?/)?(?:\.ssh/(?:id_rsa|id_ed25519|id_ecdsa|id_dsa)\b(?!\.pub\b|-cert\.pub\b)|"
+    r"\.aws/credentials\b|\.env(?![\w.]))|"
+    r"\b(?:credentials?|api[_ -]?keys?|private[_ -]?key|password|tokens?)\b"
 )
+_SENSITIVE = re.compile(_SENSITIVE_OBJECT, re.I)
 _REMOTE = re.compile(r"https?://[^\s]+|\b(?:external (?:endpoint|server)|remote endpoint)\b", re.I)
 _TRANSFER = re.compile(r"\b(?:send|upload|post|transmit|attach|include)\b", re.I)
 _ACCESS = re.compile(r"\b(?:read|retrieve|open|access|fetch|extract)\b", re.I)
@@ -49,16 +59,33 @@ _REJECTED_QUOTE = re.compile(
 _DOCUMENTATION = re.compile(
     r"\b(?:do not|never|example of|describes? how to|detect|warn about)\b", re.I
 )
-_SHELL = {"sh", "bash", "zsh", "cmd", "cmd.exe", "powershell", "powershell.exe", "pwsh"}
 _LINKED_READ_SEND = re.compile(
-    r"\b(?:read|retrieve|open|extract)\b[^\n.;]{0,100}"
-    r"(?:\.ssh/id_rsa\b(?!\.pub\b|-cert\.pub\b)|\.aws/credentials|"
-    r"\.env\b|credentials?|private[_ -]?key|tokens?)"
-    r"[^\n.;]{0,100}\b(?:and|then)\s+(?:send|upload|post|transmit)\b"
-    r"\s+(?:(?:its|their|the|those)\s+(?:contents?|data)|credentials?|secrets?|tokens?)"
-    r"[^\n.;]{0,100}\b(?:https?://|external |remote )",
+    rf"^(?:please\s+)?(?:read|retrieve|open|extract)\s+(?:the\s+)?(?P<source>{_SENSITIVE_OBJECT})"
+    r"\s+(?:and(?: then)?|then)\s+(?:send|upload|post|transmit)\s+"
+    r"(?:it|them|(?:its|their|the|those)\s+(?:contents?|data)|(?P=source))"
+    r"\s+to\s+(?:https?://[^\s]+|(?:an? |the )?(?:external|remote) endpoint\b)",
     re.I,
 )
+
+
+def _without_fences(text: str) -> str:
+    """Skip fenced metadata documentation, including an unterminated example."""
+    output = []
+    marker = ""
+    for line in text.splitlines(keepends=True):
+        stripped = line.strip()
+        fence = re.match(r"`{3,}|~{3,}", stripped)
+        if marker:
+            if stripped.startswith(marker) and stripped.strip(marker[0]) == "":
+                marker = ""
+        elif fence:
+            marker = fence[0]
+            output.append("\n")
+        else:
+            output.append(line)
+    return "".join(output)
+
+
 _CAPABILITY_PATTERNS = {
     "filesystem-read": r"\b(?:read|list|open) (?:a |the )?(?:local )?(?:file|directory)\b",
     "filesystem-write": r"\b(?:write|delete|edit) (?:a |the )?(?:local )?file\b",
@@ -78,24 +105,60 @@ def _active_metadata(text: str, *, preserve_boundaries: bool = False) -> str:
     # its sentence. A warning followed by an active directive remains actionable.
     # Analyze the complete loader-bounded value; clipping here can both hide a
     # late directive and sever the closing quote of a rejected example.
-    text = _REJECTED_QUOTE.sub(" ", text)
-    segments = re.split(r"(?<=[.!?])\s+(?=[A-Z])|\n+", text)
+    text = _REJECTED_QUOTE.sub(" ", _without_fences(text))
     separator = "\n" if preserve_boundaries else " "
     return separator.join(
         active
-        for segment in segments
-        if (active := unnegated_text(segment)) and not _DOCUMENTATION.search(active)
+        for segment, _ in clauses(text)
+        if (active := unnegated_text(segment))
+        and not documentation(active)
+        and not _DOCUMENTATION.search(active)
+    )
+
+
+def _fields(tool: McpTool) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(field for field in (tool.instructions, tool.description) if field))
+
+
+def _overrides(text: str) -> bool:
+    if any(authority_actions(text)) or re.match(r"conceal (?:your |the )?actions?\b", text, re.I):
+        return True
+    # Adopting quoted instructions is actionable. An unclosed rejection is not
+    # silently treated as a closed quotation (closed rejections were removed above).
+    return bool(
+        re.match(
+            r"(?:follow|replace your instructions|apply the quoted|reject .* that says)\b",
+            text,
+            re.I,
+        )
+        and _OVERRIDE.search(text)
     )
 
 
 def linked_sensitive_transfer(tool: McpTool) -> bool:
     """Require one ordered instruction rather than independent capabilities."""
-    return bool(_LINKED_READ_SEND.search(_active_metadata(tool.instructions or tool.description)))
+    for field in _fields(tool):
+        # Only the explicit continuation may bridge a physical newline. Never
+        # join arbitrary sentences, suppressed examples or independent fields.
+        text = re.sub(
+            r"(?<=\S)[ \t]*\n[ \t]*(?=(?:and|then)\s)", " ", _without_fences(field), flags=re.I
+        )
+        if any(
+            _LINKED_READ_SEND.match(part)
+            for part in _active_metadata(text, preserve_boundaries=True).splitlines()
+        ):
+            return True
+    return False
 
 
 def tool_signals(tool: McpTool) -> frozenset[str]:
     """Only explicit actionable content; tool names alone confer no capability."""
-    text = _active_metadata(tool.instructions or tool.description)
+    return frozenset(
+        cap for field in _fields(tool) for cap in _signals_in_field(_active_metadata(field))
+    )
+
+
+def _signals_in_field(text: str) -> frozenset[str]:
     signals: set[str] = set()
     if _ACCESS.search(text) and _SENSITIVE.search(text):
         signals.add("credential-access")
@@ -116,7 +179,7 @@ def tool_signals(tool: McpTool) -> frozenset[str]:
 
 
 def shadow_target(server: McpServer, tool: McpTool) -> McpTool | None:
-    text = _active_metadata(tool.instructions or tool.description, preserve_boundaries=True)
+    text = "\n".join(_active_metadata(field, preserve_boundaries=True) for field in _fields(tool))
     # A modification in a separate sentence must not authorize a control edge.
     for sentence in re.split(r"(?<=[.!?])\s+(?=[A-Z])|;\s*|\n+", text):
         match = _SHADOW.search(sentence)
@@ -130,17 +193,18 @@ def shadow_target(server: McpServer, tool: McpTool) -> McpTool | None:
 
 def passed_result_target(server: McpServer, tool: McpTool) -> McpTool | None:
     """Only an explicit same-server result transfer names a target tool."""
-    text = _active_metadata(tool.instructions or tool.description)
-    match = re.search(
-        r"\b(?:then\s+)?pass\s+(?:the|its)\s+(?:result|output)\s+to\s+([\w.-]+)\b",
-        text,
-        re.I,
-    )
-    if match is None:
-        return None
-    return next(
-        (other for other in server.tools if other is not tool and other.name == match[1]), None
-    )
+    for field in _fields(tool):
+        match = re.search(
+            r"\b(?:then\s+)?pass\s+(?:the|its)\s+(?:result|output)\s+to\s+([\w.-]+)\b",
+            _active_metadata(field),
+            re.I,
+        )
+        if match:
+            return next(
+                (other for other in server.tools if other is not tool and other.name == match[1]),
+                None,
+            )
+    return None
 
 
 _PRIVATE_KEY_ARGUMENT = re.compile(
@@ -152,15 +216,10 @@ _PRIVATE_KEY_ARGUMENT = re.compile(
 )
 
 
-def _private_key_argument(tool: McpTool) -> bool:
+def _private_key_argument(tool: McpTool, field: str) -> bool:
     """Require an explicit read -> same-file content -> declared argument instruction."""
     # Do not promote fenced examples (including unterminated fences) to directives.
-    raw = re.sub(
-        r"(?ms)^[ \t]*(`{3,}|~{3,})[^\n]*\n.*?(?:^[ \t]*\1[ \t]*(?:\n|$)|\Z)",
-        "\n",
-        tool.instructions or tool.description,
-    )
-    text = _active_metadata(raw, preserve_boundaries=True)
+    text = _active_metadata(field, preserve_boundaries=True)
     for sentence in re.split(r"(?<=[.!?])\s+(?=[A-Z])|;\s*|\n+", text):
         match = _PRIVATE_KEY_ARGUMENT.match(sentence.strip())
         if match is not None and match["field"] in tool.schema_fields:
@@ -169,16 +228,13 @@ def _private_key_argument(tool: McpTool) -> bool:
 
 
 def poisoned(tool: McpTool) -> bool:
-    text = _active_metadata(tool.instructions or tool.description)
-    return bool(
-        _OVERRIDE.search(text)
-        or _private_key_argument(tool)
-        or (
-            _ACCESS.search(text)
-            and _SENSITIVE.search(text)
-            and _TRANSFER.search(text)
-            and _REMOTE.search(text)
+    return linked_sensitive_transfer(tool) or any(
+        _private_key_argument(tool, field)
+        or any(
+            _overrides(part)
+            for part in _active_metadata(field, preserve_boundaries=True).splitlines()
         )
+        for field in _fields(tool)
     )
 
 
@@ -222,38 +278,15 @@ class McpDeepDetector:
                         None,
                     )
         elif indicator == "shell":
-            if server.runtime in _SHELL and server.args:
-                encoded = False
-                if server.runtime in {"sh", "bash", "zsh"}:
-                    selected = shell_command_string(server.args)
-                    if selected is None:
-                        return
-                    command_string = selected
-                    if remote_shell_pipeline(command_string):
-                        return  # The dedicated remote-execution rule has stronger evidence.
-                else:
-                    # Windows shells consume the command remainder, not just the last
-                    # argv item. Recognize only explicit, bounded option prefixes.
-                    index = 0
-                    if server.runtime in {"cmd", "cmd.exe"}:
-                        flags = {"/c"}
-                    else:
-                        flags = {"-c", "-command", "-enc", "-encodedcommand"}
-                        if server.args[0].lower() in {"-noprofile", "-noninteractive"}:
-                            index = 1
-                    if len(server.args) <= index + 1 or server.args[index].lower() not in flags:
-                        return
-                    encoded = server.args[index].lower() in {"-enc", "-encodedcommand"}
-                    if encoded and len(server.args) != index + 2:
-                        return  # Do not reinterpret ambiguous encoded invocations.
-                    command_string = " ".join(server.args[index + 1 :])
-                if (
-                    "|" in command_string
-                    or "$(" in command_string
-                    or "`" in command_string
-                    or "&&" in command_string
-                    or encoded
+            if server.runtime:
+                selected = selected_command(server.runtime, server.args)
+                if not selected:
+                    return
+                if (server.runtime in POSIX_SHELL and remote_shell_pipeline(selected.text)) or (
+                    server.runtime in POWERSHELL and selected_powershell_execution(selected)
                 ):
+                    return  # The specific remote-execution rule has stronger evidence.
+                if selected.encoded or has_control(selected.text, server.runtime):
                     yield (
                         server.location,
                         "MCP server uses shell command-string interpretation "
@@ -287,7 +320,12 @@ class McpDeepDetector:
                         "agent instructions",
                     )
             for item in (*server.prompts, *server.resources):
-                if _OVERRIDE.search(_active_metadata(item.description)):
+                if any(
+                    _overrides(part)
+                    for part in _active_metadata(
+                        item.description, preserve_boundaries=True
+                    ).splitlines()
+                ):
                     yield (
                         item.location,
                         "MCP prompt/resource metadata directs override of agent controls",

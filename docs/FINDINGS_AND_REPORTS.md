@@ -4,6 +4,8 @@
 
 ## Read a finding
 
+See the [evidence and identity contract](EVIDENCE_CONTRACT.md) for `evidence_kind`, `analysis_coverage`, artifact digests, and the difference between a scan decision and a blocked process launch.
+
 Each finding has a stable **detection ID** (for example, `DRAGON-PI-001`), category/title, affected **artifact**, optional line, explanation, bounded **evidence** and remediation. The **severity** (`critical`, `high`, `medium`, `low`, `info`) reflects potential impact; **confidence** (`high`, `medium`, `low`) reflects strength of the evidence. **Classification** (`malicious`, `exploitable`, `risky`, `suspicious`, `informational`) is the detector's label, not a determination that an attack succeeded. Overall risk is the highest finding severity, not a probability score.
 
 Where evidence supports it, `source` and `sink` describe the input and destination, `flow` describes structured transfer context and `path` contains supported attack-graph steps. Missing fields mean the relationship was **not established**, not that the artifact is safe. Location may be file-only for some formats. Diagnostics describe unreadable/malformed/omitted analysis, **not** security findings. A diagnostic can make a scan partial even when findings also exist.

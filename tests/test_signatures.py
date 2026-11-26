@@ -201,8 +201,8 @@ def test_ip_and_textual_hash_indicators(tmp_path, kind):
     )
 
 
-def test_local_loaded_text_hash_is_compared_without_extra_reads(tmp_path):
-    content = "Offline note.\n"
+@pytest.mark.parametrize("content", ["Offline note.\n", "\ufeffOffline note.\r\n"])
+def test_local_raw_file_hash_is_compared(tmp_path, content):
     digest = hashlib.sha256(content.encode()).hexdigest()
     directory = pack(
         tmp_path,
@@ -216,6 +216,10 @@ def test_local_loaded_text_hash_is_compared_without_extra_reads(tmp_path):
     report = Scanner(signature_pack=directory).scan(Target(target))
     assert report.findings[0].signature.context == "artifact_hash"
     assert report.findings[0].severity == Severity.LOW
+    assert report.coverage["bytes_read"] == len(content.encode())
+    if content.startswith("\ufeff"):
+        target.write_bytes(content.removeprefix("\ufeff").encode())
+        assert not Scanner(signature_pack=directory).scan(Target(target)).findings
 
 
 def test_native_structural_and_negative(tmp_path):

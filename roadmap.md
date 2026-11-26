@@ -4,12 +4,12 @@
 
 ## Faz takibi
 
-- [ ] **P0 · Güvenilir başlangıç ve statik çekirdek**
+- [x] **P0 · Güvenilir başlangıç ve statik çekirdek**
 - [ ] **P1 · Genişletilmiş statik analiz ve izole MCP incelemesi**
 - [ ] **P2 · İsteğe bağlı runtime denetimi ve bağımsız doğrulama**
 - [ ] **P3 · Onaylanan platformlar ve ileri entegrasyonlar**
 
-**DSE-001 tamamlandı.** Yerel proje ve GitHub’a özgü düzeltmeler aynı `main` dalında birleştirildi. [Birleşik sürümün doğrulama kaydı](docs/DSE-001-KARSILASTIRMA.md#birleşik-main-kabulü). Sırada DSE-002 var; P0 henüz tamamlanmadı.
+**P0: 8/8 görev tamamlandı.** [Kapanış kaydı](docs/P0-DOGRULAMA.md) yerel doğrulamayı ve kapsam sınırlarını gösterir. Sıradaki görev P1 / DSE-009: referans verilen kaynak kodunu çalıştırmadan ayrıştırmak.
 
 **Nasıl güncellenir?** Aşağıdaki görevleri bağımlılık sırasıyla ele al. “Önkoşul” sütunundaki sayılar `DSE-` görev numaralarıdır. Bir görev doğrulandığında aynı değişiklikte görev kutusunu işaretle ve satıra kanıt kaydının yolunu ekle. Kayıtta snapshot, çalıştırılan komutlar, sonuçlar ve kapsam sınırları bulunmalı. Tüm zorunlu görevler ve fazın kapanış ölçütü doğrulanınca yukarıdaki faz kutusunu `[x]` yap. Engelli veya ertelenmiş işi işaretleme; nedenini ve devam koşulunu ilgili satıra yaz. Kapsam değişikliği kullanıcı kararı gerektirir.
 
@@ -40,15 +40,17 @@
 | Görev | Önkoşul | Teslim ve kabul kanıtı |
 |---|---|---|
 | [x] DSE-001 · Kaynak seçimi ve tekrarlanabilir başlangıç ölçümü | Yok | [Birleşik main kabulü](docs/DSE-001-KARSILASTIRMA.md#birleşik-main-kabulü): `a150340` temiz klonda doğrulandı. Kalite ve iki strict doğruluk kapısı geçti; snapshot, kilitler, zor negatifler, performans ve atlanan kontroller kayıtta. |
-| [ ] DSE-002 · Dinamik MCP başlatma kararı | 001 | Statik bulgular ve gerekli TI eşleşmeleri başlatmadan önce değerlendirilsin. Kritik, doğrulanmış zararlı veya eksik analizde mock `Popen` çağrısı sıfır olmalı. İzolasyonsuz başlatma varsayılan olmasın; CI çıkış politikası değişmesin. |
-| [ ] DSE-003 · Toplam kaynak bütçeleri | 001 | Dosya, bayt, bölge, görünüm ve bulgu limitlerini tarama genelinde uygula. Çok sayıda küçük dosya, 129+ bölge ve iptal örneklerinde sınırlı çıktı ve `incomplete`; BOM örneğinde ham bayt ve metin özetleri ayrılmalı. |
-| [ ] DSE-004 · Skill paketi keşfi | 003 | Seçilen paket kökünde frontmatter, yardımcı dosyalar ve iç içe referansları envantere al. Döngü, kayıp hedef, sınır dışı symlink ve bozuk frontmatter için kapsamı bildir. Doğrudan ve kurulu paket taraması aynı kapsamı vermeli. |
-| [ ] DSE-005 · Ortak komut analizi ve PowerShell | 001, 004 | Dedektörler `argv`, `stdin` ve alıntıları aynı biçimde yorumlasın. İnert PowerShell örneğinde uzak içerikten yürütme noktasına bağlantı `High`; yalnız indirme veya doküman alıntısı aynı bulguyu üretmemeli. Alt süreç başlatılmamalı. |
-| [ ] DSE-006 · Dosyalar arası kanıt zinciri | 004, 005 | Skill → script bağlantısını ve kanıt varsa `PATH-002` ilişkisini göster. Belirsiz hedef, ilişkisiz dosya veya yalnızca decode edilmiş görünüm yürütme zinciri oluşturmamalı. |
-| [ ] DSE-007 · Prompt ve MCP metadata doğruluğu | 001 | EN/TR etkin talimatı alıntı ve olumsuzlamadan ayır. `description` ve `instructions` birlikte bulununca ikisini de incele. İlişkisiz okuma ve yükleme veri sızıntısı sayılmamalı; model görüşü danışma amaçlı kalmalı. |
-| [ ] DSE-008 · Kural kataloğu ve rapor sözleşmesi | 002–007 | §15.A'daki her referans kimliğini `existing/revise/new/deferred/not-applicable` olarak görev ve testle ya da gerekçeyle eşle. §4.B ortak kimlik sözleşmesini tanımla. Terminal/JSON/SARIF'te kanıt türü, kapsam ve maskeleme tutarlı olmalı; mevcut public ID'ler ve `0/1/2/3` çıkış kodları korunmalı. |
+| [x] DSE-002 · Dinamik MCP başlatma kararı | 001 | [Başlatma kapısı testleri](docs/P0-DOGRULAMA.md): statik ve TI kararları süreçten önce; veto durumlarında sıfır mock `Popen`. İzolasyonsuz mod ayrı onay gerektirir. |
+| [x] DSE-003 · Toplam kaynak bütçeleri | 001 | [Bütçe ve kabul testleri](docs/P0-DOGRULAMA.md): dosya, bayt, bölge, görünüm ve bulgu sınırları; 129. bölge, iptal, `incomplete` ve BOM için ham/metin digest ayrımı. |
+| [x] DSE-004 · Skill paketi keşfi | 003 | [Paket keşfi ve kabul testleri](docs/P0-DOGRULAMA.md): doğrudan/kurulu paket kapsamı, frontmatter, yardımcılar, iç içe referanslar ve döngü/kayıp/sınır ihlali tanıları. |
+| [x] DSE-005 · Ortak komut analizi ve PowerShell | 001, 004 | [Komut kabul testleri](docs/P0-DOGRULAMA.md): ortak `argv`/`stdin` yorumu, inert PowerShell kaynak → yürütme ilişkisi `High`; yalnız indirme, operand ve alıntı negatifleri. |
+| [x] DSE-006 · Dosyalar arası kanıt zinciri | 004, 005 | [Zincir kabul testleri](docs/P0-DOGRULAMA.md): `PATH-002` için somut skill → prosedür → script konumları; belirsiz hedef, ilişkisiz dosya veya yalnız decode edilmiş görünüm aynı zinciri üretmez. |
+| [x] DSE-007 · Prompt ve MCP metadata doğruluğu | 001 | [EN/TR ve MCP testleri](docs/P0-DOGRULAMA.md): alıntı/olumsuzlama, karma cümleler, iki metadata alanı ve ilişkisiz okuma/yükleme ayrımı. Model notu statik kanıtın yerini almaz. |
+| [x] DSE-008 · Kural kataloğu ve rapor sözleşmesi | 002–007 | [144 karar](docs/reference-rule-ledger.csv), [§4.B kimlik ve rapor sözleşmesi](docs/EVIDENCE_CONTRACT.md), [kabul testleri](docs/P0-DOGRULAMA.md). Terminal/JSON/SARIF için kanıt türü, kapsam ve maskeleme doğrulandı; mevcut public ID’ler ve CLI `0/1/2/3` korundu. |
 
 **Kapanış:** DSE-001 ölçümüne göre açıklanmamış regresyon kalmamalı. Varsayılan taramanın ağa çıkmadığı ve hedefi çalıştırmadığı, kısmi analizin temiz sonuç vermediği ve reddedilen MCP'nin başlatılmadığı testlerle gösterilmeli.
+
+**DSE-008 referansları:** [Teknik değerlendirme, Ek B](Dragons-Technical-Assessment-2026-11-26.md#ek-b-ayrıntılı-tespit-kuralı-envanteri) mevcut kuralların incelenen sürümdeki davranışını; [rehber §15](Dragons-Security-Engine-Development-Guide-v2.md#15-detection-rule-backlog) planlanan değişiklikleri tanımlar. [§15.A](Dragons-Security-Engine-Development-Guide-v2.md#dse-reference-families) öneri aralıklarını ve sorumlu görevleri verir. [144 satırlık eşleme tablosunda](docs/reference-rule-ledger.csv) kaynak ve testle doğrulanan davranışlar, planlanan kurallar ve yalnız ailesi bilinen öneriler ayrı tutulur.
 
 ## P1 · Genişletilmiş statik analiz ve izole MCP incelemesi
 

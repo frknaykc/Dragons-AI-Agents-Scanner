@@ -63,8 +63,8 @@ def test_bare_mcp_static_support_does_not_enable_dynamic_launch(
     config = tmp_path / ".mcp.json"
     config.write_text(json.dumps({"demo": {"command": str(tmp_path / "server")}}))
     monkeypatch.setattr(
-        "dragonscan.scanner.inspect_mcp",
-        lambda *args: (_ for _ in ()).throw(AssertionError("unexpected dynamic launch")),
+        "dragonscan.dynamic_mcp.subprocess.Popen",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("unexpected dynamic launch")),
     )
     report = Scanner(dynamic_policy=DynamicPolicy(True, True, "demo", tmp_path / "server")).scan(
         Target(config)

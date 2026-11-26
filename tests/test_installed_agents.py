@@ -201,13 +201,13 @@ def test_disappearing_artifact_is_a_scan_error_not_a_crash(
     root.mkdir()
     marker = root / "settings.json"
     marker.write_text("{}")
-    original = scanner_module.load_text
+    original = scanner_module.load_text_with_bytes
 
-    def disappear(path: Path) -> str:
+    def disappear(path: Path, budget):
         path.unlink()
-        return original(path)
+        return original(path, budget)
 
-    monkeypatch.setattr(scanner_module, "load_text", disappear)
+    monkeypatch.setattr(scanner_module, "load_text_with_bytes", disappear)
     report = Scanner().scan_installed(home=tmp_path)
     assert report.errors and not report.findings
 

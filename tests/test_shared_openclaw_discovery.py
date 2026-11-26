@@ -116,7 +116,7 @@ def test_root_symlink_escape_is_controlled(tmp_path: Path, root: str) -> None:
 
 
 @pytest.mark.parametrize("relative", [".agents/skills", ".openclaw/workspace/skills"])
-def test_nested_links_and_adjacent_unsupported_files_are_not_followed(
+def test_package_helpers_are_inventoried_but_links_are_never_followed(
     tmp_path: Path, relative: str
 ) -> None:
     home, outside = tmp_path / "home", tmp_path / "outside"
@@ -124,10 +124,11 @@ def test_nested_links_and_adjacent_unsupported_files_are_not_followed(
     write(outside, "SKILL.md")
     (skill.parent / "loop").symlink_to(skill.parent, target_is_directory=True)
     (skill.parent / "escape").symlink_to(outside, target_is_directory=True)
-    write(home, f"{relative}/inert/notes.txt")
-    write(home, f"{relative}/inert/helper.py", "raise RuntimeError('never execute')")
+    notes = write(home, f"{relative}/inert/notes.txt")
+    helper = write(home, f"{relative}/inert/helper.py", "raise RuntimeError('never execute')")
     report = Scanner().scan_installed(home=home)
-    assert {a.path for a in report.artifacts} == {skill}
+    assert {a.path for a in report.artifacts} == {skill, notes, helper}
+    assert evaluate(report).scan_status == "partial"
     assert not report.findings
 
 

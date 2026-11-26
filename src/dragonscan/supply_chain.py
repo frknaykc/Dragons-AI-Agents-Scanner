@@ -1,9 +1,17 @@
 """Deterministic supply-chain findings from normalized, already-loaded documents."""
 
 import re
+import shlex
 from dataclasses import replace
 from pathlib import Path
 
+from dragonscan.command_semantics import (
+    explicit_powershell_execution,
+    literal_encoded_pipeline,
+    remote_python_pipeline,
+    remote_shell_pipeline,
+    shell_command_string,
+)
 from dragonscan.dependencies import local_status
 from dragonscan.models import (
     Classification,
@@ -29,14 +37,36 @@ _MUTABLE = frozenset(
         "mutable-url",
     }
 )
-_REMOTE_INSTALLER = re.compile(r"\b(?:curl|wget)\b[^\n|;]{1,1024}\|\s*(?:sh|bash)\b", re.I)
-_DANGEROUS_HOOK = re.compile(
-    r"\b(?:curl|wget)\b[^\n|;]{1,1024}\|\s*(?:sh|bash)\b|"
-    r"\b(?:curl|wget)\b[^\n]{1,1024}\b(?:sh|bash|node|python)\b|"
-    r"\b(?:bash|sh)\s+-c\b|\b(?:eval|base64\s+-d)\b|"
-    r"(?:\.aws/credentials|\.ssh/id_|/etc/cron\.)",
-    re.I,
-)
+
+
+def _hook_severity(command: str) -> Severity | None:
+    if len(command) > 4200:
+        return None
+    if (
+        remote_shell_pipeline(command)
+        or remote_python_pipeline(command)
+        or explicit_powershell_execution(command)
+    ):
+        return Severity.HIGH
+    if literal_encoded_pipeline(command):
+        return Severity.MEDIUM
+    try:
+        words = shlex.split(command)
+    except ValueError:
+        return None
+    if not words:
+        return None
+    if words[0] in {"sh", "bash", "zsh"} and shell_command_string(tuple(words[1:])):
+        return Severity.MEDIUM
+    if words[0] == "eval" and len(words) > 1:
+        return Severity.MEDIUM
+    if words[0] in {"cat", "cp", "mv", "tee", "rm"} and any(
+        re.search(r"(?:\.aws/credentials|\.ssh/id_|/etc/cron\.)", word) for word in words[1:]
+    ):
+        return Severity.MEDIUM
+    return None
+
+
 _HOOKS = frozenset({"preinstall", "install", "postinstall", "prepare", "prepublish"})
 
 
@@ -272,7 +302,7 @@ def analyze(
                     and entry.key_path[0] == "scripts"
                     and entry.key_path[1] in _HOOKS
                     and isinstance(entry.value, str)
-                    and _DANGEROUS_HOOK.search(entry.value)
+                    and (severity := _hook_severity(entry.value)) is not None
                 ):
                     name = str(entry.key_path[1])
                     findings.append(
@@ -280,9 +310,7 @@ def analyze(
                             detection_id="DRAGON-SC-004",
                             category="supply-chain",
                             title="Security-sensitive package lifecycle script",
-                            severity=Severity.HIGH
-                            if _REMOTE_INSTALLER.search(entry.value)
-                            else Severity.MEDIUM,
+                            severity=severity,
                             confidence=Confidence.HIGH,
                             classification=Classification.RISKY,
                             artifact=doc.artifact.path,

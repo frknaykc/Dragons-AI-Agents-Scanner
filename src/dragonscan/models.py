@@ -16,6 +16,7 @@ class ArtifactKind(StrEnum):
     PLUGIN_METADATA = "plugin_metadata"
     HOOK_CONFIG = "hook_config"
     SCRIPT = "script"
+    PACKAGE_DATA = "package_data"
     DEPENDENCY_MANIFEST = "dependency_manifest"
     STRUCTURED_CONFIG = "structured_config"
 
@@ -62,6 +63,10 @@ class Artifact:
     kind: ArtifactKind
     source_format: SourceFormat
     ecosystem: str | None = None
+    # Discovery context is not part of file identity or positional construction.
+    package_root: Path | None = field(default=None, kw_only=True, compare=False)
+    raw_sha256: str | None = None
+    text_sha256: str | None = None
 
 
 @dataclass(frozen=True)

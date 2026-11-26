@@ -3,7 +3,7 @@
 **Tarih:** 26 Kasım 2026  
 **Ürün:** Dragons AI Agent Scanner (`dragonscan`) 0.1.0  
 **Durum:** Önerilen geliştirme şartnamesi; uygulanmış değişiklik veya doğrulanmış test sonucu değildir.  
-**Temel:** `Dragons-Technical-Assessment-2026-11-26.md`, HEAD `db23dd52fab34a15346df05f69c6b289ef4b680c` + inceleme sırasındaki commit edilmemiş değişiklikler.  
+**Temel:** [Teknik değerlendirme](Dragons-Technical-Assessment-2026-11-26.md), HEAD `db23dd52fab34a15346df05f69c6b289ef4b680c` + inceleme sırasındaki commit edilmemiş değişiklikler.
 **Dil:** Türkçe açıklamalar, İngilizce teknik kimlikler.
 **Revizyon 2:** Kullanıcının altı motorlu referans mimarisi §4 ana omurgası olarak açıklaştırıldı; §15.A kategori izlenebilirliği ve DSE-008/020 entegrasyon kriterleri eklendi. Diğer kapsam ve mevcut task ID’leri korunmuştur.
 
@@ -125,7 +125,7 @@ Yerel dosyadan URL çıkarımı mevcut; bunun kayıtsız domain, arama sonucunda
 
 ## 4. Hedef mimari ve veri sözleşmeleri — altı motorlu ana mimari
 
-**Normatif mimari referansı:** Kullanıcının paylaştığı `download.svg` (Attack Surface Discovery → Static Scanner / Runtime Monitor → Threat Intelligence & Correlation → Risk & Policy → ALLOW/WARN/APPROVAL/BLOCK → reporting) ve `Pasted text(1).txt` (§1–20). Bu referans, ürün hedef kapsamıdır; `Dragons-Technical-Assessment-2026-11-26.md` mevcut durum kanıtıdır. Altı motor, aynı CLI altında mantıksal sorumluluk sınırlarıdır; altı yeni servis, ayrı ürün veya tüm modüllerin yeniden yazılması gerektirmez.
+**Mimari hedef:** Kullanıcının paylaştığı `download.svg` şemasındaki akış bu bölümde tanımlanır: Attack Surface Discovery → Static Scanner / Runtime Monitor → Threat Intelligence & Correlation → Risk & Policy → ALLOW/WARN/APPROVAL/BLOCK → reporting. Altı motor aynı CLI altında sorumlulukları ayırır; altı yeni servis gerektirmez. [Teknik değerlendirme](Dragons-Technical-Assessment-2026-11-26.md) ise inceleme tarihinde üründe bulunan mekanizmaları belgeler.
 
 Mevcut `Scanner.scan` statik pipeline olarak kalır. Runtime event loop bu pipeline'a gömülmez. İki analiz hattı ortak normalleştirilmiş gözlem, intelligence, korelasyon, risk ve karar sözleşmelerini kullanır. Risk motoru bulguyu değerlendirir; policy motoru yetkilendirme kararını üretir; kararı gerçek hook/proxy/sandbox uygular. Statik CI exit policy bir runtime veto değildir.
 
@@ -510,9 +510,13 @@ runtime:
 
 Unsupported dynamic expression yanlış pozitif High üretmemeli; coverage/unknown gerektiğinde raporlanmalıdır. Test örnekleri çalıştırılabilir saldırı payload'ı değil parser metni veya fake event olmalı.
 
+<a id="dse-reference-families"></a>
+
 ### 15.A İlk referans dokümanının kapsam izlenebilirliği
 
-`Pasted text(1).txt` içindeki PI/RCE/SEC/PER/OBF/MCP/SKL/SUP/WEB/CFG kimlikleri öneri kimlikleridir. Dragons'ın mevcut `DRAGON-*` ve `DAAS-*` public kimlikleri korunur. Aşağıdaki tablo kategori düzeyinde izlenebilirliktir; her referans kuralının birebir uygulanmış veya mevcut backlog'da ayrı bir ID olarak tanımlanmış olduğu anlamına gelmez. DSE-008 kapsamında her referans kuralı için existing/revise/new/deferred/not-applicable disposition, static/runtime evidence, test ve ilgili task kaydı oluşturulmalı; eşdeğer davranışlar bir ID altında birleştirilebilir.
+Aşağıdaki aralıklar 144 öneri kimliğini kapsar. Mevcut kurallar için [teknik değerlendirme, Ek B](Dragons-Technical-Assessment-2026-11-26.md#ek-b-ayrıntılı-tespit-kuralı-envanteri), önerilen değişiklikler için [§15 kural tablosu](#15-detection-rule-backlog) kullanılır. Örneğin `PI-001`, Ek B'deki `DRAGON-PI-001` kuralının kısa adıdır: önceki talimatları geçersiz kılma isteği. Raporlarda `DRAGON-*` ve `DAAS-*` kimlikleri değişmez.
+
+[DSE-008 eşleme tablosu](docs/reference-rule-ledger.csv) her öneriyi `existing`, `revise`, `new`, `deferred` veya `not-applicable` olarak izler. Mevcut davranışın ürün kimliği ve benchmark vakası, planlanan kuralın ise §15 tasarımı belirtilir. Yalnız aileye ayrılmış numaralarda davranış tahmin edilmez. `deferred` satırındaki gerekçe ve `review_task`, hangi kanıtla ve hangi görevde kararın yeniden ele alınacağını gösterir; bu satırlar ürün kapsamına sayılmaz.
 
 | Referans kapsamı | Dragons hedef modülü ve task | Özellikle tamamlanacak kapsam |
 |---|---|---|
@@ -840,7 +844,7 @@ Task completion checklist:
 
 ### Kaynaklar (26 Kasım 2026 tarihinde erişilenler)
 
-- [R0] Kullanıcı tarafından sağlanan `Dragons-Technical-Assessment-2026-11-26.md`, §1–23 ve Ek A–D. Kaynak snapshot'ı ve bütün bulgu envanteri için birincil ürün kanıtı. Bu rehber repo kaynaklarının bağımsız denetimi değildir.
+- [R0] [Teknik değerlendirme](Dragons-Technical-Assessment-2026-11-26.md), §1–23 ve Ek A–D. İncelenen çalışma ağacının kural envanteri Ek B'dedir. Sonraki P0 değişikliklerinin test sonuçları [P0 doğrulama kaydındadır](docs/P0-DOGRULAMA.md).
 - [R1] AIR Research Lab, [Introducing WebSec](https://www.air.security/blog-posts/websec), 23 Kasım 2026. Search-provider benchmark; ürünün tespit doğruluğuna dönüştürülmez.
 - [R2] AIR Research Lab, [SolanaCry](https://www.air.security/blog-posts/solanacry), 29 Ekim 2026. Search-selected repo, remote code execution, remote-access misuse.
 - [R3] AIR Research Lab, [Web Hole](https://www.air.security/blog-posts/web-hole), 23 Ekim 2026. Search-index persistence, abandoned domains, agent-visible content.

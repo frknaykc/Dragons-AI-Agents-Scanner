@@ -1,11 +1,13 @@
 """Presentation-only, redacted static relationships shared by report formats."""
 
-from dataclasses import asdict
+import re
+from dataclasses import asdict, fields, is_dataclass, replace
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
 from dragonscan.models import Finding
-from dragonscan.semantic import redact
+from dragonscan.semantic import redact, redact_secrets
 
 INTERPRETATION = (
     "Severity = potential impact; confidence = evidence strength. "
@@ -13,11 +15,55 @@ INTERPRETATION = (
 )
 
 
+# Logical remote artifact IDs travel through pathlib: https:// becomes https:/
+# (or uses backslashes on Windows). Check userinfo before URI encoding it.
+_PATH_USERINFO = re.compile(r"\b(https?:[/\\]{1,2})[^\s/@:\\]+:[^\s/@\\]+@", re.I)
+
+
+def redact_report_text(text: str, *, strip_controls: bool = False) -> str | None:
+    cleaned = redact(text) if strip_controls else redact_secrets(text)
+    if cleaned is None:
+        return None
+    return _PATH_USERINFO.sub(r"\g<1><REDACTED_URL_CREDENTIAL>@", cleaned)
+
+
+def evidence_kind(finding: Finding) -> str:
+    if finding.intelligence or finding.vulnerability:
+        return "intel_match"
+    if finding.semantic and finding.category == "semantic":
+        return "model_opinion"
+    if finding.dependency and not finding.path and not finding.flow:
+        return "static_declared"
+    return "static_inferred"
+
+
+def mask_fields(value: Any) -> Any:
+    """Mask individual fields before presentation; preserve enum and structural types."""
+    if isinstance(value, Enum):
+        return value
+    if isinstance(value, str):
+        cleaned = redact_report_text(value)
+        return cleaned if cleaned is not None else "<redacted>"
+    if isinstance(value, Path):
+        return Path(mask_fields(str(value)))
+    if isinstance(value, tuple):
+        return tuple(mask_fields(v) for v in value)
+    if isinstance(value, list):
+        return [mask_fields(v) for v in value]
+    if isinstance(value, dict):
+        return {k: mask_fields(v) for k, v in value.items()}
+    if is_dataclass(value) and not isinstance(value, type):
+        return replace(
+            value, **{f.name: mask_fields(getattr(value, f.name)) for f in fields(value)}
+        )
+    return value
+
+
 def _clean(value: Any) -> Any:
     if isinstance(value, Path):
         value = str(value)
     if isinstance(value, str):
-        cleaned = redact(value)
+        cleaned = redact_report_text(value, strip_controls=True)
         return cleaned if cleaned is not None else "[redacted: unsafe or oversized context]"
     if isinstance(value, dict):
         return {key: _clean(item) for key, item in value.items()}

@@ -249,10 +249,10 @@ def test_repo_relative_uri_and_finding_id_count(tmp_path: Path) -> None:
                 module.read_text(encoding="utf-8"),
             )
         )
-    assert len(ids) == 48
+    assert len(ids) == 49
     assert "DRAGON-TI-001" in ids
     assert sum(identifier.startswith("DRAGON-SEM-") for identifier in ids) == 5
-    assert sum(not identifier.startswith("DRAGON-SEM-") for identifier in ids) == 43
+    assert sum(not identifier.startswith("DRAGON-SEM-") for identifier in ids) == 44
 
 
 def test_archive_inside_repository_does_not_claim_member_is_repository_file(
@@ -413,6 +413,18 @@ def test_nonpositive_lines_and_secret_source_never_become_sarif_locations() -> N
     assert "fixture-private-token" not in sarif_report(
         report(sample(Path("SKILL.md"), evidence="token=fixture-private-token"))
     )
+
+
+@pytest.mark.parametrize("scheme", ["https:/", "https:\\"])
+def test_logical_url_credentials_are_removed_before_message_truncation(scheme: str) -> None:
+    marker = "SyntheticSarifValue"
+    evidence = scheme + "fixture:" + marker + ("x" * 500) + "@example.invalid/a"
+    finding = sample(Path("repo/SKILL.md"), evidence=evidence)
+    result = parsed(report(finding))["runs"][0]["results"][0]
+    text = result["message"]["text"]
+    assert marker in evidence and marker not in text
+    assert "example.invalid/a" in text and "<REDACTED_URL_CREDENTIAL>" in text
+    assert result["locations"][0]["physicalLocation"]["artifactLocation"]["uri"] == "repo/SKILL.md"
 
 
 def test_duplicate_findings_and_hostile_text_stay_structured_and_bounded() -> None:

@@ -1,0 +1,2 @@
+# Static scanner fixture. The encoded literal is the Python statement `pass`.
+printf %s cGFzcw== | base64 -d | python3 -

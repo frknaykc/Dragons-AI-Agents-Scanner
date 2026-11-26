@@ -4,6 +4,8 @@ import os
 import stat
 from pathlib import Path
 
+from dragonscan.scan_budget import ScanBudget
+
 MAX_BYTES = 1_048_576
 
 
@@ -15,7 +17,7 @@ def load_text(path: Path) -> str:
     return load_text_with_bytes(path)[0]
 
 
-def load_text_with_bytes(path: Path) -> tuple[str, bytes]:
+def load_text_with_bytes(path: Path, budget: ScanBudget | None = None) -> tuple[str, bytes]:
     """Return the parsed text and exact bounded file bytes for identity checks."""
     try:
         before = path.lstat()
@@ -32,8 +34,17 @@ def load_text_with_bytes(path: Path) -> tuple[str, bytes]:
                 before.st_ino,
             ):
                 raise LoadError("artifact changed during load")
-            with os.fdopen(fd, "rb", closefd=False) as stream:
-                data = stream.read(MAX_BYTES + 1)
+            remaining = budget.limits.max_bytes - budget.bytes_read if budget else MAX_BYTES + 1
+            if opened.st_size > remaining:
+                if budget is not None:
+                    budget.reason = "scan input byte budget reached"
+                raise LoadError("input byte budget reached")
+            with os.fdopen(fd, "rb", buffering=0, closefd=False) as stream:
+                data = stream.read(min(MAX_BYTES + 1, remaining))
+            if budget is not None:
+                budget.bytes_read += len(data)  # Charge bytes even if decoding or parsing fails.
+            if len(data) != opened.st_size or len(data) != os.fstat(fd).st_size:
+                raise LoadError("artifact changed during load")
             if len(data) > MAX_BYTES:
                 raise LoadError("artifact exceeds 1 MiB limit")
             if b"\x00" in data:

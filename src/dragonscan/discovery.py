@@ -4,9 +4,11 @@ import heapq
 import os
 import stat
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 
 from dragonscan.models import Artifact, ArtifactKind, SourceFormat, Target
+from dragonscan.skill_package import BINARY_SUFFIXES, PRIVATE_DIRS, package_member, private_member
 
 INSTRUCTION_NAMES = frozenset(
     {
@@ -224,6 +226,8 @@ def discover_installed_bounded(
     max_directory_entries: int = MAX_ENTRIES,
     max_pending_dirs: int = MAX_PENDING_DIRS,
     installed_project: bool = False,
+    installed_packages: bool = False,
+    package_depth: int | None = None,
 ) -> tuple[tuple[Artifact, ...], str | None]:
     """Scan roots active-first and depth-first, retaining evidence on exhaustion.
 
@@ -236,7 +240,7 @@ def discover_installed_bounded(
     path = target.path.absolute()
     if path.is_symlink() or not path.is_dir():
         raise DiscoveryError("agent root is not a regular directory")
-    pending: list[tuple[int, int, str, Path]] = [(0, 0, str(path), path)]
+    pending: list[tuple[int, int, str, Path, Path | None]] = [(0, 0, str(path), path, None)]
     entries = 0
     artifacts: list[Artifact] = []
     diagnostics: list[str] = []
@@ -246,7 +250,7 @@ def discover_installed_bounded(
             diagnostics.append(message)
 
     while pending:
-        priority, negative_depth, _, root = heapq.heappop(pending)
+        priority, negative_depth, _, root, package = heapq.heappop(pending)
         depth = -negative_depth
         oversized = False
         try:
@@ -270,17 +274,67 @@ def discover_installed_bounded(
         if oversized:
             diagnose("agent discovery directory entry limit exceeded")
             continue
+        # A marker in arbitrary repository/home state must not expand our allowlist.
+        marker = root / "SKILL.md"
+        if (
+            package is None
+            and "SKILL.md" in names
+            and (
+                (not installed_packages and root == path and root != Path.home())
+                or (
+                    installed_packages
+                    and root != path
+                    and known_artifact
+                    and (marker_artifact := known_artifact(marker))
+                    and marker_artifact.kind == ArtifactKind.SKILL
+                )
+            )
+        ):
+            try:
+                info = marker.lstat()
+                if stat.S_ISREG(info.st_mode) and not (
+                    getattr(info, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT
+                ):
+                    package = root
+            except OSError:
+                diagnose("skill package marker inaccessible")
         for name in sorted(names):
             candidate = root / name
+            # Don't expand an embedded client directory as if it were a skill.
+            # Retain its known config filenames, not its sessions, caches or keys.
+            if (
+                package
+                and root.name in ECOSYSTEM_DIRS
+                and name not in {"settings.json", "config.toml", "plugin.json", "hooks.json"}
+            ):
+                continue
+            if (
+                package
+                and private_member(name)
+                and name not in MCP_NAMES | {".npmrc"} | ECOSYSTEM_DIRS.keys()
+            ):
+                continue
             try:
-                mode = candidate.lstat().st_mode
+                info = candidate.lstat()
+                mode = info.st_mode
+                if getattr(info, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT:
+                    if package:
+                        diagnose("skill package reparse point omitted (not followed)")
+                    continue
             except OSError as exc:
                 diagnose(f"agent entry inaccessible: {type(exc).__name__}")
                 continue
             if stat.S_ISDIR(mode) and name not in SKIP_DIRS:
+                if package and name.lower() in PRIVATE_DIRS:
+                    continue
                 if descend is not None and not descend(candidate):
                     continue
-                if depth >= max_depth:
+                exhausted = (
+                    len(root.relative_to(package).parts) >= package_depth
+                    if package and package_depth is not None
+                    else depth >= max_depth
+                )
+                if exhausted:
                     diagnose("agent discovery depth limit exceeded")
                     continue
                 if len(pending) >= max_pending_dirs:
@@ -293,16 +347,28 @@ def discover_installed_bounded(
                     else (1 if lower in _SECONDARY_DIRS else 0)
                 )
                 next_priority = max(priority, rank)
-                heapq.heappush(pending, (next_priority, -(depth + 1), str(candidate), candidate))
+                heapq.heappush(
+                    pending, (next_priority, -(depth + 1), str(candidate), candidate, package)
+                )
             elif stat.S_ISREG(mode):
                 artifact = known_artifact(candidate) if known_artifact is not None else None
                 if artifact is None and not strict_artifact:
                     artifact = classify(candidate, installed_project=installed_project)
+                if package:
+                    artifact = artifact or classify(candidate) or package_member(candidate)
+                    if artifact is not None:
+                        artifact = replace(artifact, package_root=package)
+                    elif mode & 0o111 or candidate.suffix.lower() in BINARY_SUFFIXES:
+                        diagnose("skill package unsupported executable omitted (not opened)")
+                    elif candidate.suffix.lower() in {".zip", ".tar", ".gz", ".bz2", ".xz", ".7z"}:
+                        diagnose("skill package archive omitted (not opened)")
                 if artifact is not None:
                     if max_artifacts is not None and len(artifacts) >= max_artifacts:
                         diagnose("agent discovery artifact limit exceeded")
                         return tuple(artifacts), "; ".join(diagnostics)
                     artifacts.append(artifact)
+            elif package and stat.S_ISLNK(mode):
+                diagnose("skill package symlink omitted (not followed)")
             elif installed_project and not stat.S_ISLNK(mode):
                 artifact = known_artifact(candidate) if known_artifact is not None else None
                 if artifact is not None or classify(candidate, installed_project=True) is not None:

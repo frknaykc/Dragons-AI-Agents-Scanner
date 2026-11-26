@@ -18,11 +18,15 @@ from pathlib import Path
 from typing import Any, cast
 
 from dragonscan.models import (
+    Classification,
+    Confidence,
     Document,
     DynamicMcpComparison,
     DynamicMcpItem,
     DynamicMcpObservation,
     McpServer,
+    ScanReport,
+    Severity,
 )
 
 _STARTUP_SECONDS = 2.0
@@ -480,12 +484,52 @@ def _terminate(process: subprocess.Popen[bytes]) -> bool:
     return group_signalled and reaped
 
 
-def inspect(documents: tuple[Document, ...], policy: DynamicPolicy) -> DynamicResult:
+def _prelaunch_denial(report: ScanReport) -> str | None:
+    if (
+        report.errors
+        or report.diagnostics
+        or not report.coverage.get("parsed")
+        or any(report.coverage.get(key) for key in ("partially_analyzed", "skipped", "failed"))
+        or "partial"
+        in (report.intelligence_status, report.vulnerability_status, report.semantic_status)
+    ):
+        return "static scan incomplete; MCP launch skipped"
+    for finding in report.findings:
+        intel = finding.intelligence
+        # An exact byte match to a reviewed denial can veto, never grant. A
+        # mentioned hash, domain, or a feed's confidence alone cannot do so.
+        if (
+            intel is not None
+            and intel.indicator_type == "sha256"
+            and intel.context == "artifact_hash"
+            and any(
+                s.trust == "operator_reviewed" and s.classification == "malicious"
+                for s in intel.sources
+            )
+        ):
+            return "reviewed malicious artifact digest; MCP launch skipped"
+        # A model annotation on a deterministic finding must not erase its veto.
+        if finding.severity == Severity.CRITICAL or (
+            finding.classification == Classification.MALICIOUS
+            and finding.confidence == Confidence.HIGH
+            and finding.category != "semantic"
+            and intel is None
+        ):
+            return "critical or confirmed malicious finding; MCP launch skipped"
+    return None
+
+
+def inspect(
+    documents: tuple[Document, ...], policy: DynamicPolicy, report: ScanReport
+) -> DynamicResult:
     """Only this lower-layer gate may launch a process; config cannot grant consent."""
     if not policy.requested:
         return DynamicResult("not_requested")
     mode = "legacy_uncontained" if policy.allow_uncontained else "required_isolation"
     capabilities = available_capabilities()
+    denial = _prelaunch_denial(report)
+    if denial:
+        return DynamicResult("blocked", (denial,), mode=mode, capabilities=capabilities)
     try:
         doc, server = _validate(policy, documents)
     except ValueError as exc:

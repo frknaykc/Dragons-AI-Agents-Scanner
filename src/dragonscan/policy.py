@@ -27,7 +27,11 @@ def evaluate(
     report: ScanReport, fail_on: Severity | None = None, *, fail_on_incomplete: bool = False
 ) -> PolicyResult:
     """Execution failure wins over incomplete coverage, which wins over findings."""
-    no_analysis = bool(report.coverage) and report.coverage.get("parsed", 0) == 0
+    no_analysis = (
+        bool(report.coverage)
+        and report.coverage.get("parsed", 0) == 0
+        and not report.coverage.get("budget_stopped")
+    )
     errors = (
         bool(report.errors) or report.acquisition_status in {"blocked", "failed"} or no_analysis
     )
