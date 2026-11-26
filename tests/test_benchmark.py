@@ -371,11 +371,16 @@ def test_real_corpus_offline_execution_free_and_same_scanner(tmp_path: Path) -> 
     assert len(result["coverage"]["semantic_excluded"]) == 5
     assert result["summary"]["benign_cases"] > 0
     assert result["summary"]["malicious_cases"] > 0
-    assert result["summary"]["fn"] == 0
+    # Frozen truth still expects DAAS-002 for plain wget, which writes to a
+    # file rather than stdout. Keep that discrepancy visible, not re-labelled.
+    assert result["summary"]["fn"] == 1
+    assert [(item["case"], item["id"]) for item in result["false_negatives"]] == [
+        ("mcp-poisoning", "DAAS-002")
+    ]
     assert result["correctness"]["failed"] == 0
     assert result["correctness"]["hard_negative_checked"] == 31
-    assert result["summary"]["tp"] == 50
-    assert result["splits"]["holdout"]["tp"] == 4
+    assert result["summary"]["tp"] == 49
+    assert result["splits"]["holdout"]["tp"] == 3
     for entry in load_manifest(root / "manifest.json")[1]:
         if entry["id"] == "ti-positive":
             target = root / str(entry["artifact"])

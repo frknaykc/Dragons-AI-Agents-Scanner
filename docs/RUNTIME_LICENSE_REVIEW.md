@@ -3,6 +3,18 @@
 This is a release-gate record, not a redistribution grant. Dragons' application
 license remains MIT. A successful notice checksum check is not license clearance.
 
+The [native runtime resolution](NATIVE_RUNTIME_RESOLUTION.md) records the current
+`eb9714ea571cefc93acae18d6f27956dbc2c02ff` candidates: 43 Windows SDK DLLs removed,
+required VCRUNTIME retained, and Unix libuuid/LGPL inclusion confirmed. The local
+libuuid notice correction is not in those candidates and does not resolve the
+source/relink obligations. **DISTRIBUTION READINESS: FAIL; redistribution clearance:
+NOT VERIFIED.**
+
+The [previous distribution verification](DISTRIBUTION_VERIFICATION.md) retains
+the `db23dd5` byte/source comparisons, HACL*/KaRaMeL correction and Microsoft
+rights analysis. The `abe40c5` observations below are historical evidence; consult
+the current resolution report for the remaining blockers.
+
 ## Observed runtime and sources
 
 The four-platform validation of `abe40c5c8e972e22417dd25614772e9efb32ae18`
@@ -103,17 +115,23 @@ every static-link/notice obligation in the broader runtime inventory. The stale
 
 Static PE resource inspection identified both VCRUNTIME DLLs as `14.44.35211.0`
 and `ucrtbase.dll` as `10.0.26100.1742`. Both VCRUNTIME DLLs match PBS's stripped
-Windows archive; `ucrtbase.dll` has no matching entry in the inspected PBS archives,
-so its origin remains unverified. PBS provenance is not Microsoft's redistribution grant.
+Windows archive; `ucrtbase.dll` has no matching entry in the inspected PBS archives.
+Its origin was unresolved in that historical review. The newer review matches
+`ucrtbase.dll` and 42 API-set DLLs to the official Microsoft Windows SDK
+10.0.26100.1742 x64 redistribution directory. Neither PBS nor SDK byte
+correspondence is Microsoft's redistribution grant.
 
 ## Remaining release blockers
 
 1. Complete the linked-component / notice mapping and component-specific attribution,
-   source or relinking review. Verify corrected HACL*/KaRaMeL notices in newly built
-   artifacts; the historical candidates above do not contain them. Runtime byte
-   correspondence narrows this blocker but does not certify complete clearance.
-2. Establish UCRT provenance, applicable Microsoft terms and the distributor's
-   entitlement for the identified Windows files. [Microsoft's redistribution guidance](https://learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files?view=msvc-170)
+   source or relinking review. The corrected HACL*/KaRaMeL notices are now verified
+   in all four `db23dd5` artifacts; their historical omission is no longer a current
+   blocker. Runtime byte correspondence does not certify complete clearance.
+2. Establish the distributor's entitlement and satisfaction of applicable Microsoft
+   conditions for the identified Windows files. UCRT byte provenance is now
+   established, but four bundled API-set names are absent from the inspected SDK
+   REDIST list; their grant coverage remains unresolved, not proven prohibited.
+   [Microsoft's redistribution guidance](https://learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files?view=msvc-170)
    limits distribution to licensed Visual Studio users under the relevant terms;
    the [2022 redistributable list](https://learn.microsoft.com/en-us/visualstudio/releases/2022/redistribution)
    is conditional on a valid license. A hosted runner or a copied DLL filename

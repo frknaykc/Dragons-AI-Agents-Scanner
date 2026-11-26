@@ -32,12 +32,22 @@ _IMPERATIVE = re.compile(
 )
 _PYTHON_STDIN = re.compile(r"python(?:3(?:\.\d+)?)?\Z")
 _SHELL_WRAPPER = re.compile(
-    r"(?:sh|bash|zsh)\s+-(?:c|lc)\s+(?P<quote>['\"])(?P<body>[^\n]{1,500})(?P=quote)\Z"
+    r"(?:sh|bash|zsh)\s+-(?:c|lc|cl)\s+(?P<quote>['\"])(?P<body>[^\n]{1,500})(?P=quote)\Z"
 )
 
 
 def remote_python_pipeline(command: str) -> bool:
     """Recognize a literal HTTP fetch whose stdout is Python's program input."""
+    return _remote_stdin_pipeline(command, shell=False)
+
+
+def remote_shell_pipeline(command: str) -> bool:
+    """Recognize a literal HTTP fetch whose stdout is the shell's program input."""
+    return _remote_stdin_pipeline(command, shell=True)
+
+
+def _remote_stdin_pipeline(command: str, *, shell: bool) -> bool:
+    """Require a literal stdout fetch and an interpreter that consumes program stdin."""
     command = command.strip().removesuffix(".")
     wrapper = _SHELL_WRAPPER.fullmatch(command)
     if wrapper is not None:
@@ -54,9 +64,21 @@ def remote_python_pipeline(command: str) -> bool:
         interpreter = shlex.split(interpreter_text)
     except ValueError:
         return False
-    if not fetch or not interpreter or not _PYTHON_STDIN.fullmatch(interpreter[0]):
+    if not fetch or not interpreter:
         return False
-    if interpreter[1:] not in ([], ["-"], ["-u"], ["-u", "-"]):
+    if shell:
+        if interpreter[0] not in {"sh", "bash", "zsh"} or interpreter[1:] not in (
+            [],
+            ["-s"],
+            ["-s", "--"],
+        ):
+            return False
+    elif not _PYTHON_STDIN.fullmatch(interpreter[0]) or interpreter[1:] not in (
+        [],
+        ["-"],
+        ["-u"],
+        ["-u", "-"],
+    ):
         return False
     args = fetch[1:]
     urls = [arg for arg in args if re.fullmatch(r"https?://[^/\s]+(?:/\S*)?", arg)]
@@ -70,8 +92,17 @@ def remote_python_pipeline(command: str) -> bool:
             for arg in options
         )
     if fetch[0] == "wget":
-        if options[-2:] == ["-O", "-"]:
-            options = [*options[:-2], "-O-"]
+        # Bind -O to its actual next argument before removing the URL. Its
+        # position among other supported options does not change stdout routing.
+        options = []
+        remaining = iter(args)
+        for arg in remaining:
+            if arg == "-O":
+                if next(remaining, None) != "-":
+                    return False
+                options.append("-O-")
+            elif arg != urls[0]:
+                options.append(arg)
         return any(arg in {"-O-", "-qO-", "--output-document=-"} for arg in options) and all(
             arg in {"-q", "--quiet", "-O-", "-qO-", "--output-document=-"} for arg in options
         )
@@ -112,7 +143,7 @@ def literal_encoded_pipeline(command: str) -> str | None:
     if not decoded or len(decoded) > 4096 or not interpreter:
         return None
     if interpreter in (["sh"], ["bash"], ["zsh"]) or (
-        interpreter[0] in {"sh", "bash"} and interpreter[1:] in (["-s"], ["-s", "--"])
+        interpreter[0] in {"sh", "bash", "zsh"} and interpreter[1:] in (["-s"], ["-s", "--"])
     ):
         return "shell execution"
     if _PYTHON_STDIN.fullmatch(interpreter[0]) and interpreter[1:] in (
@@ -126,7 +157,13 @@ def literal_encoded_pipeline(command: str) -> str | None:
 
 
 _SOURCE_PATTERNS = (
-    ("SSH private key", re.compile(r"(?:~?/)?\.ssh/(?:id_rsa|id_ed25519|id_ecdsa|id_dsa)\b", re.I)),
+    (
+        "SSH private key",
+        re.compile(
+            r"(?:~?/)?\.ssh/(?:id_rsa|id_ed25519|id_ecdsa|id_dsa)\b(?!\.pub\b|-cert\.pub\b)",
+            re.I,
+        ),
+    ),
     (
         "cloud credentials",
         re.compile(r"(?:~?/)?\.aws/credentials\b|\b(?:cloud|aws) credentials\b", re.I),
@@ -215,9 +252,6 @@ _REMOTE_FETCH = re.compile(r"\b(?:fetch|download|retrieve|load|use)\b", re.I)
 _REMOTE_AUTHORITY = re.compile(
     r"\b(?:follow|obey|treat|use)\b.{0,80}\b(?:instructions?|rules?|policy)\b", re.I
 )
-_FETCH_SHELL = re.compile(
-    r"\b(?:curl|wget)\b[^\n|]{0,300}https?://[^\s|]+[^\n|]{0,300}\|\s*(?:sh|bash|zsh)\b", re.I
-)
 _BIDI = re.compile("[\u202a-\u202e\u2066-\u2069]")
 _SHELL_DIRECTIVE = re.compile(
     r"^(?:(?:first|then|next)[,:]?\s+)?"
@@ -225,7 +259,10 @@ _SHELL_DIRECTIVE = re.compile(
     re.I,
 )
 _KEYCHAIN_READ = re.compile(r"\bsecurity\s+find-generic-password\b[^;|)]{0,300}\s-w\b", re.I)
-_SSH_KEY = re.compile(r"(?:~?/)?\.ssh/(?P<name>id_rsa|id_ed25519|id_ecdsa|id_dsa)\b", re.I)
+_SSH_KEY = re.compile(
+    r"(?:~?/)?\.ssh/(?P<name>id_rsa|id_ed25519|id_ecdsa|id_dsa)\b(?!\.pub\b|-cert\.pub\b)",
+    re.I,
+)
 _CURL_HTTP = re.compile(r"\bcurl\b[^;]{0,500}\bhttps?://[^\s\"'<>]+", re.I)
 _CURL_BODY = re.compile(r"(?:^|\s)(?:-d|--data(?:-binary)?)\s+", re.I)
 _STDIN_BODY = re.compile(r"(?:^|\s)(?:-d|--data(?:-binary)?)\s+@-(?:\s|$)", re.I)
@@ -236,7 +273,7 @@ _DIRECT_KEY_BODY = re.compile(
 )
 _DIRECT_SSH_BODY = re.compile(
     r"(?:^|\s)(?:-d|--data(?:-binary)?)\s+@(?:~?/)?"
-    r"\.ssh/(?:id_rsa|id_ed25519|id_ecdsa|id_dsa)\b",
+    r"\.ssh/(?:id_rsa|id_ed25519|id_ecdsa|id_dsa)\b(?!\.pub\b|-cert\.pub\b)",
     re.I,
 )
 _KEY_PIPE = re.compile(
@@ -370,6 +407,66 @@ def shell_accesses(document: Document) -> tuple[ShellAccess, ...]:
     return tuple(accesses)
 
 
+@dataclass(frozen=True)
+class ShellExecution:
+    """A direct fenced execution instruction, not a prose or cross-file flow fact."""
+
+    kind: str
+    location: SourceRef
+    source: str
+    sink: str
+    capabilities: tuple[str, ...]
+
+
+def shell_executions(document: Document) -> tuple[ShellExecution, ...]:
+    """Inspect literal pipelines only after an unambiguous adjacent run directive."""
+    if document.artifact.kind not in _INSTRUCTION_KINDS:
+        return ()
+    results: list[ShellExecution] = []
+    for previous, block in zip(document.blocks, document.blocks[1:], strict=False):
+        if (
+            block.kind != "code"
+            or (block.language or "").lower() not in {"sh", "bash", "shell", "zsh"}
+            or block.location.line is None
+            or previous.kind not in {"paragraph", "list_item"}
+            or not re.fullmatch(
+                r"(?:(?:first|then|next)[,:]?\s+)?(?:please\s+)?(?:run|execute)\s+"
+                r"(?:this|the following)\s+(?:(?:setup|installation)\s+)?"
+                r"commands?\s*:",
+                previous.text.strip(),
+                re.I,
+            )
+        ):
+            continue
+        for offset, text in enumerate(block.text.splitlines(), 1):
+            kind = ""
+            source = ""
+            sink = ""
+            capabilities: tuple[str, ...] = ("network-fetch", "command-execution")
+            if remote_shell_pipeline(text):
+                kind, source, sink = "remote_execution", "remote download", "shell execution"
+            elif remote_python_pipeline(text):
+                kind = "remote_python_execution"
+                source, sink = "remote HTTP(S) code source", "Python interpreter execution"
+            else:
+                encoded_sink = literal_encoded_pipeline(text)
+                if encoded_sink is not None:
+                    kind = "literal_encoded_execution"
+                    source, sink = "literal encoded input", encoded_sink
+                    capabilities = ("command-execution",)
+            if kind:
+                results.append(
+                    ShellExecution(
+                        kind,
+                        replace(block.location, line=block.location.line + offset),
+                        source,
+                        sink,
+                        capabilities,
+                    )
+                )
+    return tuple(results)
+
+
 def segment_text(text: str, index: int) -> str:
     """Use the same sentence boundaries as behavior extraction."""
     parts = _SENTENCE.split(text)
@@ -385,10 +482,21 @@ def unnegated_text(text: str) -> str:
     return text[: suffix.start()].strip(" ,") if suffix else text
 
 
+def _execution_command(text: str) -> str | None:
+    """Extract an explicit run clause, without treating command arguments as prose."""
+    directive = _IMPERATIVE.match(text)
+    if directive is not None and directive.group().split()[-1].lower() in {"run", "execute"}:
+        return text[directive.end() :].lstrip(" :")
+    clause = re.search(r",\s*then\s+(?:run|execute)\s+", text, re.I)
+    return text[clause.end() :] if clause is not None else None
+
+
 def fetch_shell_url(text: str) -> str | None:
     """Bind the remote endpoint to the same observed fetch-to-shell command."""
-    command = _FETCH_SHELL.search(text)
-    url = re.search(r"https?://[^\s<>|)]+", command.group(), re.I) if command else None
+    command = _execution_command(text) or text
+    if not remote_shell_pipeline(command):
+        return None
+    url = re.search(r"https?://[^\s<>|)'\"]+", command)
     return url.group() if url else None
 
 
@@ -470,18 +578,15 @@ def collect(document: Document) -> tuple[Observation, ...]:
                     add("linked_transfer", "previously read data", "network-egress")
                 elif re.match(r"\s+to\s+https?://", object_text, re.I):
                     add("implicit_transfer", "previously read data", "network-egress")
-            if _FETCH_SHELL.search(sentence) and re.search(r"\b(?:run|execute)\b", sentence, re.I):
-                add(
-                    "remote_execution",
-                    "download piped to shell",
-                    "network-fetch",
-                    "command-execution",
-                )
-            if actionable.group().split()[-1].lower() in {
-                "run",
-                "execute",
-            }:
-                command = sentence[actionable.end() :].lstrip(" :")
+            command = _execution_command(sentence)
+            if command is not None:
+                if remote_shell_pipeline(command):
+                    add(
+                        "remote_execution",
+                        "download piped to shell",
+                        "network-fetch",
+                        "command-execution",
+                    )
                 if remote_python_pipeline(command):
                     add(
                         "remote_python_execution",

@@ -2,6 +2,16 @@
 
 Preparation only. Nothing has been tagged, signed, notarized or published. **REAL-WORLD ACCURACY CLAIM: NOT ESTABLISHED.** This checklist does not authorize distribution; revalidate after the checkpoint commit and before any public release.
 
+## Current checkpoint — 2026-10-30
+
+The development checkpoint `848e677c129fc16dbf7d8788761840a6b49b2aee` passed exact-SHA quality CI. The subsequent validation-only HEAD `9d59a05f05d3c422af862d57724e236da4c29bbb` passed native installation, scanning and report smokes on all four runners, but its overall release-validation run **failed**: Windows has one export-permission assertion failure and two hover/selection failures. Windows ACL equivalence is not established; the POSIX assertion failure alone does not demonstrate a disclosure. Linux and both macOS runners passed the full reviewed 217-test selection.
+
+Public binary readiness also requires completing third-party runtime notices: the three retained native binaries include Dragons/Click/Textual notices but lack notices for several other bundled dependencies. No speculative runtime fix was made and no security assertion was weakened. See the [current cross-platform audit](CROSS_PLATFORM_RELEASE_VALIDATION.md) for exact run links, scope, artifact checksums, remaining limits and next actions. **Release acceptance remains FAIL.**
+
+## Earlier evidence and still-applicable distribution prerequisites
+
+The evidence below describes earlier revisions, not the current binary builds. Current verification does not imply signing, notarization, publication or resolution of the recorded accuracy/redistribution limits.
+
 | Area | Status | Evidence | Blocker | Next action |
 | --- | --- | --- | --- | --- |
 | Dragons license | Prepared | User approved MIT and `Copyright (c) 2026 Furkan ‘NaxoziwuS’ Aykaç`; root `LICENSE`, SPDX package metadata | Third-party material has separate rights | Preserve attribution and review redistribution before publication |

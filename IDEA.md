@@ -10,6 +10,12 @@ This creates a new security surface where malicious or compromised content may l
 
 Dragons AI Agent Scanner aims to detect these risks before an artifact is trusted or executed.
 
+Security Engine Direction
+
+The [development guide](Dragons-Security-Engine-Development-Guide-v2.md) describes six responsibilities within one product: Attack Surface Discovery, Static Analysis, Runtime Monitor, Threat Intelligence, Correlation, and Risk & Policy. The goal is to extend the existing scanner, not replace it with six services. The [roadmap](roadmap.md) tracks delivery; the [README](README.md) describes what users can run today.
+
+Default scans must stay offline and must not execute the target. A future, opt-in runtime monitor would use the same artifact identities and intelligence as the static scanner, but report requests, observations and outcomes separately. A file can describe an action without that action ever taking place. Only a tested pre-action control can claim it blocked an action; a watch notification or a failing CI scan cannot. Missing coverage remains unknown.
+
 What It Scans
 
 The scanner should support common agent artifacts and ecosystems, including:

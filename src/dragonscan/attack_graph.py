@@ -369,7 +369,7 @@ def build_graph(
             if (
                 server.runtime not in {"sh", "bash", "zsh"}
                 or len(server.args) < 2
-                or server.args[0] not in {"-c", "-lc"}
+                or server.args[0] not in {"-c", "-lc", "-cl"}
             ):
                 continue
             remote = external(fetch_shell_url(server.args[1]) or "")

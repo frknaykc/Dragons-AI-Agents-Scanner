@@ -16,6 +16,8 @@ Built-in detections retain `DAAS-001` (credential file read linked to an externa
 
 Command/prose separation must be explicit: a sentence terminator, semicolon or newline can end a recognized pipeline. Unseparated words after an interpreter are not silently discarded as commentary; they may be script arguments rather than stdin execution. Direct override instructions such as “disregard earlier safety instructions” are recognized by `DRAGON-PI-001`; merely mentioning earlier instructions, quoted Markdown examples and prohibitions do not establish an override.
 
+Supported `wget -O -` stdout routing is recognized before or after other supported options such as `-q`; `-O` must bind to the adjacent literal `-`, not a filename or URL. Literal decode-to-interpreter detection also recognizes `zsh -s` and `zsh -s --`, matching the supported remote-download stdin forms. For POSIX MCP shells, command-string risk inspection reads the argument immediately following a recognized `-c`, `-lc` or `-cl` flag, not subsequent `$0`/positional arguments. Those arguments alone do not establish shell control operators or encoded execution. These checks remain static and do not broaden general configuration discovery.
+
 `DRAGON-CRED-001` requires an actionable request for a recognized credential or secret source; the name `MEMORY.md` or “agent memory” alone does not establish credential access. Ordinary memory reads therefore do not produce this finding. Explicit requests for recognized secrets within memory (such as API keys, private keys, cloud credentials or wallet seeds) still do. Memory remains a potentially sensitive source for explicitly linked external transfers (`DRAGON-EXFIL-001`); excluding standalone memory access does not suppress those transfers or persistent instruction modification (`DRAGON-PERSIST-001`). A read, a write and a linked external transfer are distinct behaviors. The scanner does not open referenced memory to infer its contents.
 
 ```sh
@@ -162,6 +164,18 @@ Domain/hostname comparisons ignore case; URLs support HTTP(S), normalized host/p
 Documentation/quoted/example indicators remain low-severity informational findings, even when the pack assigns higher severity; active endpoints and executable commands can keep the pack's validated severity. Findings include a `signature` JSON object with `signature_id`, `signature_type`, `indicator_type`, a safe `matched_indicator`, `pack`, `context`, optional `version` and decoded `representation`. Existing non-signature findings omit that object. Terminal output includes signature source and context. Graph `indicates` edges connect only proven active commands/endpoints at the same source location; they do **not** enter taint propagation. Existing correlated findings may cite a host-wide indicator ID only when their proven path ends at the same host and source location; URL-path-specific hits are excluded from host-level correlation references. An IOC by itself cannot create an exfiltration path.
 
 The signature engine's own Base64 and hex decoding is depth 1, in memory, from selected normalized text regions: at most 4096 decoded bytes per token and 32 decode attempts per artifact; decoded content is never executed or printed. Reaching 256 signature hits, 128 distinct IOC candidates per region/type or the decode-attempt limit produces an incomplete-scan diagnostic. The separate evasion analysis below can supply additional bounded transformed views; artifact hashes are **never** computed from those views. The YARA adapter contract is reserved in `signature_yara.py`, but no maintained cross-platform backend or compiled rules are bundled. Local `.yar`/`.yara` files and JSON signatures of `type: yara` are not loaded or run; normal scanning needs no YARA installation. Binary scanning, online updates and automatic community pack downloads are not implemented.
+
+## Frozen discovery and execution cases
+
+The Phase 6 v2 cases below remain outside the current discovery or literal-stdin contract. Their frozen expectations have not changed:
+
+| Case | Current result | Contract boundary |
+| --- | --- | --- |
+| `chain-structured-load` | `DRAGON-EXEC-001` in the child skill; no `DRAGON-PATH-002` | A generic `settings.json` outside a recognized agent path is not automatically discovered. Parsing an explicitly selected file can record `instructionFile`, but does not expand the scan to its referenced targets. Trusted caller selection of both endpoints or a recognized agent directory can establish the load path. |
+| `exec-network-python` | No `DRAGON-EXEC-002` | Unseparated words after `python3.12` could be script operands. The scanner does not discard them to assume Python reads downloaded code from stdin. |
+| `obf-literal-shell` | No `DRAGON-EXEC-003` | Unseparated words after `sh` could select a script instead of decoded stdin. The scanner requires an unambiguous decoder-to-interpreter pipeline. |
+
+These are discovery/command-boundary limitations, not evidence that arbitrary settings files identify agents or that ambiguous operands execute piped bytes. Explicitly delimited pipelines and recognized agent paths have separate positive tests; script operands, redirections, disconnected commands and passive examples remain hard negatives. The frozen cases still count as three FNs under their original labels.
 
 ## Evasion-aware static views
 

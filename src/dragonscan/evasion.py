@@ -174,6 +174,25 @@ def _decode(text: str) -> str | None:
 
     result = _HEX_BYTES.sub(_hex_bytes_match, text)
     result = _ENCODED.sub(substitute, result)
+    # A decoded command is executable input, not an argument to the original
+    # wrapper. Only unwrap a whole literal payload, never printed data or an
+    # encoded argument followed by additional operands.
+    command = re.match(
+        r"\s*(?:run|execute)\s+powershell(?:\.exe)?\s+"
+        r"-(?:e|en|enc|encodedcommand)\s+",
+        text,
+        re.I,
+    )
+    if command is not None and result != text:
+        token = _ENCODED.fullmatch(text[command.end() :].strip())
+        if token is not None:
+            revealed = substitute(token).strip()
+            if revealed != token.group():
+                return (
+                    revealed
+                    if re.match(r"(?:run|execute)\s+", revealed, re.I)
+                    else "Run " + revealed
+                )
     directive = _ENCODED_DIRECTIVE.match(text)
     if directive is not None:
         token = _ENCODED.fullmatch(text[directive.end() :].strip())

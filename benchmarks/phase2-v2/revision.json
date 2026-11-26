@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "corpus_version": "phase2-2",
+  "original_corpus": "../phase2",
+  "approval": "User explicitly approved this scoped revision in the 2026-10-27 session.",
+  "case": "phase2-linked-artifacts",
+  "old_expected": [
+    "DRAGON-EXFIL-001",
+    "DRAGON-CRED-001",
+    "DRAGON-PATH-001"
+  ],
+  "new_expected": [
+    "DRAGON-EXFIL-001",
+    "DRAGON-PATH-001"
+  ],
+  "reason": "Ordinary MEMORY.md loading is not credential access. Linked explicit API-token transfer remains DRAGON-EXFIL-001 with DRAGON-PATH-001. No detector changes are part of this correction.",
+  "original_manifest_sha256": "a846211192ae22288c6494f2146f6ea191559856b482e9c0a370aa0ee5831fc3",
+  "revised_manifest_sha256": "48815dd3eda3bc6c83e808a5966be614827b11462be07489ecff6327b1d58d82",
+  "unchanged_artifact_sha256": {
+    "linked-artifacts/MEMORY.md": "cdac235433fd5bb43d56b56598d4deb35310717c9299f9c2f8eea8334736cca3",
+    "linked-artifacts/SKILL.md": "42689156a4c801aabe2717750a8f30a03ef91f75895bc4dfe70a0a2d5cb0c2d1",
+    "mcp-delegation/mcp.json": "bc6dd55f37a941591c1e72e412b18498ab864e086cb8afd39e4f20a2fbb2d050",
+    "mcp-multihop/mcp.json": "7a53cc54297b82ed82aac0011635ebc854e5bee7694edb5388d99cd11f032a59",
+    "safe-install/SKILL.md": "9319b89f3c63da5913495c3d574213b11cdb0182f6e8d7d400a533da85749d31",
+    "shell-documentation/SKILL.md": "5c1ccfbcd2cfbefefb9f5ea0b7a75296b37eca80632b50c6accc20be10d4f081",
+    "shell-overwritten/SKILL.md": "9951450bdc48bec07d82df28de57547f0c6c26227a7c9ee6dd08457efc256a91",
+    "shell-unrelated/SKILL.md": "1646917105396c72673726ee403f68b75836ffe5d2158e6a6528143e7adf7a9b",
+    "shell-variable/SKILL.md": "1df317f796c084930b7273291aedc7eeeaac58bf3b8a123a9a7d11259f455f73",
+    "shell-wrapper/SKILL.md": "b5af68ba713d74116749096b06cd7ccd8d16f89aa227c74d73bdc98f4fd853bb",
+    "unlinked-artifacts/MEMORY.md": "9f184982242fe5929c7e933fbe0033ac258264e4ab180c48af3bac323438aa92",
+    "unlinked-artifacts/SKILL.md": "62657c79a074030c84ff941d32b4e18b9ded8177005bf8ce916d839bc632f8a1"
+  },
+  "historical_reference": {
+    "tp": 8,
+    "fp": 0,
+    "fn": 1
+  },
+  "prohibited_changes": [
+    "artifact bytes",
+    "other expectations",
+    "original corpus",
+    "historical results"
+  ]
+}

@@ -40,6 +40,8 @@ SAFE_TESTS = (
     "test_standalone_licenses.py",
     "test_runtime_license_provision.py",
     "test_cpython_embedded_notices.py",
+    "test_runtime_supplements.py",
+    "test_windows_packaging.py",
 )
 DENIED = frozenset(
     {
@@ -363,15 +365,33 @@ def validate(source: Path, output: Path, commit: str) -> None:
         command([sys.executable, str(source / "scripts/build_standalone.py")])
     finally:
         # Retain binaries and even incomplete notices if packaging itself fails.
+        binary_checksums = []
         for artifact in (source / "dist").glob("dragonscan-*"):
             if artifact.is_file():
                 shutil.copy2(artifact, output / artifact.name)
+                sha256 = hashlib.sha256(artifact.read_bytes()).hexdigest()
+                binary_checksums.append(f"{sha256}  {artifact.name}\n")
             elif artifact.is_dir() and artifact.name.endswith(".licenses"):
                 shutil.copytree(artifact, output / artifact.name)
+        if binary_checksums:
+            (output / "SHA256SUMS").write_text("".join(binary_checksums), encoding="utf-8")
     (binary,) = (path for path in (source / "dist").glob("dragonscan-*") if path.is_file())
     licenses = runpy.run_path(str(source / "scripts/standalone_licenses.py"))
     notices = licenses["notice_directory"](binary)
     license_manifest = licenses["verify_notices"](output / binary.name)
+    windows_runtime: dict[str, Any] = {}
+    if sys.platform == "win32":
+        policy = runpy.run_path(str(source / "scripts/windows_system_dlls.py"))
+        native = {name.lower() for name in licenses["archive_inventory"](binary)["native"]}
+        assert not native.intersection(policy["WINDOWS_SYSTEM_DLLS"])
+        assert {"vcruntime140.dll", "vcruntime140_1.dll", "python312.dll"} <= native
+        windows_runtime = {
+            "minimum_os": "Windows 10/11 x64 or Windows Server 2016+",
+            "native_inventory": sorted(native),
+            "excluded_system_files": sorted(policy["WINDOWS_SYSTEM_DLLS"]),
+            "resolution": "OS UCRT/API sets; verified by isolated standalone execution",
+            "limit": "Not a dynamic LoadLibrary trace or testing of every supported OS",
+        }
     # Generate checksums while dist contains only the binary and its sidecar.
     # Retain them even if a later test or license acceptance gate fails.
     command([sys.executable, "-m", "scripts.checksums", str(source / "dist")])
@@ -410,6 +430,7 @@ def validate(source: Path, output: Path, commit: str) -> None:
         "packages": inventory,
         "wheel_smokes": wheel_smokes,
         "native_smokes": native_smokes,
+        "windows_runtime": windows_runtime,
         "binary": {
             "name": binary.name,
             "sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),

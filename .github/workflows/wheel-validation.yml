@@ -1,0 +1,140 @@
+name: Wheel release candidate validation (no publish)
+on:
+  push:
+    branches: [ci/wheel-release-validation]
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact product commit (not the validation harness revision)
+        required: true
+        default: db23dd52fab34a15346df05f69c6b289ef4b680c
+permissions:
+  contents: read
+env:
+  SOURCE_SHA: ${{ inputs.source_sha || 'db23dd52fab34a15346df05f69c6b289ef4b680c' }}
+jobs:
+  packages:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: validation
+          persist-credentials: false
+      - run: '[[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]'
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          path: subject
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
+        with:
+          version: '0.12.22'
+          python-version: '3.12.12'
+          enable-cache: 'false'
+      - name: Provision existing lock and metadata validator (network)
+        working-directory: subject
+        run: |
+          uv sync --locked
+          uvx twine==7.0.0 --version
+      - name: Full product quality gates
+        working-directory: subject
+        run: |
+          mkdir -p "$RUNNER_TEMP/wheel-quality"
+          uv run --locked --offline pytest -q -rs --junitxml="$RUNNER_TEMP/wheel-quality/full-tests.xml" | tee "$RUNNER_TEMP/wheel-quality/pytest.log"
+          uv run --locked --offline ruff format --check . | tee "$RUNNER_TEMP/wheel-quality/format.log"
+          uv run --locked --offline ruff check . | tee "$RUNNER_TEMP/wheel-quality/lint.log"
+          uv run --locked --offline mypy src scripts | tee "$RUNNER_TEMP/wheel-quality/types.log"
+          git diff --check
+      - name: Verify the acceptance harness
+        working-directory: subject
+        run: |
+          uv run --locked --offline pytest ../validation/tests/test_wheel_release_validation.py -q
+          uv run --locked --offline ruff check ../validation/scripts/wheel_release_validation.py ../validation/tests/test_wheel_release_validation.py
+          uv run --locked --offline mypy ../validation/scripts/wheel_release_validation.py
+      - name: Build one immutable wheel/sdist pair and validate metadata
+        working-directory: subject
+        run: |
+          uv build --offline --sdist --wheel --out-dir "$RUNNER_TEMP/wheel-packages"
+          uvx --offline twine==7.0.0 check --strict "$RUNNER_TEMP/wheel-packages/"*
+          uv run --locked --offline python ../validation/scripts/wheel_release_validation.py --source . --packages "$RUNNER_TEMP/wheel-packages" --output "$RUNNER_TEMP/wheel-packages" --commit "$SOURCE_SHA" --mode inspect
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wheel-packages
+          path: ${{ runner.temp }}/wheel-packages/
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: wheel-quality
+          path: ${{ runner.temp }}/wheel-quality/
+          if-no-files-found: error
+          retention-days: 7
+  install:
+    needs: packages
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            platform: linux-x86_64
+          - runner: windows-2022
+            platform: windows-x86_64
+          - runner: macos-15-intel
+            platform: macos-x86_64
+          - runner: macos-15
+            platform: macos-arm64
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: validation
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          path: subject
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
+        with:
+          version: '0.12.22'
+          python-version: '3.12.12'
+          enable-cache: 'false'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: wheel-packages
+          path: packages
+      - name: Verify shared package checksums
+        working-directory: packages
+        run: sha256sum -c SHA256SUMS
+      - name: Provision locked dependencies (network)
+        working-directory: subject
+        run: uv sync --locked
+      - name: Clean offline installation and installed-wheel acceptance
+        run: |
+          python=subject/.venv/bin/python
+          if [ "$RUNNER_OS" = Windows ]; then python=subject/.venv/Scripts/python.exe; fi
+          "$python" validation/scripts/wheel_release_validation.py --source subject --packages packages --output "$RUNNER_TEMP/wheel-install" --commit "$SOURCE_SHA" --mode install
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: wheel-install-${{ matrix.platform }}
+          path: |
+            ${{ runner.temp }}/wheel-install/summary.json
+            ${{ runner.temp }}/wheel-install/package-report.json
+            ${{ runner.temp }}/wheel-install/SHA256SUMS
+            ${{ runner.temp }}/wheel-install/audit.json
+            ${{ runner.temp }}/wheel-install/tests.xml
+            ${{ runner.temp }}/wheel-install/commands.json
+            ${{ runner.temp }}/wheel-install/command-*.log
+          if-no-files-found: error
+          retention-days: 7

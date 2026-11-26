@@ -10,6 +10,7 @@ Dragons has three offline deterministic corpora and separate experimental semant
 
 The separate [Phase 1 challenge set](phase1/manifest.json) contains synthetic MCP, flow, supply-chain and cross-artifact PATH cases, including hard negatives and a linked-transfer regression. Its scores are reported independently and are not included in the development baseline or independent holdout.
 The [Phase 2 challenge set](phase2/manifest.json) separately exercises explicit shell-variable transfer, linked and unlinked artifacts, existing wrapper execution and multi-tool MCP result flow with hard negatives. It is not merged into Phase 1 or the other baselines.
+The approved [Phase 2 v2 correction](phase2-v2/README.md) removes only the standalone credential-access expectation for ordinary memory loading in `phase2-linked-artifacts`. Artifact bytes and all other expectations stay unchanged. Report its ground-truth correction separately from detector improvements and retain the original Phase 2 measurement.
 The [remote interpreter challenge set](interpreter/manifest.json) separately checks literal download-to-Python-stdin instructions, wrapper variants and inert hard negatives. It is not merged into the earlier baselines.
 The [Phase 3 challenge set](phase3/manifest.json) independently tests bounded multi-layer encoding, Unicode obfuscation, executable MCP encoding, explicitly linked literal decode-to-interpreter instructions and inert hard negatives. It is not merged into the earlier baselines.
 
@@ -25,6 +26,7 @@ uv run --offline python -m scripts.benchmark benchmarks/realworld/manifest.json 
 uv run --offline python -m scripts.benchmark benchmarks/holdout/manifest.json --format json
 uv run --offline python -m scripts.benchmark benchmarks/phase1/manifest.json --format json
 uv run --offline python -m scripts.benchmark benchmarks/phase2/manifest.json --format json
+uv run --offline python -m scripts.benchmark benchmarks/phase2-v2/manifest.json --format json
 uv run --offline python -m scripts.benchmark benchmarks/interpreter/manifest.json --format json
 uv run --offline python -m scripts.benchmark benchmarks/phase3/manifest.json --format json
 ```
