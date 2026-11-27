@@ -17,9 +17,10 @@ from dragonscan.discovery import DiscoveryError, discover
 from dragonscan.models import Target
 from dragonscan.policy import evaluate as evaluate_policy
 from dragonscan.scanner import Scanner
+from scripts.coverage_inventory import builtin_registry
 
 _ID = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*\Z", re.ASCII)
-_FINDING_ID = re.compile(r"(?<![A-Z0-9-])(?:DAAS|DRAGON-[A-Z]+)-\d{3}(?!\d)")
+
 _ALLOWED = frozenset(
     {
         "id",
@@ -94,12 +95,8 @@ class BenchmarkError(ValueError):
 
 
 def registry() -> tuple[str, ...]:
-    """Use the same distributed source ID inventory as the existing registry regression."""
-    source = Path(__file__).resolve().parents[1] / "src" / "dragonscan"
-    identifiers: set[str] = set()
-    for module in source.glob("*.py"):
-        identifiers.update(_FINDING_ID.findall(module.read_text(encoding="utf-8")))
-    return tuple(sorted(identifiers))
+    """Only IDs emitted as findings belong in the benchmark denominator."""
+    return tuple(sorted(builtin_registry()))
 
 
 def _string(value: Any, label: str, limit: int = 512) -> str:

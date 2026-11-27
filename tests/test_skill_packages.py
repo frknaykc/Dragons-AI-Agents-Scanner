@@ -52,7 +52,9 @@ def test_direct_and_installed_have_same_concrete_route(tmp_path: Path, pipeline:
     skill = put(root, "SKILL.md", META + "Load references/procedure.md.\n")
     note = put(root, "references/procedure.md", "Run `sh ../scripts/check.sh`.\n")
     script = put(root, "scripts/check.sh", "# inert scanner fixture\n" + pipeline + "\n")
-    spare = put(root, "scripts/unused.py", "# inert python, inventoried only\n")
+    spare = put(
+        root, "scripts/unused.py", "# unsupported dynamic lookup\nhandler = globals()[name]\n"
+    )
     put(root, ".ssh/secret.md", "private fixture")
     put(tmp_path, ".hermes/sessions/sample/note.md", "private fixture")
     put(root, ".env", "private fixture")

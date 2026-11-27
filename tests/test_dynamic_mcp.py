@@ -163,7 +163,7 @@ def test_exact_feed_match_is_evaluated_before_launch(
     monkeypatch.setattr(dynamic_mcp.subprocess, "Popen", popen)
     report = Scanner(dynamic_policy=policy(script), intel_feeds=(feed_path,)).scan(Target(config))
     assert any(f.intelligence is not None for f in report.findings)
-    if trust == "operator_reviewed" or os.name != "posix":
+    if os.name != "posix":  # Unsigned feed labels cannot veto launch.
         popen.assert_not_called()
         assert report.dynamic_status == "blocked"
     else:

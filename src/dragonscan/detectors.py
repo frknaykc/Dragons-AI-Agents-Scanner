@@ -31,6 +31,7 @@ _OBSERVATION_KINDS = frozenset(
         "remote_python_execution",
         "powershell_execution",
         "persistence",
+        "os_persistence",
         "remote_trust",
         "sensitive_access",
         "external_transfer",
@@ -143,7 +144,9 @@ class BehavioralDetector:
                 "behavioral",
                 observation.capabilities,
                 self.source,
-                self.sink,
+                observation.label
+                if self.observation_kind in {"persistence", "os_persistence"}
+                else self.sink,
             )
             for observation in context.observations
             if observation.kind == self.observation_kind
@@ -383,7 +386,42 @@ class McpDetector:
         return tuple(results)
 
 
+@dataclass(frozen=True)
+class LiteralCredentialDetector:
+    metadata: DetectionMetadata
+
+    def detect(self, context: DetectionContext) -> tuple[Finding, ...]:
+        return tuple(
+            finding(
+                self.metadata,
+                context.document,
+                relation.location,
+                f"MCP {relation.subject} field contains a literal matching the "
+                f"{relation.target} format (value redacted)",
+                "declarative",
+                ("credential-exposure",),
+                f"MCP {relation.subject} declaration",
+            )
+            for relation in context.document.relationships
+            if relation.kind == "declares_literal_credential"
+        )
+
+
 BUILTIN_DETECTORS: tuple[EngineDetector, ...] = (
+    LiteralCredentialDetector(
+        _meta(
+            "DRAGON-SECRET-001",
+            "Literal credential in MCP configuration",
+            "credential-exposure",
+            S.MEDIUM,
+            F.HIGH,
+            C.RISKY,
+            _MCP,
+            "A credential field contains a provider-shaped literal. "
+            "Validity, use and transfer were not established.",
+            "Remove the literal, use a secret reference, and rotate the credential if it is real.",
+        ),
+    ),
     DeclarativeDetector(
         _meta(
             "DRAGON-PI-001",
@@ -516,12 +554,28 @@ BUILTIN_DETECTORS: tuple[EngineDetector, ...] = (
             F.MEDIUM,
             C.RISKY,
             _MARKDOWN,
-            "An actionable instruction targets a persistent agent file to change future behavior.",
+            "An actionable instruction targets an agent instruction, configuration or hook file "
+            "to change future behavior.",
             "Review and approve persistent agent instruction changes separately.",
         ),
         "persistence",
-        "instruction directs modifying agent behavior in a persistent instruction file",
-        sink="agent instruction file",
+        "instruction directs modifying a persistent agent file to influence future behavior",
+    ),
+    BehavioralDetector(
+        _meta(
+            "DRAGON-PERSIST-002",
+            "Unapproved startup execution directive",
+            "persistence",
+            S.HIGH,
+            F.MEDIUM,
+            C.SUSPICIOUS,
+            _MARKDOWN,
+            "An instruction names an OS startup target and requests execution without operator "
+            "approval. No change was observed.",
+            "Verify the startup target and require separate operator approval before changing it.",
+        ),
+        "os_persistence",
+        "instruction directs writing an OS startup file to run a task without approval",
     ),
     BehavioralDetector(
         _meta(

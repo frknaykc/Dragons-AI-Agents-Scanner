@@ -4,7 +4,7 @@ This is a development test matrix, not a sandbox certification. Run `uv run --of
 
 ## Isolation policy
 
-`required_isolation` requires enforced filesystem read/write confinement and network denial. Neither is implemented on Linux, macOS or Windows, so inspection is **blocked** on every host in this mode. The pre-existing separate `--allow-uncontained-mcp` consent enables `legacy_uncontained` on POSIX only. This is **not safe for untrusted executables** on a real host. Windows remains blocked, with no silent fallback. No OS sandbox is inferred from private cwd, shell-free argv, environment filtering or timeout. A VM/container with independently enforced isolation is an operator responsibility, not a feature of Dragons.
+`required_isolation` requires enforced filesystem read/write confinement and network denial. Without a separately selected local image and a successful native runtime probe, the target is **blocked**. See the [candidate isolated backend and its separate opt-in acceptance gate](../../docs/MCP_APPROVALS_AND_ISOLATION.md). The matrix below documents the legacy and no-image paths, not a successful container validation. The pre-existing separate `--allow-uncontained-mcp` consent enables `legacy_uncontained` on POSIX only. This is **not safe for untrusted executables** on a real host. Windows remains blocked, with no silent fallback. No OS sandbox is inferred from private cwd, shell-free argv, environment filtering or timeout. The legacy path does not provision a VM or container.
 
 | Capability | Linux/macOS legacy POSIX | Windows | Limitation |
 | --- | --- | --- | --- |

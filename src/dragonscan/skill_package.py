@@ -18,6 +18,8 @@ from dragonscan.models import (
 )
 from dragonscan.parse_errors import ParseError
 from dragonscan.parse_helpers import safe_url
+from dragonscan.python_script import parse_python_script
+from dragonscan.script_adapters import parse_script_subset
 
 SCRIPT_SUFFIXES = frozenset(
     {
@@ -74,9 +76,12 @@ def one_endpoint(command: str) -> str | None:
 
 
 def parse_script(artifact: Artifact, text: str) -> Document:
+    suffix = artifact.path.suffix.lower()
+    if suffix == ".py":
+        return parse_python_script(artifact, text)
     # Recognize one literal top-level pipeline, not commands hidden in strings,
     # heredocs, branches, functions, unreachable statements or another language.
-    if artifact.path.suffix.lower() in {".sh", ".bash", ".zsh"}:
+    if suffix in {".sh", ".bash", ".zsh"}:
         statement = None
         for line, physical in enumerate(text.splitlines(), 1):
             command = physical.strip()
@@ -110,6 +115,4 @@ def parse_script(artifact: Artifact, text: str) -> Document:
                         artifact,
                         relationships=(Relationship("remote_program", endpoint, location, sink),),
                     )
-    return Document(
-        artifact, diagnostics=("skill package script inventoried; program semantics unsupported",)
-    )
+    return parse_script_subset(artifact, text)

@@ -250,7 +250,7 @@ def test_hash_and_skill_filename_are_not_text_or_name_only_matches(tmp_path: Pat
 def test_update_atomic_and_offline_scan(tmp_path: Path):
     store = tmp_path / "store"
     old = feed(record("domain", "old.example.test"))
-    new = feed(record("domain", "malicious.example.test"))
+    new = feed(record("domain", "malicious.example.test")).replace(b'"1.0"', b'"2.0"')
     store.mkdir()
     (store / "intel.json").write_bytes(old)
     sha = hashlib.sha256(new).hexdigest()
@@ -337,7 +337,7 @@ def test_streamed_update_is_bounded_and_cleans_partial_candidates(tmp_path: Path
     store = tmp_path / "store"
     store.mkdir()
     old = feed(record("domain", "old.example.test"))
-    fresh = feed(record("domain", "new.example.test"))
+    fresh = feed(record("domain", "new.example.test")).replace(b'"1.0"', b'"2.0"')
     (store / "intel.json").write_bytes(old)
     response = Mock(status=200)
     size = {"no_length": None, "false_small": "1", "truncated": str(len(fresh) + 1)}
@@ -424,7 +424,7 @@ def test_cli_opt_in_reporting_and_gate(tmp_path: Path):
     result = runner.invoke(
         main, ["scan", str(skill), "--intel", str(local), "--format", "json", "--fail-on", "low"]
     )
-    assert result.exit_code == 1
+    assert result.exit_code == 0  # unsigned intelligence is advisory
     assert json.loads(result.output)["threat_intelligence"]["matches"] == 1
     sarif = runner.invoke(main, ["scan", str(skill), "--intel", str(local), "--format", "sarif"])
     assert any(

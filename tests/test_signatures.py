@@ -13,8 +13,10 @@ from click.testing import CliRunner
 
 from dragonscan.attack_graph import build_graph
 from dragonscan.cli import main
+from dragonscan.dynamic_mcp import _prelaunch_denial
 from dragonscan.models import Classification, Severity, SourceFormat, SourceRef, Target
 from dragonscan.parsing import parse
+from dragonscan.policy import evaluate
 from dragonscan.reporting import json_report, terminal_report
 from dragonscan.scanner import Scanner
 from dragonscan.signature_graph import annotate
@@ -555,3 +557,24 @@ def test_signature_scan_never_uses_network_or_processes(tmp_path, monkeypatch):
     monkeypatch.setattr(os, "system", forbidden)
     report = Scanner(signature_pack=directory).scan(Target(target))
     assert any(f.signature for f in report.findings)
+
+
+def test_unsigned_pack_critical_label_is_not_independent_policy_authority(tmp_path):
+    content = "# fixture\n"
+    directory = pack(
+        tmp_path,
+        [
+            definition(
+                kind="sha256",
+                pattern=hashlib.sha256(content.encode()).hexdigest(),
+                severity="critical",
+                classification="malicious",
+                contexts=["artifact_hash"],
+                artifact_types=["skill"],
+            )
+        ],
+    )
+    report = Scanner(signature_pack=directory).scan(Target(skill(tmp_path, content)))
+    assert report.findings and all(f.signature for f in report.findings)
+    assert evaluate(report, Severity.LOW).exit_code == 0
+    assert _prelaunch_denial(report) is None

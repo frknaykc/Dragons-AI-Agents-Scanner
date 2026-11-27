@@ -39,31 +39,56 @@ _NEGATED_SUFFIX = re.compile(
 )
 _IMPERATIVE = re.compile(
     r"^(?:(?:you must|always|please|then|first|immediately|next)\s+)?"
-    r"(?:read|cat|open|load|copy|extract|export|send|upload|post|transmit|"
+    r"(?P<verb>read|cat|open|load|copy|extract|export|send|upload|post|transmit|"
     r"run|execute|fetch|download|retrieve|follow|obey|use|ignore|disregard|"
     r"override|disable|bypass|turn off|write|append|modify|edit|overwrite|replace)\b",
     re.I,
 )
+# A sentence-ending full stop is allowed, a filename extension or child is not.
+_PATH_END = r"(?![\w/~-]|\.[\w.-])"
+_PATH_START = r"(?<![\w.-])"
+
+
+def _protected_path(path: str) -> re.Pattern[str]:
+    return re.compile(_PATH_START + re.escape(path) + _PATH_END, re.I)
+
+
 _SOURCE_PATTERNS = (
     (
         "SSH private key",
         re.compile(
-            r"(?:~?/)?\.ssh/(?:id_rsa|id_ed25519|id_ecdsa|id_dsa)\b(?!\.pub\b|-cert\.pub\b)",
+            _PATH_START + r"\.ssh/(?:id_rsa|id_ed25519|id_ecdsa|id_dsa)" + _PATH_END,
             re.I,
         ),
     ),
     (
         "cloud credentials",
-        re.compile(r"(?:~?/)?\.aws/credentials\b|\b(?:cloud|aws) credentials\b", re.I),
+        re.compile(
+            _PATH_START + r"\.aws/credentials" + _PATH_END + r"|\b(?:cloud|aws) credentials\b", re.I
+        ),
     ),
+    ("Kubernetes client configuration", _protected_path(".kube/config")),
+    (
+        "Google application credentials",
+        _protected_path(".config/gcloud/application_default_credentials.json"),
+    ),
+    ("Docker client credentials", _protected_path(".docker/config.json")),
+    ("browser login database", _protected_path(".config/google-chrome/Default/Login Data")),
+    ("wallet data file", _protected_path(".bitcoin/wallet.dat")),
     (
         "environment secrets",
-        re.compile(r"(?:~?/)?\.env(?![\w.])|\benvironment (?:secret|variable|token)s?\b", re.I),
+        re.compile(
+            _PATH_START + r"\.env" + _PATH_END + r"|\benvironment (?:secret|variable|token)s?\b",
+            re.I,
+        ),
     ),
     ("API token", re.compile(r"\b(?:api|auth|access) (?:key|token)s?\b", re.I)),
     ("private key", re.compile(r"\bprivate keys?\b", re.I)),
     ("wallet secret", re.compile(r"\b(?:wallet (?:seed|secret|key)|seed phrase)\b", re.I)),
-    ("agent memory", re.compile(r"\bMEMORY\.md\b|\bagent memory\b", re.I)),
+    (
+        "agent memory",
+        re.compile(_PATH_START + r"MEMORY\.md" + _PATH_END + r"|\bagent memory\b", re.I),
+    ),
 )
 _ACCESS = re.compile(r"\b(?:read|cat|open|load|copy|extract|export|dump|print)\b", re.I)
 _TRANSFER = re.compile(r"\b(?:send|upload|post|transmit|exfiltrate)\b", re.I)
@@ -110,12 +135,37 @@ _PRONOUN = re.compile(
     r"\b(?:it|its|their|them|the (?:file|contents|secrets?|keys?|credentials?|tokens?|data))\b",
     re.I,
 )
-_PERSIST_WRITE = re.compile(
-    r"\b(?:write|append|modify|edit|overwrite|replace)\b.{0,100}\b(?:AGENTS|SOUL|MEMORY|CLAUDE|SKILL)\.md\b",
+_AGENT_FILE = r"(?:AGENTS|SOUL|MEMORY|CLAUDE|SKILL)\.md"
+_AGENT_CONFIG = (
+    r"(?:\.claude/settings(?:\.local)?\.json|\.codex/config\.toml|"
+    r"\.claude/hooks/[\w-]+\.(?:sh|py|js))"
+)
+_PERSIST_TARGET = rf"/?(?:[\w.~-]+/)*(?:{_AGENT_FILE}|{_AGENT_CONFIG}){_PATH_END}"
+_WRITE_OPERAND = (
+    r"\b(?:write|append|modify|edit|overwrite|replace)\s+(?:(?:[^,;\n]{1,80}?\s+)?(?:to|into)\s+)?"
+)
+_PERSIST_WRITE = re.compile(_WRITE_OPERAND + rf"(?P<target>{_PERSIST_TARGET})", re.I)
+_APPROVAL_GATE = re.compile(
+    r"\b(?:after|with) (?:explicit )?(?:user|operator|administrator) "
+    r"(?:approval|consent)[.!]?\s*$",
+    re.I,
+)
+_OS_TARGET = (
+    r"(?:(?P<systemd>(?:~/\.config/systemd/user|/etc/systemd/system)/[\w.-]+\.service)|"
+    r"(?P<launchd>~/Library/LaunchAgents/[\w.-]+\.plist)|(?P<cron>/etc/cron\.d/[\w-]+))"
+)
+_OS_WRITE = re.compile(
+    _WRITE_OPERAND
+    + _OS_TARGET
+    + _PATH_END
+    + r"\s+to (?:run|execute|launch|start)\b[^,;.\n]{0,100}?\s+without "
+    r"(?:explicit )?(?:user|operator|administrator) (?:approval|consent)\b",
     re.I,
 )
 _PERSIST_INTENT = re.compile(
-    r"\b(?:agent|instructions?|rules?|policy|behavior|future|sessions?|always|persist)\b", re.I
+    r"\b(?:future sessions?|standing instructions?|operating instructions?|agent instructions?|"
+    r"agent behaviou?r|(?:new|these) rules|persist(?:ent(?:ly)?)?|always (?:follow|obey))\b",
+    re.I,
 )
 _CONFIG_WRITE = re.compile(
     r"\b(?:write|append|modify|edit|overwrite|replace)\b.{0,120}"
@@ -134,7 +184,7 @@ _SHELL_DIRECTIVE = re.compile(
 )
 _KEYCHAIN_READ = re.compile(r"\bsecurity\s+find-generic-password\b[^;|)]{0,300}\s-w\b", re.I)
 _SSH_KEY = re.compile(
-    r"(?:~?/)?\.ssh/(?P<name>id_rsa|id_ed25519|id_ecdsa|id_dsa)\b(?!\.pub\b|-cert\.pub\b)",
+    _PATH_START + r"(?:~?/)?\.ssh/(?P<name>id_rsa|id_ed25519|id_ecdsa|id_dsa)" + _PATH_END,
     re.I,
 )
 _CURL_HTTP = re.compile(r"\bcurl\b[^;]{0,500}\bhttps?://[^\s\"'<>]+", re.I)
@@ -147,7 +197,7 @@ _DIRECT_KEY_BODY = re.compile(
 )
 _DIRECT_SSH_BODY = re.compile(
     r"(?:^|\s)(?:-d|--data(?:-binary)?)\s+@(?:~?/)?"
-    r"\.ssh/(?:id_rsa|id_ed25519|id_ecdsa|id_dsa)\b(?!\.pub\b|-cert\.pub\b)",
+    r"\.ssh/(?:id_rsa|id_ed25519|id_ecdsa|id_dsa)" + _PATH_END,
     re.I,
 )
 _KEY_PIPE = re.compile(
@@ -394,7 +444,7 @@ def write_target(text: str, kind: str) -> str | None:
     if directive is None:
         return None
     pattern = (
-        r"(?:\.{1,2}/|[\w.-]+/)*\b(?:AGENTS|SKILL|SOUL|MEMORY|CLAUDE)\.md\b"
+        _PERSIST_TARGET
         if kind == "persistence"
         else r"(?:\.{1,2}/|[\w.-]+/)*(?:\.mcp|mcp|settings|config)\.(?:json|yaml|yml|toml)\b"
     )
@@ -445,22 +495,25 @@ def collect(document: Document) -> tuple[Observation, ...]:
                 add("bypass", "security controls", "security-control-bypass")
             if not actionable:
                 continue
-            if _ACCESS.search(sentence):
+            # A URL's path/query isn't a local protected file or a transfer object.
+            local_text = _HTTP.sub(" ", sentence)
+            if _ACCESS.search(local_text):
                 for label, pattern in _SOURCE_PATTERNS:
-                    if pattern.search(sentence):
+                    if pattern.search(local_text):
                         add("sensitive_access", label, "file-read", "secret-read")
                         break
             transfer = _TRANSFER.search(sentence)
             if transfer and _HTTP.search(sentence):
                 add("external_transfer", "external HTTP(S) endpoint", "network-egress")
                 object_text = sentence[transfer.end() :]
+                local_object = _HTTP.sub(" ", object_text)
                 named = [
-                    label for label, pattern in _SOURCE_PATTERNS if pattern.search(object_text)
+                    label for label, pattern in _SOURCE_PATTERNS if pattern.search(local_object)
                 ]
                 if named:
                     for label in named:
                         add("named_transfer", label, "network-egress")
-                elif _PRONOUN.search(object_text):
+                elif _PRONOUN.search(local_object):
                     add("linked_transfer", "previously read data", "network-egress")
                 elif re.match(r"\s+to\s+https?://", object_text, re.I):
                     add("implicit_transfer", "previously read data", "network-egress")
@@ -490,14 +543,40 @@ def collect(document: Document) -> tuple[Observation, ...]:
                 encoded_sink = literal_encoded_pipeline(command)
                 if encoded_sink is not None:
                     add("literal_encoded_execution", encoded_sink, "command-execution")
-            if _PERSIST_WRITE.search(sentence) and _PERSIST_INTENT.search(sentence):
+            # Bind a startup finding to an actual write directive, not a request
+            # to read a policy that happens to describe someone else's writes.
+            directive = local_text[actionable.start("verb") :]
+            os_write = _OS_WRITE.match(directive)
+            if os_write:
                 add(
-                    "persistence",
-                    "agent instruction file",
+                    "os_persistence",
+                    {
+                        "systemd": "systemd service",
+                        "launchd": "launch agent",
+                        "cron": "cron schedule",
+                    }[os_write.lastgroup or ""],
                     "persistence-write",
                     "configuration-modification",
                 )
-            if _CONFIG_WRITE.search(sentence):
+            agent_write = _PERSIST_WRITE.match(directive)
+            if agent_write is None and _REMOTE_AUTHORITY.search(directive):
+                agent_write = _PERSIST_WRITE.search(directive)
+            if (
+                agent_write
+                and _PERSIST_INTENT.search(
+                    directive[: agent_write.start("target")] + " " + directive[agent_write.end() :]
+                )
+                and not _APPROVAL_GATE.search(local_text)
+            ):
+                add(
+                    "persistence",
+                    "agent instruction file"
+                    if agent_write.group().lower().endswith(".md")
+                    else "agent configuration or hook",
+                    "persistence-write",
+                    "configuration-modification",
+                )
+            if _CONFIG_WRITE.search(local_text) and not _APPROVAL_GATE.search(local_text):
                 add("config_write", "agent configuration", "configuration-modification")
             if (
                 _HTTP.search(sentence)

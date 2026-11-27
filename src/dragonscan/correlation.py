@@ -39,6 +39,7 @@ class TaintClass(StrEnum):
     AGENT_POLICY = "agent_policy"
     PERSISTENT_INSTRUCTION = "persistent_instruction"
     ENCODED_INPUT = "literal_encoded_input"
+    SCRIPT_INPUT = "untrusted_script_input"
 
 
 @dataclass(frozen=True)
@@ -103,7 +104,10 @@ def correlate(
             in {"remote_execution", "literal_encoded_execution", "remote_python_execution"}
             for item in observations.get(document.artifact.path, ())
         )
-        or any(r.kind in {"decoded_program", "remote_program"} for r in document.relationships)
+        or any(
+            r.kind in {"decoded_program", "remote_program", "code_execution_input"}
+            for r in document.relationships
+        )
         or any(
             item.kind == "sensitive_access"
             and related_transfer(item, observations.get(document.artifact.path, ())) is not None
@@ -257,6 +261,40 @@ def correlate(
                     )
 
         for owner in by_source[artifact_id]:
+            if owner.origin == "code_parser" and owner.kind == "reads":
+                package_root = document.artifact.package_root
+                if package_root is None:
+                    continue
+                for use in by_source[owner.target]:
+                    if use.kind != "controls_execution" or use.origin != "code_parser":
+                        continue
+                    flow = TaintFlow(
+                        (TaintClass.SCRIPT_INPUT,),
+                        nodes[owner.target].label,
+                        nodes[use.target].label,
+                        (owner, use),
+                        Confidence.HIGH,
+                    )
+                    for route in routes.get(artifact_id, ()):
+                        start = nodes[route[0].source].artifact
+                        if (
+                            start is None
+                            or start != package_root / "SKILL.md"
+                            or route[-1].kind != "runs_script"
+                        ):
+                            continue
+                        emit(
+                            "DRAGON-EXEC-005",
+                            start,
+                            (*route, *flow.transforms),
+                            flow,
+                            "Referenced script uses untrusted input as an execution target",
+                            Severity.HIGH,
+                            "The referenced code passes input to an interpreter or process target; "
+                            "the script was not run.",
+                            artifact,
+                        )
+                continue
             script = owner.kind == "executes" and owner.origin == "script_parser"
             if not script and not (
                 owner.kind == "defines"

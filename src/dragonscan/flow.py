@@ -62,6 +62,7 @@ _EDGE_ROLES = {
     "executes": EdgeRole.EXECUTION,
     "fetches": EdgeRole.EXECUTION,
     "runs_script": EdgeRole.CONTROL,
+    "controls_execution": EdgeRole.EXECUTION,
     "decodes_to": EdgeRole.EXECUTION,
     "installs": EdgeRole.EXECUTION,
     "reads": EdgeRole.CAPABILITY,
@@ -365,6 +366,7 @@ def describe_existing_flow(finding: Finding, documents: tuple[Document, ...]) ->
     formats = {doc.artifact.path: doc.artifact.source_format for doc in documents}
     kinds = {
         "DRAGON-PATH-001": ("sensitive_local_resource", "external_endpoint"),
+        "DRAGON-EXEC-005": ("untrusted_script_input", "dynamic_execution_target"),
         "DRAGON-PATH-002": (
             "literal_encoded_input"
             if finding.source == "literal encoded input"
@@ -389,6 +391,7 @@ def describe_existing_flow(finding: Finding, documents: tuple[Document, ...]) ->
         "fetches": "remote-content-to-execution",
         "decodes_to": "literal-input-to-execution",
         "runs_script": "instruction-to-local-script",
+        "controls_execution": "untrusted-input-to-execution-target",
         "modifies": "external-instruction-to-persistence",
         "executes": "package-to-process",
     }

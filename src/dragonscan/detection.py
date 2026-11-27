@@ -14,7 +14,7 @@ from dragonscan.models import (
     SourceRef,
 )
 
-_ID = re.compile(r"DRAGON-(?:PI|CRED|EXFIL|EXEC|PERSIST|TRUST|OBF|MCP)-[0-9]{3}\Z")
+_ID = re.compile(r"DRAGON-(?:PI|CRED|SECRET|EXFIL|EXEC|PERSIST|TRUST|OBF|MCP)-[0-9]{3}\Z")
 
 
 @dataclass(frozen=True)

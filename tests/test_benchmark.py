@@ -366,7 +366,7 @@ def test_real_corpus_offline_execution_free_and_same_scanner(tmp_path: Path) -> 
         result = run(root / "manifest.json")
     assert result["status"] == "completed"
     assert result == run(root / "manifest.json")
-    assert result["coverage"]["total_rules"] == 49
+    assert result["coverage"]["total_rules"] == 53
     assert len(result["coverage"]["supported"]) == 38
     assert len(result["coverage"]["semantic_excluded"]) == 5
     assert result["summary"]["benign_cases"] > 0
@@ -378,7 +378,7 @@ def test_real_corpus_offline_execution_free_and_same_scanner(tmp_path: Path) -> 
     assert result["false_negatives"] == []
     assert result["correctness"]["failed"] == 0
     assert result["correctness"]["hard_negative_checked"] == 31
-    assert result["summary"]["tp"] == 50
+    assert result["summary"]["tp"] == 51
     assert result["splits"]["holdout"]["tp"] == 4
     for entry in load_manifest(root / "manifest.json")[1]:
         if entry["id"] == "ti-positive":

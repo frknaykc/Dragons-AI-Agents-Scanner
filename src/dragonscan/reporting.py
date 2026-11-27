@@ -19,6 +19,16 @@ from dragonscan.risk import summarize
 from dragonscan.sarif import sarif_report as sarif_report
 
 
+def _dynamic_isolation(report: ScanReport) -> str:
+    if report.dynamic_status == "blocked":
+        return "not_executed"
+    if report.dynamic_mode == "isolated_docker":
+        return "docker; boundary probe passed"
+    if report.dynamic_mode == "legacy_uncontained":
+        return "process_only; no OS filesystem or network sandbox"
+    return "unknown"
+
+
 def json_report(report: ScanReport, policy: PolicyResult | None = None) -> str:
     policy = policy or evaluate(report)
     data = asdict(report)
@@ -168,11 +178,7 @@ def json_report(report: ScanReport, policy: PolicyResult | None = None) -> str:
     if report.dynamic_status != "not_requested":
         data["dynamic_mcp"] = {
             "status": report.dynamic_status,
-            "isolation": (
-                "not_executed"
-                if report.dynamic_status == "blocked"
-                else "process_only; no OS filesystem or network sandbox"
-            ),
+            "isolation": _dynamic_isolation(report),
             "mode": report.dynamic_mode,
             "capabilities": report.dynamic_capabilities,
             "timings_ms": report.dynamic_timings_ms,
@@ -593,7 +599,7 @@ def terminal_report(
     if report.dynamic_status != "not_requested":
         lines.append(
             f"Dynamic MCP: {report.dynamic_status}; mode={report.dynamic_mode}; "
-            "NO OS filesystem/network sandbox"
+            f"{_dynamic_isolation(report)}"
         )
         lines.append(
             "  Isolation capabilities: "

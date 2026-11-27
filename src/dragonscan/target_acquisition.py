@@ -12,11 +12,13 @@ import stat
 import struct
 import tarfile
 import tempfile
+import threading
 import time
 import unicodedata
 import zipfile
 import zlib
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from concurrent.futures import Future
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -39,6 +41,8 @@ MAX_TOTAL = 64 * 1024 * 1024
 MAX_DEPTH = 16
 MAX_PATH = 1024
 MAX_REDIRECTS = 3
+_DNS_WAIT = 8.0
+_DNS_SLOTS = threading.BoundedSemaphore(2)
 CHUNK = 64 * 1024
 ARCHIVES = (".zip", ".tar", ".tar.gz", ".tgz")
 WINDOWS_DEVICES = frozenset({"CON", "PRN", "AUX", "NUL"}) | {
@@ -59,6 +63,10 @@ REMOTE_NAMES = (
 
 class AcquisitionError(ValueError):
     """Untrusted acquisition could not satisfy the static-scan policy."""
+
+
+class AcquisitionTimeout(AcquisitionError):
+    """Timed out rather than receiving an authoritative negative response."""
 
 
 class AcquisitionCleanupError(OSError):
@@ -256,7 +264,7 @@ def _public(ip: str) -> bool:
     address = ipaddress.ip_address(ip)
     if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped:
         address = address.ipv4_mapped
-    return address.is_global
+    return address.is_global and not address.is_multicast
 
 
 def validate_url(url: str) -> tuple[str, str, str]:
@@ -295,6 +303,8 @@ def validate_url(url: str) -> tuple[str, str, str]:
         ips = {str(entry[4][0]) for entry in addresses}
         if not ips or any(not _public(ip) for ip in ips):
             raise AcquisitionError("remote target blocked: private network destination")
+    except TimeoutError:
+        raise AcquisitionTimeout("remote DNS resolution timeout") from None
     except (OSError, ValueError) as exc:
         if isinstance(exc, AcquisitionError):
             raise
@@ -318,17 +328,63 @@ class _PinnedHTTPS(http.client.HTTPSConnection):
             raise
 
 
+def _validate_until(url: str, deadline: float) -> tuple[str, str, str]:
+    # getaddrinfo has no portable timeout. A late resolver can finish DNS only, never
+    # connect. Bound both the caller's wait and the number of outstanding resolvers.
+    remaining = min(_DNS_WAIT, deadline - time.monotonic())
+    if remaining <= 0:
+        raise AcquisitionTimeout("remote DNS resolution timeout")
+    if not _DNS_SLOTS.acquire(blocking=False):
+        raise AcquisitionError("remote resolver capacity exhausted")
+    future: Future[tuple[str, str, str]] = Future()
+
+    def run() -> None:
+        try:
+            future.set_result(validate_url(url))
+        except BaseException as exc:
+            future.set_exception(exc)
+        finally:
+            _DNS_SLOTS.release()
+
+    try:
+        threading.Thread(target=run, daemon=True).start()
+    except RuntimeError:
+        _DNS_SLOTS.release()
+        raise AcquisitionError("resolver unavailable") from None
+    try:
+        return future.result(timeout=remaining)
+    except TimeoutError:
+        raise AcquisitionTimeout("remote DNS resolution timeout") from None
+
+
 def _download(url: str, destination: Path, *, max_bytes: int | None = None) -> str:
-    max_bytes = MAX_DOWNLOAD if max_bytes is None else max_bytes
+    final, _ = download_bounded(
+        url, destination, max_bytes=MAX_DOWNLOAD if max_bytes is None else max_bytes
+    )
+    return final
+
+
+def download_bounded(
+    url: str,
+    destination: Path,
+    *,
+    max_bytes: int,
+    authorize: Callable[[str], None] | None = None,
+    statuses: tuple[int, ...] = (200,),
+    accept: str = "application/octet-stream",
+) -> tuple[str, int]:
+    """Pinned HTTPS; an optional stricter authority policy runs before every DNS lookup."""
     current = url
     deadline = time.monotonic() + 30
     for hop in range(MAX_REDIRECTS + 1):
         if time.monotonic() >= deadline:
-            raise AcquisitionError("remote download timeout")
-        host, ip, route = validate_url(current)
+            raise AcquisitionTimeout("remote download timeout")
+        if authorize is not None:
+            authorize(current)
+        host, ip, route = _validate_until(current, deadline)
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            raise AcquisitionError("remote download timeout")
+            raise AcquisitionTimeout("remote download timeout")
         connection = _PinnedHTTPS(host, ip)
         connection.timeout = min(8, remaining)
         try:
@@ -337,7 +393,7 @@ def _download(url: str, destination: Path, *, max_bytes: int | None = None) -> s
                 route,
                 headers={
                     "Host": f"[{host}]" if ":" in host else host,
-                    "Accept": "application/octet-stream",
+                    "Accept": accept,
                     "Connection": "close",
                 },
             )
@@ -351,10 +407,12 @@ def _download(url: str, destination: Path, *, max_bytes: int | None = None) -> s
                 if not location:
                     raise AcquisitionError("remote redirect missing location")
                 next_url = urljoin(current, location)
-                validate_url(next_url)
+                if authorize is not None:
+                    authorize(next_url)
+                _validate_until(next_url, deadline)
                 current = next_url
                 continue
-            if response.status != 200:
+            if response.status not in statuses:
                 raise AcquisitionError("remote download failed: HTTP status not successful")
             if response.getheader("Content-Encoding") not in {None, "identity"}:
                 raise AcquisitionError("unsupported remote content encoding")
@@ -366,13 +424,13 @@ def _download(url: str, destination: Path, *, max_bytes: int | None = None) -> s
                 received = 0
                 while True:
                     if time.monotonic() >= deadline:
-                        raise AcquisitionError("remote download timeout")
+                        raise AcquisitionTimeout("remote download timeout")
                     if connection.sock is not None:
                         connection.sock.settimeout(min(8, max(0.001, deadline - time.monotonic())))
                     # read1 returns available bytes without waiting to fill CHUNK.
                     chunk = response.read1(min(CHUNK, max_bytes + 1 - received))
                     if time.monotonic() >= deadline:
-                        raise AcquisitionError("remote download timeout")
+                        raise AcquisitionTimeout("remote download timeout")
                     if not chunk:
                         break
                     received += len(chunk)
@@ -381,7 +439,9 @@ def _download(url: str, destination: Path, *, max_bytes: int | None = None) -> s
                     output.write(chunk)
             if declared_length is not None and received != declared_length:
                 raise AcquisitionError("remote download incomplete")
-            return current
+            return current, response.status
+        except TimeoutError:
+            raise AcquisitionTimeout("remote download timeout") from None
         except (OSError, ssl.SSLError, http.client.HTTPException, ValueError) as exc:
             if isinstance(exc, AcquisitionError):
                 raise

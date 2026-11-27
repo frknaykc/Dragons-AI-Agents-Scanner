@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "corpus_version": "1.4",
+  "corpus_version": "1.5",
   "cases": [
     {
       "id": "pi-override",
@@ -320,10 +320,10 @@
       "id": "quality-graph-config-takeover", "split": "development",
       "classification": "malicious", "provenance": "synthetic",
       "artifact": "quality-graph-config-takeover",
-      "notes": "Loaded skill delegates external policy into agent configuration.",
-      "expected": ["DRAGON-TRUST-001", "DRAGON-PATH-004"],
-      "expected_categories": {"DRAGON-TRUST-001": "remote-instruction-trust", "DRAGON-PATH-004": "cross-artifact-path"},
-      "expected_findings": [{"id": "DRAGON-PATH-004", "artifact": "quality-graph-config-takeover/AGENTS.md", "line": 1, "source": "remote instructions", "sink": "agent configuration", "path_edges": ["loads", "defines", "modifies"]}]
+      "notes": "Loaded skill delegates external policy into agent configuration and explicitly requests a change for future sessions. Neither action was observed.",
+      "expected": ["DRAGON-TRUST-001", "DRAGON-PATH-004", "DRAGON-PERSIST-001"],
+      "expected_categories": {"DRAGON-TRUST-001": "remote-instruction-trust", "DRAGON-PATH-004": "cross-artifact-path", "DRAGON-PERSIST-001": "persistence"},
+      "expected_findings": [{"id": "DRAGON-PATH-004", "artifact": "quality-graph-config-takeover/AGENTS.md", "line": 1, "source": "remote instructions", "sink": "agent configuration", "path_edges": ["loads", "defines", "modifies"]}, {"id": "DRAGON-PERSIST-001", "artifact": "quality-graph-config-takeover/AGENTS.md", "line": 1, "sink": "agent configuration or hook"}]
     },
     {
       "id": "quality-graph-exfil", "split": "development",

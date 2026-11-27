@@ -152,18 +152,39 @@ def analyze(
     }
 
     def node_registry(dep: Dependency) -> str | None:
-        default, scopes = registries.get(dep.location.path.parent, (None, {}))
         scope = dep.name.split("/", 1)[0] if dep.name.startswith("@") else ""
-        return scopes.get(scope, default)
+        for parent in dep.location.path.parents:
+            if parent in registries:
+                default, scopes = registries[parent]
+                if label := scopes.get(scope, default):
+                    return label
+        return None
+
+    origins: dict[tuple[Path, str, str, str], set[str]] = {}
+    for doc in documents:
+        for dep in doc.dependencies:
+            if dep.provenance == "lockfile" and dep.exact_version and dep.registry:
+                origins.setdefault(
+                    (dep.location.path.parent, dep.ecosystem, dep.name, dep.exact_version), set()
+                ).add(dep.registry)
+
+    def registry(dep: Dependency) -> str | None:
+        configured = node_registry(dep) if dep.ecosystem == "node" else None
+        labels = {v for v in (dep.registry, configured) if v}
+        if dep.exact_version:
+            labels.update(
+                origins.get(
+                    (dep.location.path.parent, dep.ecosystem, dep.name, dep.exact_version), ()
+                )
+            )
+        return next(iter(labels)) if len(labels) == 1 else "unknown-registry" if labels else None
 
     normalized = tuple(
         replace(
             doc,
             dependencies=tuple(
                 local_status(
-                    replace(dep, registry=dep.registry or node_registry(dep))
-                    if dep.ecosystem == "node" and dep.source == "registry"
-                    else dep,
+                    replace(dep, registry=registry(dep)) if dep.source == "registry" else dep,
                     target.path,
                 )
                 for dep in doc.dependencies

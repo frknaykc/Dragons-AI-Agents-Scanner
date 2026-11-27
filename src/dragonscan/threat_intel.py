@@ -2,16 +2,17 @@
 
 import hashlib
 import json
-import os
 import re
-import stat
 import tempfile
 import unicodedata
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
+from dragonscan.intel_authority import ACTIVE_INTEL_CONTEXTS
+from dragonscan.intel_store import FeedError as FeedError
+from dragonscan.intel_store import atomic_write, check_version, locked_store, read_bounded
 from dragonscan.models import (
     ArtifactKind,
     Classification,
@@ -23,6 +24,7 @@ from dragonscan.models import (
     Severity,
     SourceRef,
 )
+from dragonscan.package_identity import public_package
 from dragonscan.scan_budget import ScanBudget
 from dragonscan.semantic import redact
 from dragonscan.signature_ioc import collect_candidates, normalize, public_label
@@ -34,7 +36,7 @@ MAX_FEED_BYTES = 1_048_576
 MAX_RECORDS = 512
 MAX_MATCHES = 256
 STORE_NAME = "intel.json"
-INTELLIGENCE_IDS = frozenset({"DRAGON-TI-001"})
+INTELLIGENCE_IDS = frozenset({"DRAGON-TI-001", "DRAGON-SC-010"})
 _ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}\Z", re.ASCII)
 _SOURCE_NAME = re.compile(r"[A-Za-z][A-Za-z0-9 ._-]{0,127}\Z", re.ASCII)
 _AWS_KEY = re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b", re.ASCII)
@@ -56,6 +58,8 @@ _ALLOWED = frozenset(
         "artifact_kind",
         "sha256",
         "locator",
+        "withdrawn",
+        "registry",
         "source_version",
         "published",
         "updated",
@@ -64,11 +68,7 @@ _ALLOWED = frozenset(
         "provenance",
     }
 )
-_ACTIVE = frozenset({"mcp_endpoint", "remote_endpoint", "executable_command"})
-
-
-class FeedError(ValueError):
-    """Invalid optional intelligence or unsuccessful explicit update."""
+_ACTIVE = ACTIVE_INTEL_CONTEXTS
 
 
 def _pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -153,6 +153,8 @@ class Feed:
     version: str
     records: tuple[Record, ...]
     sha256: str = ""
+    expires: datetime | None = None
+    signer: str | None = None
 
 
 def parse_feed(raw: bytes) -> Feed:
@@ -167,6 +169,7 @@ def parse_feed(raw: bytes) -> Feed:
         "schema_version",
         "feed_id",
         "feed_version",
+        "expires",
         "records",
     }:
         raise FeedError("invalid feed fields")
@@ -176,6 +179,12 @@ def parse_feed(raw: bytes) -> Feed:
     version = _label(data.get("feed_version"), "feed version", 32)
     if not _public_id(feed_id) or not _VERSION.fullmatch(version):
         raise FeedError("invalid feed identity or version")
+    expires = None
+    if "expires" in data:
+        stamp = _timestamp(data, "expires")
+        if not stamp or not stamp.endswith("Z"):
+            raise FeedError("expiry must be a UTC timestamp")
+        expires = datetime.fromisoformat(stamp)
     items = data.get("records")
     if not isinstance(items, list) or len(items) > MAX_RECORDS:
         raise FeedError("invalid feed record count")
@@ -216,6 +225,9 @@ def parse_feed(raw: bytes) -> Feed:
         version_value: str | None = None
         artifact_kind: ArtifactKind | None = None
         qualifier: str | None = None
+        withdrawn = _timestamp(item, "withdrawn")
+        if "registry" in item and kind != "package":
+            raise FeedError("registry requires package identity")
         if kind == "package":
             ecosystem = _label(item.get("ecosystem"), "ecosystem", 16)
             version_value = _label(item.get("version"), "package version", 64)
@@ -226,6 +238,9 @@ def parse_feed(raw: bytes) -> Feed:
                 or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._+!-]{0,63}", version_value)
             ):
                 raise FeedError("invalid package identity")
+            default = "https://pypi.org" if ecosystem == "PyPI" else "https://registry.npmjs.org"
+            if item.get("registry", default) != default:
+                raise FeedError("unsupported package registry")
             if ecosystem == "PyPI":
                 value = re.sub(r"[-_.]+", "-", value.lower())
             if {"artifact_kind", "sha256", "locator"} & item.keys():
@@ -277,6 +292,9 @@ def parse_feed(raw: bytes) -> Feed:
             except ValueError as exc:
                 raise FeedError("invalid indicator type or value") from exc
         key = (kind, value, ecosystem, version_value, artifact_kind, qualifier)
+        if withdrawn:
+            ids.add(record_id)
+            continue
         if key in indicators:
             raise FeedError("duplicate indicator")
         ids.add(record_id)
@@ -305,40 +323,24 @@ def parse_feed(raw: bytes) -> Feed:
         version,
         tuple(sorted(records, key=lambda item: item.id)),
         hashlib.sha256(raw).hexdigest(),
+        expires,
     )
 
 
 def _read(path: Path) -> bytes:
-    if any(part.is_symlink() for part in (path, *path.parents)):
-        raise FeedError("feed symlink not allowed")
-    try:
-        before = path.lstat()
-        if not stat.S_ISREG(before.st_mode) or before.st_size > MAX_FEED_BYTES:
-            raise FeedError("feed is not a bounded regular file")
-        flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
-        fd = os.open(path, flags | getattr(os, "O_NONBLOCK", 0))
-        try:
-            opened = os.fstat(fd)
-            if not stat.S_ISREG(opened.st_mode) or (opened.st_dev, opened.st_ino) != (
-                before.st_dev,
-                before.st_ino,
-            ):
-                raise FeedError("feed changed during load")
-            with os.fdopen(fd, "rb", closefd=False) as stream:
-                raw = stream.read(MAX_FEED_BYTES + 1)
-        finally:
-            os.close(fd)
-    except OSError as exc:
-        raise FeedError(f"feed unavailable ({type(exc).__name__})") from None
-    return raw
+    return read_bounded(path, MAX_FEED_BYTES)
 
 
-def load_feeds(paths: tuple[Path, ...]) -> tuple[tuple[Feed, ...], tuple[str, ...]]:
+def load_feeds(
+    paths: tuple[Path, ...], *, trust_path: Path | None = None
+) -> tuple[tuple[Feed, ...], tuple[str, ...]]:
+    from dragonscan.signed_intel import read_release
+
     feeds: dict[str, Feed] = {}
     errors: list[str] = []
     for path in sorted(set(paths))[:16]:
         try:
-            loaded = parse_feed(_read(path))
+            loaded = read_release(path, trust_path)
             if loaded.id in feeds:
                 raise FeedError("duplicate feed ID")
             feeds[loaded.id] = loaded
@@ -353,49 +355,28 @@ def update_feed(url: str, expected_sha256: str, store: Path) -> Feed:
     """User-authorized HTTPS download; digest + validation precede atomic replacement."""
     if not re.fullmatch(r"[0-9a-fA-F]{64}", expected_sha256):
         raise FeedError("invalid SHA-256 digest")
-    if store.is_symlink() or (store.exists() and not store.is_dir()):
-        raise FeedError("invalid intelligence store")
-    # Do not follow existing store ancestors into another user-selected path.
-    if any(parent.is_symlink() for parent in (store, *store.parents)):
-        raise FeedError("store symlink not allowed")
-    if os.name == "nt":
-        # st_mode does not describe Windows ACLs; do not create/download a
-        # secret-bearing feed without an equivalent store permission check.
-        raise FeedError(
-            "intelligence updates require verified store permissions; Windows ACLs are unsupported"
-        )
-    try:
-        store.mkdir(mode=0o700, parents=True, exist_ok=True)
-        if store.stat().st_mode & 0o022:
-            raise FeedError("store must not be group/world writable")
+    with locked_store(store):
         destination = store / STORE_NAME
-        if destination.is_symlink() or (destination.exists() and not destination.is_file()):
-            raise FeedError("invalid installed feed")
-        with tempfile.TemporaryDirectory(prefix=".intel-", dir=store) as workspace:
-            candidate = Path(workspace) / "feed.json"
-            _download(url, candidate, max_bytes=MAX_FEED_BYTES)
-            candidate.chmod(0o600)
-            raw = _read(candidate)
+        try:
+            with tempfile.TemporaryDirectory(prefix=".intel-", dir=store) as workspace:
+                candidate = Path(workspace) / "feed.json"
+                _download(url, candidate, max_bytes=MAX_FEED_BYTES)
+                raw = _read(candidate)
             if hashlib.sha256(raw).hexdigest() != expected_sha256.lower():
                 raise FeedError("feed digest mismatch")
             feed = parse_feed(raw)
-            if destination.exists():
-                if destination.is_symlink():
-                    raise FeedError("invalid installed feed")
+            if feed.expires and feed.expires <= datetime.now(UTC):
+                raise FeedError("feed expired")
+            if destination.exists() or destination.is_symlink():
+                # A legacy update may never overwrite an authenticated envelope.
                 installed = parse_feed(_read(destination))
                 if installed.id != feed.id:
                     raise FeedError("installed feed identity mismatch")
-                old = tuple(int(part) for part in installed.version.split("."))
-                new = tuple(int(part) for part in feed.version.split("."))
-                width = max(len(old), len(new))
-                if new + (0,) * (width - len(new)) < old + (0,) * (width - len(old)):
-                    raise FeedError("feed version downgrade blocked")
-            with candidate.open("rb") as handle:
-                os.fsync(handle.fileno())
-            os.replace(candidate, destination)
+                check_version(installed.version, feed.version, installed.sha256, feed.sha256)
+            atomic_write(destination, raw)
             return feed
-    except (OSError, AcquisitionError) as exc:
-        raise FeedError(f"intelligence update failed ({type(exc).__name__})") from None
+        except AcquisitionError as exc:
+            raise FeedError(f"intelligence update failed ({type(exc).__name__})") from None
 
 
 class Matcher:
@@ -411,6 +392,8 @@ class Matcher:
             list[IntelligenceSource],
         ] = {}
         for feed in feeds:
+            if feed.expires and feed.expires <= datetime.now(UTC):
+                continue
             for record in feed.records:
                 key = (
                     record.kind,
@@ -431,8 +414,12 @@ class Matcher:
                         record.published,
                         record.updated,
                         record.confidence,
-                        record.trust,
-                        record.provenance,
+                        "authenticated_reviewed"
+                        if feed.signer and record.trust == "operator_reviewed"
+                        else "authenticated"
+                        if feed.signer
+                        else "unverified",
+                        f"OpenSSH signer {feed.signer}" if feed.signer else record.provenance,
                         feed.sha256,
                     )
                 )
@@ -448,7 +435,7 @@ class Matcher:
             return ()
         limit = min(MAX_MATCHES, self.remaining) if self.budget else MAX_MATCHES
         matches: dict[
-            tuple[str, str, int | None], tuple[SourceRef, str, set[IntelligenceSource]]
+            tuple[str, str, int | None, str], tuple[SourceRef, str, set[IntelligenceSource]]
         ] = {}
 
         def priority(name: str) -> tuple[bool, bool, str]:
@@ -465,11 +452,20 @@ class Matcher:
                 None,
                 None,
             ),
+            *,
+            public_origin_observed: bool = False,
         ) -> None:
-            sources = self.index.get((kind, value, *scope), ())
+            sources: tuple[IntelligenceSource, ...] | list[IntelligenceSource] = self.index.get(
+                (kind, value, *scope), ()
+            )
+            if kind == "package" and not public_origin_observed:
+                # Keep existing advisory-only default-registry matches. Do not let
+                # an inferred registry authorize authenticated package decisions.
+                sources = [src for src in sources if src.trust == "unverified"]
             if not sources:
                 return
-            key = (kind, value, location.line)
+            identity = f"{scope[0]}:{value}@{scope[1]}" if kind == "package" else ""
+            key = (kind, value, location.line, identity)
             if key not in matches:
                 if len(matches) >= limit:
                     reason = "intelligence hit limit reached"
@@ -548,60 +544,26 @@ class Matcher:
                     "artifact_hash",
                     (None, None, None, artifact_sha256),
                 )
-        mcp_packages = {
-            (
-                "PyPI" if server.runtime == "uvx" else "npm",
-                server.package.lower(),
-                server.package_version.removeprefix("=="),
-                server.location.line,
-            )
-            for server in document.servers
-            if server.package
-            and server.package_version
-            and server.pinning == "exact"
-            and server.runtime in {"npx", "npx.cmd", "npm", "npm.cmd", "uvx"}
-        }
         for dependency in document.dependencies:
             if self.budget and not self.budget.running():
                 break
-            if dependency.source != "registry" or dependency.exact_version is None:
-                continue
-            ecosystem = {"node": "npm", "python": "PyPI"}.get(dependency.ecosystem)
-            if (
-                ecosystem
-                and (ecosystem, dependency.name, dependency.exact_version, dependency.location.line)
-                not in mcp_packages
-            ):
+            identity = public_package(dependency, document)
+            if identity is not None:
                 add(
                     "package",
-                    dependency.name,
+                    identity.name,
                     dependency.location,
-                    "dependency",
-                    (ecosystem, dependency.exact_version, None, None),
+                    "mcp_package"
+                    if dependency.group == "mcp"
+                    else "runtime_package"
+                    if dependency.mechanism == "runtime-execution"
+                    else "dependency",
+                    (identity.ecosystem, identity.version, None, None),
+                    public_origin_observed=dependency.registry == identity.registry,
                 )
         for server in document.servers:
             if self.budget and not self.budget.running():
                 break
-            if (
-                server.package
-                and server.package_version
-                and server.pinning == "exact"
-                and server.runtime in {"npx", "npx.cmd", "npm", "npm.cmd", "uvx"}
-            ):
-                ecosystem = "PyPI" if server.runtime == "uvx" else "npm"
-                version = server.package_version.removeprefix("==")
-                name = (
-                    re.sub(r"[-_.]+", "-", server.package.lower())
-                    if ecosystem == "PyPI"
-                    else server.package.lower()
-                )
-                add(
-                    "package",
-                    name,
-                    server.location,
-                    "mcp_package",
-                    (ecosystem, version, None, None),
-                )
             if server.url and server.url_identity_exact and _NAME.fullmatch(server.name):
                 # Parsed identity is exact only when the raw endpoint carried no
                 # opaque route, credentials, query, or fragment.
@@ -618,8 +580,10 @@ class Matcher:
                         (None, None, None, endpoint),
                     )
         findings: list[Finding] = []
-        for kind, value, line in sorted(matches, key=lambda key: (key[0], key[1], key[2] or 0)):
-            location, context, sources = matches[(kind, value, line)]
+        for kind, value, line, identity_text in sorted(
+            matches, key=lambda key: (key[0], key[1], key[2] or 0, key[3])
+        ):
+            location, context, sources = matches[(kind, value, line, identity_text)]
             ordered_sources = sorted(sources, key=lambda item: (item.feed_id, item.record_id))
             # Feed classification/confidence never sets severity; active context or exact
             # artifact hash determines impact. Multiple feeds do not escalate.
@@ -630,6 +594,15 @@ class Matcher:
                 if context in _ACTIVE | {"dependency", "mcp_package"}
                 else Severity.LOW
             )
+            malicious_package = (
+                kind == "package"
+                and context in {"mcp_package", "runtime_package"}
+                and any(
+                    src.trust in {"authenticated", "authenticated_reviewed"}
+                    and src.classification == "malicious"
+                    for src in ordered_sources
+                )
+            )
             indicator = (
                 public_label(IndicatorType(kind), value)
                 if kind not in {"package", "skill", "plugin", "mcp_server"}
@@ -637,10 +610,12 @@ class Matcher:
             )
             findings.append(
                 Finding(
-                    detection_id="DRAGON-TI-001",
+                    detection_id="DRAGON-SC-010" if malicious_package else "DRAGON-TI-001",
                     category="threat-intelligence",
-                    title="Threat intelligence indicator match",
-                    severity=severity,
+                    title="Authenticated malicious package advisory in runtime declaration"
+                    if malicious_package
+                    else "Threat intelligence indicator match",
+                    severity=Severity.HIGH if malicious_package else severity,
                     confidence=Confidence.HIGH if context == "artifact_hash" else Confidence.MEDIUM,
                     classification=Classification.SUSPICIOUS,
                     artifact=document.artifact.path,
@@ -649,7 +624,7 @@ class Matcher:
                         "An extracted identity matches an explicitly loaded intelligence record; "
                         "this is not proof of malicious behavior."
                     ),
-                    evidence=f"{kind}: {indicator}",
+                    evidence=f"{kind}: {identity_text or indicator}",
                     remediation=(
                         "Verify the feed and artifact evidence before trusting the artifact."
                     ),

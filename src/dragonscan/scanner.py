@@ -28,6 +28,7 @@ from dragonscan.loading import LoadError, load_text_with_bytes
 from dragonscan.mcp_correlation import correlate_mcp
 from dragonscan.models import (
     Artifact,
+    ArtifactKind,
     ArtifactOrigin,
     Classification,
     Confidence,
@@ -77,6 +78,7 @@ class Scanner:
         dynamic_policy: DynamicPolicy | None = None,
         intel_feeds: tuple[Path, ...] = (),
         intel_store: Path | None = None,
+        intel_trust: Path | None = None,
         progress: Callable[[ScanProgress], None] | None = None,
         limits: ScanLimits | None = None,
         cancelled: Callable[[], bool] | None = None,
@@ -91,6 +93,7 @@ class Scanner:
         self.semantic_limits = semantic_limits or SemanticLimits()
         self.dynamic_policy = dynamic_policy or DynamicPolicy()
         self.intel_requested = bool(intel_feeds or intel_store is not None)
+        self.intel_trust = intel_trust
         self.intel_paths = (
             *intel_feeds,
             *((intel_store / STORE_NAME,) if intel_store is not None else ()),
@@ -140,7 +143,9 @@ class Scanner:
         budget = _budget or ScanBudget(self.limits, self.cancelled)
         # A reused scanner must observe the current installed feed, never a stale index.
         intel_feeds, intel_diagnostics = (
-            load_feeds(self.intel_paths) if self.intel_requested and budget.running() else ((), ())
+            load_feeds(self.intel_paths, trust_path=self.intel_trust)
+            if self.intel_requested and budget.running()
+            else ((), ())
         )
         intel_matcher = Matcher(intel_feeds, budget=budget) if self.intel_requested else None
         discovery_messages: list[str] = []
@@ -303,6 +308,7 @@ class Scanner:
                     )
                     else "warning",
                     f"{artifact.path}: {diagnostic}",
+                    artifact.path if artifact.kind == ArtifactKind.SCRIPT else None,
                 )
                 for diagnostic in document.diagnostics
             )

@@ -138,7 +138,7 @@ def _signature(raw: Any, source: str, version: str | None) -> Signature:
 
 def load_pack(directory: Path, reserved: set[str]) -> tuple[tuple[Signature, ...], tuple[str, ...]]:
     """Read only immediate regular JSON files; fail closed on symlinks and limits."""
-    if directory.is_symlink() or not directory.is_dir():
+    if any(p.is_symlink() for p in (directory, *directory.parents)) or not directory.is_dir():
         return (), ("signature pack directory is not a regular local directory",)
     signatures: list[Signature] = []
     diagnostics: list[str] = []
@@ -202,6 +202,6 @@ def load_pack(directory: Path, reserved: set[str]) -> tuple[tuple[Signature, ...
                     signatures.append(signature)
                 except PackError as exc:
                     diagnostics.append(f"{path.name}: signature {index}: {exc}")
-        except (OSError, UnicodeError, ValueError) as exc:
+        except (OSError, UnicodeError, ValueError, RecursionError) as exc:
             diagnostics.append(f"{path.name}: invalid pack ({type(exc).__name__})")
     return tuple(signatures), tuple(diagnostics)

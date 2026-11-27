@@ -219,9 +219,9 @@ def test_documented_shared_consumers_keep_neutral_scope_and_evidence(
     assert combined.coverage["parsed"] == 4
     assert {o.scope for o in combined.artifact_origins} == {"user", "project"}
     assert {f.artifact for f in combined.findings} == {shared}
-    # Inventory is not semantic analysis of the Python helper or settings data.
+    # A raise statement is outside the supported straight-line adapter.
     assert evaluate(combined).scan_status == "partial"
-    assert any("program semantics unsupported" in d.message for d in combined.diagnostics)
+    assert any(d.artifact == helper and d.incomplete for d in combined.diagnostics)
 
 
 @pytest.mark.parametrize("agent", ["Goose", "Kilo Code", "Zed Agent"])

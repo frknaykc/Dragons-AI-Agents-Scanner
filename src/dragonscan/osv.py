@@ -218,9 +218,40 @@ class OSVProvider(IntelligenceProvider):
                     for identifier in dict.fromkeys(ids):
                         if identifier not in details:
                             details[identifier] = load("/v1/vulns/" + identifier)
-                        records.append(_record(details[identifier], key, identifier))
+                        raw = details[identifier]
+                        if not isinstance(raw, dict) or raw.get("id") != identifier:
+                            raise ValueError("OSV advisory identity mismatch")
+                        aliases = raw.get("aliases", [])
+                        if (
+                            not isinstance(aliases, list)
+                            or len(aliases) > 256
+                            or not all(isinstance(alias, str) for alias in aliases)
+                        ):
+                            raise ValueError("invalid OSV aliases")
+                        if (
+                            "withdrawn" in raw
+                            or identifier.startswith("MAL-")
+                            or any(alias.startswith("MAL-") for alias in aliases)
+                        ):
+                            continue  # Withdrawn/malicious-package records are not vulnerabilities.
+                        affected = raw.get("affected")
+                        if isinstance(affected, list):
+                            scoped = [
+                                entry
+                                for entry in affected
+                                if isinstance(entry, dict)
+                                and _package_matches(entry.get("package"), key)
+                            ]
+                            if scoped and all(
+                                isinstance(entry.get("versions"), list)
+                                and not entry.get("ranges")
+                                and key.version not in entry["versions"]
+                                for entry in scoped
+                            ):
+                                continue
+                        records.append(_record(raw, key, identifier))
                     matches[key] = tuple(records)
-            except (OSError, ValueError, TypeError) as exc:
+            except (OSError, ValueError, TypeError, RecursionError) as exc:
                 reason = (
                     "rate limited"
                     if isinstance(exc, urllib.error.HTTPError) and exc.code == 429

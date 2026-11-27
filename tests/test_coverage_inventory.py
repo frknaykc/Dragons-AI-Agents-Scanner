@@ -116,7 +116,8 @@ def test_rule_cannot_impersonate_a_different_producer(identifier: str) -> None:
 def test_registry_parity_and_scanner_metadata() -> None:
     actual = builtin_registry()
     assert set(actual) == set(registry())
-    assert len(actual) == 49
+    assert len(actual) == 53
+    assert {"DRAGON-SC-008", "DRAGON-SC-009", "DRAGON-MCP-013"}.isdisjoint(actual)
     assert STAGE_IDS == {key for key, source in actual.items() if source.startswith("scanner:")}
     scanner = Scanner()
     metadata = {rule.detection_id for rule in BUILTIN_RULES}
@@ -141,10 +142,17 @@ def test_uncovered_is_calculated_from_manifest() -> None:
     rows = result["ids"]
     default = {key for key, value in rows.items() if value["execution_group"] == "default"}
     uncovered = {key for key in default if not rows[key]["benchmark_positive"]}
-    assert result["summary"]["built_in_ids"] == len(rows) == 49
+    assert result["summary"]["built_in_ids"] == len(rows) == 53
     assert result["summary"]["default_ids"] == len(default)
     assert result["summary"]["default_uncovered_count"] == len(uncovered)
-    assert uncovered == {"DRAGON-EXEC-002", "DRAGON-EXEC-003", "DRAGON-EXEC-004"}
+    assert uncovered == {
+        "DRAGON-EXEC-002",
+        "DRAGON-EXEC-003",
+        "DRAGON-EXEC-004",
+        "DRAGON-EXEC-005",
+        "DRAGON-PERSIST-002",
+        "DRAGON-SECRET-001",
+    }
     assert set(result["summary"]["default_uncovered_ids"]) == uncovered
     interpreter = inventory(ROOT / "benchmarks/interpreter/manifest.json")["ids"]["DRAGON-EXEC-002"]
     assert interpreter["benchmark_positive"] and interpreter["benchmark_hard_negative"]

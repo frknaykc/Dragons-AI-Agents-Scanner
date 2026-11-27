@@ -11,9 +11,12 @@ import click
 from rich.console import Console
 
 from dragonscan.cli_progress import TerminalScanProgress
+from dragonscan.config_effective import config_effective
 from dragonscan.discovery import DiscoveryError
 from dragonscan.dynamic_mcp import DynamicPolicy
 from dragonscan.installed_agents import SPECS
+from dragonscan.intel_commands import install, registry_check, verify
+from dragonscan.mcp_baseline_cli import mcp_baseline
 from dragonscan.models import ScanReport, Severity, Target
 from dragonscan.policy import PolicyResult, evaluate
 from dragonscan.private_output import write_private_report
@@ -23,6 +26,7 @@ from dragonscan.scanner import scan as scan_target
 from dragonscan.semantic_provider import OpenAICompatibleProvider
 from dragonscan.target_acquisition import AcquisitionCleanupError, acquire
 from dragonscan.threat_intel import FeedError, update_feed
+from dragonscan.web_cli import domain_evidence, scan_web
 
 _NVIDIA_NIM_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
 
@@ -31,7 +35,7 @@ class ScanGroup(click.Group):
     """Accept scan targets and scan options at the root while retaining subcommands."""
 
     def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
-        if args and args[0] not in ("scan", "intel", "-tui", "--help"):
+        if args and args[0] not in self.commands and args[0] not in ("-tui", "--help"):
             args = ["scan", *args]
         return super().parse_args(ctx, args)
 
@@ -83,6 +87,12 @@ def intel() -> None:
     """Manage optional intelligence; scans never update feeds."""
 
 
+for _command in (config_effective, domain_evidence, mcp_baseline, scan_web):
+    main.add_command(_command)
+for _command in (install, registry_check, verify):
+    intel.add_command(_command)
+
+
 @intel.command("update")
 @click.option("--url", required=True, help="Explicit public HTTPS feed URL.")
 @click.option(
@@ -118,6 +128,7 @@ class GroupedScanCommand(click.Command):
                 "signature_pack",
                 "intel_feeds",
                 "intel_store",
+                "intel_trust",
                 "vuln_check",
                 "semantic",
                 "semantic_url",
@@ -127,6 +138,7 @@ class GroupedScanCommand(click.Command):
                 "allow_uncontained_mcp",
                 "dynamic_mcp_server",
                 "dynamic_mcp_executable",
+                "mcp_isolation_image",
             },
         }
         records = [(param.name, param.get_help_record(ctx)) for param in self.get_params(ctx)]
@@ -236,6 +248,10 @@ def _save_installed_report(report: ScanReport, policy: PolicyResult) -> Path:
     type=click.Path(path_type=Path),
     help="Use an explicitly selected offline intelligence store.",
 )
+@click.option("--intel-trust", type=click.Path(path_type=Path), help="Local signer trust policy.")
+@click.option(
+    "--mcp-isolation-image", help="Reviewed local Linux image ID for isolated inspection."
+)
 @click.option(
     "--vuln-check",
     is_flag=True,
@@ -292,6 +308,8 @@ def scan(
     signature_pack: Path | None,
     intel_feeds: tuple[Path, ...],
     intel_store: Path | None,
+    intel_trust: Path | None,
+    mcp_isolation_image: str | None,
     vuln_check: bool,
     semantic: bool,
     semantic_url: str | None,
@@ -351,12 +369,25 @@ def scan(
             "--max-artifacts without --installed-agents requires a local directory"
         )
     provider = None
-    if not dynamic_mcp and (allow_uncontained_mcp or dynamic_mcp_server or dynamic_mcp_executable):
+    if intel_trust is not None and not (intel_feeds or intel_store is not None):
+        raise click.UsageError("--intel-trust requires --intel or --intel-store")
+    if allow_uncontained_mcp and mcp_isolation_image is not None:
+        raise click.UsageError("--allow-uncontained-mcp conflicts with --mcp-isolation-image")
+    if not dynamic_mcp and (
+        allow_uncontained_mcp
+        or dynamic_mcp_server
+        or dynamic_mcp_executable
+        or mcp_isolation_image is not None
+    ):
         raise click.UsageError("--dynamic-mcp is required for dynamic execution options")
     if allow_private_semantic_http and not semantic:
         raise click.UsageError("--semantic is required for --allow-private-semantic-http")
     dynamic_policy = DynamicPolicy(
-        dynamic_mcp, allow_uncontained_mcp, dynamic_mcp_server, dynamic_mcp_executable
+        dynamic_mcp,
+        allow_uncontained_mcp,
+        dynamic_mcp_server,
+        dynamic_mcp_executable,
+        mcp_isolation_image,
     )
     if semantic:
         if not semantic_url or not semantic_model:
@@ -400,6 +431,7 @@ def scan(
             scanner = Scanner(
                 signature_pack=signature_pack,
                 vulnerability_provider=OSVProvider(),
+                intel_trust=intel_trust,
                 semantic_provider=provider,
                 dynamic_policy=dynamic_policy,
                 intel_feeds=intel_feeds,
@@ -415,6 +447,7 @@ def scan(
             scanner = Scanner()
         else:
             scanner = Scanner(
+                intel_trust=intel_trust,
                 signature_pack=signature_pack,
                 semantic_provider=provider,
                 dynamic_policy=dynamic_policy,

@@ -6,6 +6,7 @@ Extension registration must not depend on reading package source at runtime.
 
 STAGE_IDS = frozenset(
     {
+        "DRAGON-EXEC-005",
         "DRAGON-PATH-001",
         "DRAGON-PATH-002",
         "DRAGON-PATH-003",

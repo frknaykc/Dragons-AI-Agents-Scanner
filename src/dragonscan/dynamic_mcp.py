@@ -1,7 +1,4 @@
-"""Explicitly authorized, bounded POSIX stdio MCP metadata inspection.
-
-Process groups and a private cwd are not OS filesystem or network sandboxes.
-"""
+"""Explicitly authorized, bounded stdio MCP metadata inspection."""
 
 import hashlib
 import json
@@ -17,6 +14,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
+from dragonscan import mcp_sandbox
+from dragonscan.intel_authority import policy_eligible
 from dragonscan.models import (
     Classification,
     Confidence,
@@ -69,6 +68,7 @@ class DynamicPolicy:
     allow_uncontained: bool = False
     server: str | None = None
     executable: Path | None = None
+    isolation_image: str | None = None
 
 
 @dataclass(frozen=True)
@@ -102,13 +102,15 @@ class _SessionError(Exception):
 
 
 def _validate(policy: DynamicPolicy, documents: tuple[Document, ...]) -> tuple[Document, McpServer]:
-    if not policy.allow_uncontained:
+    if policy.isolation_image is not None and policy.allow_uncontained:
+        raise ValueError("isolated and uncontained modes are mutually exclusive")
+    if not policy.allow_uncontained and policy.isolation_image is None:
         raise ValueError(
-            "required isolation unavailable: filesystem read/write and network denial; "
+            "required isolation: a reviewed local runtime image ID is required; "
             "uncontained execution requires separate legacy consent"
         )
     if not policy.server or policy.executable is None:
-        raise ValueError("uncontained execution requires server name and executable")
+        raise ValueError("execution requires server name and executable")
     if os.name != "posix":
         raise ValueError("process groups and pipe multiplexing unavailable on this platform")
     matches = [
@@ -365,7 +367,12 @@ class _Session:
             self._pump(deadline)
 
 
-def _run(doc: Document, server: McpServer, executable: Path) -> DynamicResult:
+def _run(
+    doc: Document,
+    server: McpServer,
+    executable: Path,
+    backend: mcp_sandbox.DockerSandbox | None = None,
+) -> DynamicResult:
     started = time.monotonic()
     timings: dict[str, float] = {}
     with tempfile.TemporaryDirectory(
@@ -373,18 +380,22 @@ def _run(doc: Document, server: McpServer, executable: Path) -> DynamicResult:
     ) as workspace:
         # No shell, inherited env, target cwd, output accumulation or package resolution.
         try:
-            process = subprocess.Popen(
-                [str(executable)],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                cwd=workspace,
-                env={"PATH": "/usr/bin:/bin"},
-                shell=False,
-                start_new_session=True,
-                close_fds=True,
+            process = (
+                backend.target(executable)
+                if backend is not None
+                else subprocess.Popen(
+                    [str(executable)],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    cwd=workspace,
+                    env={"PATH": "/usr/bin:/bin"},
+                    shell=False,
+                    start_new_session=True,
+                    close_fds=True,
+                )
             )
-        except OSError:
+        except (OSError, mcp_sandbox.IsolationError):
             return DynamicResult("failed", ("server launch failed",), timings_ms=timings)
         timings["startup"] = round((time.monotonic() - started) * 1000, 3)
         session: _Session | None = None
@@ -435,11 +446,18 @@ def _run(doc: Document, server: McpServer, executable: Path) -> DynamicResult:
                     session.close()
             finally:
                 cleaned = _terminate(process)
+                if backend is not None:
+                    cleaned = backend.remove() and cleaned
                 timings["total"] = round((time.monotonic() - started) * 1000, 3)
         if not cleaned:
             return DynamicResult(
                 "partial" if result.observations else "failed",
-                (*result.diagnostics, "process group cleanup not confirmed"),
+                (
+                    *result.diagnostics,
+                    "isolated cleanup not confirmed"
+                    if backend is not None
+                    else "process group cleanup not confirmed",
+                ),
                 result.observations,
                 timings_ms=timings,
             )
@@ -495,6 +513,8 @@ def _prelaunch_denial(report: ScanReport) -> str | None:
     ):
         return "static scan incomplete; MCP launch skipped"
     for finding in report.findings:
+        if not policy_eligible(finding):
+            continue
         intel = finding.intelligence
         # An exact byte match to a reviewed denial can veto, never grant. A
         # mentioned hash, domain, or a feed's confidence alone cannot do so.
@@ -503,7 +523,7 @@ def _prelaunch_denial(report: ScanReport) -> str | None:
             and intel.indicator_type == "sha256"
             and intel.context == "artifact_hash"
             and any(
-                s.trust == "operator_reviewed" and s.classification == "malicious"
+                s.trust == "authenticated_reviewed" and s.classification == "malicious"
                 for s in intel.sources
             )
         ):
@@ -536,7 +556,18 @@ def inspect(
         return DynamicResult("blocked", (str(exc),), mode=mode, capabilities=capabilities)
     assert policy.executable is not None
     try:
-        result = _run(doc, server, policy.executable)
+        if policy.isolation_image is None:
+            result = _run(doc, server, policy.executable)
+        else:
+            with mcp_sandbox.prepared(policy.isolation_image) as backend:
+                mode = "isolated_docker"
+                for capability in (
+                    "filesystem_read_write",
+                    "network_denial",
+                    "cpu_memory_process_file_limits",
+                ):
+                    capabilities[capability] = "verified_by_probe"
+                result = _run(doc, server, policy.executable, backend)
         return DynamicResult(
             result.status,
             result.diagnostics,
@@ -545,9 +576,18 @@ def inspect(
             capabilities,
             result.timings_ms,
         )
+    except mcp_sandbox.IsolationError as exc:
+        # Preflight did not start the target. Cleanup uncertainty after target
+        # authorization is never reported as a policy block or a complete run.
+        return DynamicResult(
+            "blocked" if mode == "required_isolation" else "failed",
+            (str(exc),),
+            mode=mode,
+            capabilities=capabilities,
+        )
     except (OSError, ValueError):
         return DynamicResult(
-            "failed",
+            "blocked" if mode == "required_isolation" else "failed",
             ("dynamic inspection infrastructure failed",),
             mode=mode,
             capabilities=capabilities,

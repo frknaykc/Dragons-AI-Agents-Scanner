@@ -207,6 +207,33 @@ def build_graph(
                     document.artifact.source_format.value,
                     resolution=resolution.status,
                 )
+            elif (
+                document.artifact.kind == ArtifactKind.SCRIPT
+                and relation.kind == "code_execution_input"
+                and relation.subject
+                and relation.location.line is not None
+                and relation.location.end_line is not None
+            ):
+                loc = relation.location
+                # Keep each proven use distinct: another call in this file cannot
+                # borrow its input merely because the sink has the same label.
+                key = f"{path}:{loc.line}:{loc.end_line}:{relation.target}:{relation.subject}"
+                script_input = node("script_input", key, relation.target)
+                cmd = node("command", key, relation.subject)
+                edge(
+                    source,
+                    script_input,
+                    "reads",
+                    SourceRef(path, loc.source_format, loc.line),
+                    "code_parser",
+                )
+                edge(
+                    script_input,
+                    cmd,
+                    "controls_execution",
+                    SourceRef(path, loc.source_format, loc.end_line),
+                    "code_parser",
+                )
             elif document.artifact.kind == ArtifactKind.SCRIPT and relation.kind in {
                 "remote_program",
                 "decoded_program",

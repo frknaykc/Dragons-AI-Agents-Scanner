@@ -28,6 +28,8 @@ def redact_report_text(text: str, *, strip_controls: bool = False) -> str | None
 
 
 def evidence_kind(finding: Finding) -> str:
+    if finding.detection_id == "DRAGON-SECRET-001":
+        return "static_declared"
     if finding.intelligence or finding.vulnerability:
         return "intel_match"
     if finding.semantic and finding.category == "semantic":
@@ -51,7 +53,7 @@ def mask_fields(value: Any) -> Any:
     if isinstance(value, list):
         return [mask_fields(v) for v in value]
     if isinstance(value, dict):
-        return {k: mask_fields(v) for k, v in value.items()}
+        return {mask_fields(k): mask_fields(v) for k, v in value.items()}
     if is_dataclass(value) and not isinstance(value, type):
         return replace(
             value, **{f.name: mask_fields(getattr(value, f.name)) for f in fields(value)}

@@ -284,6 +284,26 @@ def _servers(
     return tuple(servers), tuple(relations), tuple(diagnostics)
 
 
+_LITERAL_TOKEN = re.compile(
+    r"gh[pousr]_(?P<github>[A-Za-z0-9]{36})|glpat-(?P<gitlab>[A-Za-z0-9_-]{20})"
+)
+_DUMMY_TOKEN = re.compile(r"dummy|sample|example|placeholder|changeme|redacted|x{6,}|0{6,}", re.I)
+
+
+def _credential_shape(value: str) -> str | None:
+    """Recognize complete provider formats; return only a public family label."""
+    value = value.strip()
+    if value[:7].lower() == "bearer ":
+        value = value[7:]
+    match = _LITERAL_TOKEN.fullmatch(value)
+    if match is None or _DUMMY_TOKEN.search(value):
+        return None
+    body = match.group("github") or match.group("gitlab")
+    if len(set(body)) < 4:
+        return None
+    return "GitHub token" if match.group("github") else "GitLab token"
+
+
 def _parse_servers_strict(
     artifact: Artifact, data: dict[str, Any], locations: dict[tuple[str | int, ...], SourceRef]
 ) -> tuple[tuple[McpServer, ...], tuple[Relationship, ...], tuple[str, ...]]:
@@ -381,6 +401,21 @@ def _parse_servers_strict(
             mutable_tools_url=mutable_url(config),
         )
         servers.append(server)
+        # Only accepted server declarations contribute evidence. Never retain a
+        # literal, its prefix/suffix, or even the untrusted field name as evidence.
+        if config.get("enabled", True) is True and config.get("disabled", False) is False:
+            for field, refs in (("env", server.environment), ("headers", server.headers)):
+                for ref in refs:
+                    value = config[field][ref.name]
+                    if ref.sensitive and (family := _credential_shape(value)):
+                        relations.append(
+                            Relationship(
+                                "declares_literal_credential",
+                                family,
+                                locations.get((*prefix, field, ref.name), ref.location),
+                                "environment" if field == "env" else "header",
+                            )
+                        )
         relations.append(Relationship("defines_server", name, location))
         if runtime is not None:
             relations.append(Relationship("invokes_runtime", runtime, location, name))

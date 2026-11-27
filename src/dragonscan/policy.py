@@ -2,6 +2,7 @@
 
 from dataclasses import asdict, dataclass
 
+from dragonscan.intel_authority import policy_eligible
 from dragonscan.models import ScanReport, Severity
 from dragonscan.risk import meets_threshold
 
@@ -60,7 +61,11 @@ def evaluate(
     triggers = (
         tuple(
             sorted(
-                {f.detection_id for f in report.findings if meets_threshold(f.severity, fail_on)}
+                {
+                    f.detection_id
+                    for f in report.findings
+                    if policy_eligible(f) and meets_threshold(f.severity, fail_on)
+                }
             )
         )
         if fail_on is not None

@@ -14,9 +14,9 @@ from scripts.benchmark_gate import check, main
 def baseline() -> dict[str, object]:
     return {
         "status": "completed",
-        "summary": {"evaluated_cases": 48, "failed_cases": 0, "tp": 50, "fp": 0, "fn": 0},
+        "summary": {"evaluated_cases": 48, "failed_cases": 0, "tp": 51, "fp": 0, "fn": 0},
         "correctness": {"failed": 0},
-        "coverage": {"total_rules": 49},
+        "coverage": {"total_rules": 53},
     }
 
 

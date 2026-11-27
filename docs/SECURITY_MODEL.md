@@ -23,7 +23,7 @@ These features are off by default. No external request or semantic provider call
 
 ## Dynamic MCP boundary
 
-`--dynamic-mcp` requests local stdio MCP metadata inspection. It is blocked without additional explicit consent to uncontained execution and exact server/executable selection. **`--allow-uncontained-mcp` can run the specified local binary without filesystem or network OS isolation.** The scan target does not grant that consent. Do not approve a binary supplied by an untrusted artifact. A Docker container is not a certified sandbox for this mode. See [runtime contract and development tests](../benchmarks/dynamic/README.md); these do not certify hostile-server containment.
+`--dynamic-mcp` requests local stdio MCP metadata inspection. It requires exact server/executable selection and either a [separately authorized isolated backend with a successful local probe](MCP_APPROVALS_AND_ISOLATION.md) or explicit consent to legacy uncontained execution. There is no automatic fallback. **`--allow-uncontained-mcp` can run the specified local binary without filesystem or network OS isolation.** The scan target does not grant that consent. Do not approve a binary supplied by an untrusted artifact. A Docker container is not a certified sandbox for this mode. See [runtime contract and development tests](../benchmarks/dynamic/README.md); these do not certify hostile-server containment.
 
 ## Interpreting evidence
 

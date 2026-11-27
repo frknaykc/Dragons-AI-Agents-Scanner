@@ -9,6 +9,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from dragonscan.models import Artifact, Dependency, Document, SourceRef
+from dragonscan.package_identity import registry_label
 
 MAX_DEPENDENCIES = 4096
 _NAME = re.compile(r"(?:@[-\w.]+/)?[-\w.]+\Z", re.ASCII)
@@ -171,9 +172,14 @@ def parse_requirements(artifact: Artifact, text: str) -> Document:
         value = raw.strip()
         if not value or value.startswith("#"):
             continue
-        if value.startswith(("--index-url ", "--extra-index-url ")):
-            configured = _public_url(value.split(None, 1)[1])
-            if configured is None:
+        index_option = re.fullmatch(r"(--index-url|--extra-index-url|-i)(?:=|\s+)(.+)", value)
+        if index_option:
+            if index_option[1] == "--extra-index-url":
+                indexes.add("implicit-default")
+            configured = registry_label(index_option[2], "PyPI")
+            if configured == "unknown-registry":
+                indexes.add(configured)
+                registry = configured
                 diagnostics.append(f"line {line}: invalid registry URL")
             else:
                 indexes.add(configured)
@@ -232,8 +238,14 @@ def parse_requirements(artifact: Artifact, text: str) -> Document:
             diagnostics.append(f"line {line}: invalid requirement or dependency limit exceeded")
             if len(output) >= MAX_DEPENDENCIES:
                 break
+    # Pip index options apply to the entire file, including preceding declarations.
     if len(indexes) > 1:
-        output = [replace(dep, registry=None) for dep in output]
+        if not any("multiple registries" in note for note in diagnostics):
+            diagnostics.append("multiple registries; package origin ambiguous")
+        registry = None
+    output = [
+        replace(dep, registry=registry) if dep.source == "registry" else dep for dep in output
+    ]
     return Document(
         artifact, dependencies=tuple(output), diagnostics=tuple(diagnostics), registry=registry
     )
@@ -248,8 +260,12 @@ def parse_npmrc(artifact: Artifact, text: str) -> Document:
         key, sep, value = raw.partition("=")
         option = key.strip().lower()
         if sep and (option == "registry" or re.fullmatch(r"@[\w.-]+:registry", option)):
-            origin = _public_url(value.strip())
-            if origin is None:
+            origin = registry_label(value.strip(), "npm")
+            if origin == "unknown-registry":
+                if option == "registry":
+                    registry = origin
+                else:
+                    scopes[option.removesuffix(":registry")] = origin
                 diagnostics.append(f"line {line}: invalid registry URL")
             elif option == "registry":
                 registry = origin
@@ -270,10 +286,12 @@ def parse_yarn(artifact: Artifact, text: str) -> Document:
     output: list[Dependency] = []
     diagnostics: list[str] = []
     selectors: list[str] = []
+    current: list[int] = []
     for line, raw in enumerate(text.splitlines(), 1):
         if not raw.strip() or raw.startswith("#"):
             continue
         if not raw.startswith(" ") and raw.endswith(":"):
+            current = []
             selectors = [part.strip().strip('"') for part in raw[:-1].split(",")]
         elif raw.startswith("  version ") and selectors:
             version = raw.strip().partition(" ")[2].strip('"')
@@ -281,6 +299,7 @@ def parse_yarn(artifact: Artifact, text: str) -> Document:
                 match = re.fullmatch(r"(@[^/]+/[^@]+|[^@]+)@.+", selector)
                 if match:
                     try:
+                        index = len(output)
                         _append(
                             output,
                             _make(
@@ -293,9 +312,22 @@ def parse_yarn(artifact: Artifact, text: str) -> Document:
                                 provenance="lockfile",
                             ),
                         )
+                        current.append(index)
                     except ValueError:
                         diagnostics.append(f"line {line}: invalid Yarn lock entry")
             selectors = []
+        elif raw.startswith("  resolved "):
+            locator = raw.strip().partition(" ")[2].strip('"').partition("#")[0]
+            for index in current:
+                output[index] = replace(
+                    output[index],
+                    registry=registry_label(
+                        locator,
+                        "npm",
+                        tarball=output[index].name,
+                        version=output[index].exact_version,
+                    ),
+                )
     return Document(artifact, dependencies=tuple(output), diagnostics=tuple(diagnostics))
 
 
@@ -315,6 +347,7 @@ def structured_dependencies(
         manager: str | None = None,
         provenance: str = "manifest",
         integrity: bool = False,
+        registry: str | None = None,
     ) -> None:
         line = locations[key].line if key in locations else None
         try:
@@ -322,15 +355,18 @@ def structured_dependencies(
                 raise ValueError("invalid dependency definition")
             _append(
                 output,
-                _make(
-                    artifact,
-                    package,
-                    spec,
-                    group,
-                    line,
-                    manager=manager,
-                    provenance=provenance,
-                    integrity=integrity,
+                replace(
+                    _make(
+                        artifact,
+                        package,
+                        spec,
+                        group,
+                        line,
+                        manager=manager,
+                        provenance=provenance,
+                        integrity=integrity,
+                    ),
+                    registry=registry,
                 ),
             )
         except ValueError:
@@ -404,6 +440,8 @@ def structured_dependencies(
                     spec = source["url"]
                 elif isinstance(source, dict) and ("directory" in source or "editable" in source):
                     spec = source.get("directory", source.get("editable"))
+                elif isinstance(spec, str) and _VERSION.fullmatch(spec):
+                    spec = "==" + spec  # A uv lock version is literal, not a pip specifier.
                 artifacts = entry.get("wheels", [])
                 sdist = entry.get("sdist")
                 integrity = (
@@ -420,6 +458,9 @@ def structured_dependencies(
                     "locked",
                     ("package", i),
                     manager="uv",
+                    registry=registry_label(source.get("registry"), "PyPI")
+                    if isinstance(source, dict)
+                    else "unknown-registry",
                     provenance="lockfile",
                     integrity=integrity,
                 )
@@ -465,6 +506,11 @@ def structured_dependencies(
                         "locked",
                         ("packages", path),
                         provenance="lockfile",
+                        registry=registry_label(
+                            entry["resolved"], "npm", tarball=package, version=entry.get("version")
+                        )
+                        if "resolved" in entry
+                        else None,
                         integrity=isinstance(entry.get("integrity"), str),
                     )
     elif name == "pnpm-lock.yaml":
@@ -485,6 +531,15 @@ def structured_dependencies(
                             "locked",
                             ("packages", path),
                             manager="pnpm",
+                            registry=registry_label(
+                                entry["resolution"]["tarball"],
+                                "npm",
+                                tarball=match.group(1),
+                                version=match.group(2),
+                            )
+                            if isinstance(entry.get("resolution"), dict)
+                            and "tarball" in entry["resolution"]
+                            else None,
                             provenance="lockfile",
                             integrity=bool(entry.get("resolution", {}).get("integrity"))
                             if isinstance(entry.get("resolution"), dict)
@@ -496,14 +551,23 @@ def structured_dependencies(
         tool = data.get("tool")
         uv = tool.get("uv") if isinstance(tool, dict) else None
         if isinstance(uv, dict) and isinstance(uv.get("index-url"), str):
-            registry = _public_url(uv["index-url"])
-            if registry is None:
+            registry = registry_label(uv["index-url"], "PyPI")
+            if registry == "unknown-registry":
                 diagnostics.append("invalid uv index URL")
-            else:
-                output = [
-                    replace(dep, registry=registry) if dep.source == "registry" else dep
-                    for dep in output
-                ]
+            output = [
+                replace(dep, registry=registry) if dep.source == "registry" else dep
+                for dep in output
+            ]
+        # Resolver overrides/index routing aren't interpreted as public registry evidence.
+        poetry_cfg = tool.get("poetry") if isinstance(tool, dict) else None
+        if (
+            isinstance(uv, dict)
+            and {"index", "extra-index-url", "sources", "default-index"} & uv.keys()
+        ) or (isinstance(poetry_cfg, dict) and "source" in poetry_cfg):
+            output = [
+                replace(dep, registry="unknown-registry") if dep.source == "registry" else dep
+                for dep in output
+            ]
     return tuple(output), tuple(diagnostics)
 
 
@@ -563,10 +627,53 @@ def runtime_dependencies(
         )
         dep = _runtime_package(artifact, spec, server.runtime, server.location.line, "mcp")
         if dep:
-            output.append(replace(dep, location=server.location))
+            routing = (
+                server.cwd is not None
+                or any(
+                    name.upper()
+                    in {
+                        "PIP_INDEX_URL",
+                        "PIP_EXTRA_INDEX_URL",
+                        "PIP_CONFIG_FILE",
+                        "UV_INDEX_URL",
+                        "UV_EXTRA_INDEX_URL",
+                        "UV_DEFAULT_INDEX",
+                        "UV_INDEX",
+                        "NPM_CONFIG_REGISTRY",
+                        "NPM_CONFIG_USERCONFIG",
+                    }
+                    for name in server.env_names
+                )
+                or any(
+                    arg.startswith(
+                        (
+                            "--registry",
+                            "--index",
+                            "--extra-index",
+                            "--default-index",
+                            "--config",
+                            "--userconfig",
+                        )
+                    )
+                    for arg in server.args
+                )
+            )
+            output.append(
+                replace(
+                    dep, location=server.location, registry="unknown-registry" if routing else None
+                )
+            )
     for block in document.blocks:
         if block.kind in {"quote", "code", "heading"}:
             continue
+        # Explicit index/config routing in a command block defeats the public default.
+        routing = bool(
+            re.search(
+                r"(?:--(?:extra-index|default-index|index|registry|config|userconfig|find-links)|(?:PIP|UV|NPM_CONFIG)_[A-Z_]+\s*=)",
+                block.text,
+                re.IGNORECASE,
+            )
+        )
         for match in _RUNTIME.finditer(block.text):
             if not _command_context(block.text, match.start(), match.end()):
                 continue
@@ -580,7 +687,7 @@ def runtime_dependencies(
                 "instruction",
             )
             if dep:
-                output.append(dep)
+                output.append(replace(dep, registry="unknown-registry") if routing else dep)
         for match in _INSTALL.finditer(block.text):
             dep = _runtime_package(
                 artifact,
@@ -594,7 +701,7 @@ def runtime_dependencies(
                 else "instruction-setup",
             )
             if dep:
-                output.append(dep)
+                output.append(replace(dep, registry="unknown-registry") if routing else dep)
     if len(output) > MAX_DEPENDENCIES and limit_diagnostics is not None:
         limit_diagnostics.append("runtime dependency limit reached; analysis incomplete")
     return tuple(output[:MAX_DEPENDENCIES])

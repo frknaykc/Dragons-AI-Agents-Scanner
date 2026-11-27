@@ -19,11 +19,11 @@ def check(result: dict[str, object]) -> bool:
         result["status"] == "completed"
         and summary["evaluated_cases"] == 48
         and summary["failed_cases"] == 0
-        and summary["tp"] == 50
+        and summary["tp"] == 51
         and summary["fp"] == 0
         and summary["fn"] == 0
         and correctness["failed"] == 0
-        and coverage["total_rules"] == 49
+        and coverage["total_rules"] == 53
     )
 
 

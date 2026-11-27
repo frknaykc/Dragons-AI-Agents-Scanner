@@ -1,7 +1,6 @@
 """SARIF output and explicit CI gate regressions; no external services."""
 
 import json
-import re
 import zipfile
 from dataclasses import replace
 from pathlib import Path
@@ -234,25 +233,12 @@ def test_real_archive_and_remote_projection_without_temp_path(tmp_path: Path) ->
     assert "dragonscan-acquire-" not in remote_text
 
 
-def test_repo_relative_uri_and_finding_id_count(tmp_path: Path) -> None:
-    # The source registry is distributed across detectors; SARIF adds no IDs.
-    uri = parsed(report(sample(Path.cwd() / "AGENTS.md")))["runs"][0]["results"][0]["locations"][0][
-        "physicalLocation"
-    ]["artifactLocation"]["uri"]
-    assert uri == "AGENTS.md"
-    source = Path(__file__).resolve().parents[1] / "src" / "dragonscan"
-    ids = set()
-    for module in source.glob("*.py"):
-        ids.update(
-            re.findall(
-                r"(?<![A-Z0-9-])(?:DAAS|DRAGON-[A-Z]+)-\d{3}(?!\d)",
-                module.read_text(encoding="utf-8"),
-            )
-        )
-    assert len(ids) == 49
-    assert "DRAGON-TI-001" in ids
-    assert sum(identifier.startswith("DRAGON-SEM-") for identifier in ids) == 5
-    assert sum(not identifier.startswith("DRAGON-SEM-") for identifier in ids) == 44
+def test_repo_relative_uri_and_only_reported_rule_ids() -> None:
+    finding = sample(Path.cwd() / "AGENTS.md")
+    run = parsed(report(finding))["runs"][0]
+    location = run["results"][0]["locations"][0]["physicalLocation"]
+    assert location["artifactLocation"]["uri"] == "AGENTS.md"
+    assert [rule["id"] for rule in run["tool"]["driver"]["rules"]] == [finding.detection_id]
 
 
 def test_archive_inside_repository_does_not_claim_member_is_repository_file(

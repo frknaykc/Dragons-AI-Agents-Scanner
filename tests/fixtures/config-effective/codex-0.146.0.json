@@ -1,0 +1,30 @@
+{
+  "version": "codex-cli 0.146.0",
+  "key": "features.computer_use",
+  "cases": [
+    {
+      "trusted": false,
+      "user": true,
+      "project": false,
+      "effective": true
+    },
+    {
+      "trusted": false,
+      "user": false,
+      "project": true,
+      "effective": false
+    },
+    {
+      "trusted": true,
+      "user": true,
+      "project": false,
+      "effective": false
+    },
+    {
+      "trusted": true,
+      "user": false,
+      "project": true,
+      "effective": true
+    }
+  ]
+}

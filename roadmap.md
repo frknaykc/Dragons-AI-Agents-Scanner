@@ -5,11 +5,11 @@
 ## Faz takibi
 
 - [x] **P0 · Güvenilir başlangıç ve statik çekirdek**
-- [ ] **P1 · Genişletilmiş statik analiz ve izole MCP incelemesi**
+- [x] **P1 · Genişletilmiş statik analiz ve izole MCP incelemesi**
 - [ ] **P2 · İsteğe bağlı runtime denetimi ve bağımsız doğrulama**
 - [ ] **P3 · Onaylanan platformlar ve ileri entegrasyonlar**
 
-**P0: 8/8 görev tamamlandı.** [Kapanış kaydı](docs/P0-DOGRULAMA.md) yerel doğrulamayı ve kapsam sınırlarını gösterir. Sıradaki görev P1 / DSE-009: referans verilen kaynak kodunu çalıştırmadan ayrıştırmak.
+**P0: 8/8 görev tamamlandı.** [Kapanış kaydı](docs/P0-DOGRULAMA.md) yerel doğrulamayı ve kapsam sınırlarını gösterir. **P1: 8/8 görev doğrulandı.** [P1 doğrulama kaydı](docs/P1-DOGRULAMA.md) macOS testlerini ve Ubuntu ARM64 canlı kabulünü ayrı gösterir.
 
 **Nasıl güncellenir?** Aşağıdaki görevleri bağımlılık sırasıyla ele al. “Önkoşul” sütunundaki sayılar `DSE-` görev numaralarıdır. Bir görev doğrulandığında aynı değişiklikte görev kutusunu işaretle ve satıra kanıt kaydının yolunu ekle. Kayıtta snapshot, çalıştırılan komutlar, sonuçlar ve kapsam sınırları bulunmalı. Tüm zorunlu görevler ve fazın kapanış ölçütü doğrulanınca yukarıdaki faz kutusunu `[x]` yap. Engelli veya ertelenmiş işi işaretleme; nedenini ve devam koşulunu ilgili satıra yaz. Kapsam değişikliği kullanıcı kararı gerektirir.
 
@@ -56,14 +56,14 @@
 
 | Görev | Önkoşul | Teslim ve kabul kanıtı |
 |---|---|---|
-| [ ] DSE-009 · Kaynak kod ayrıştırıcıları | 004, 005, 006 | Önce Python AST, ardından sınırları belirtilmiş shell/PowerShell/JS analizi. Referans verilen script içindeki kaynak-hedef ilişkisini import etmeden bul; dinamik sözdizimini `partial` olarak bildir. |
-| [ ] DSE-010 · Web girdisi ve domain kanıtı | 003, 005, 007 | Yerel HTML/README ve kayıtlı arama yanıtını kaynak konumuyla incele. RDAP açık onay gerektirsin; timeout, NXDOMAIN ve geçmiş sahiplik kanıtını ayır. İçerikteki URL izlenmemeli, açıkça istenen edinimde her yönlendirme yeniden denetlenmeli. |
-| [ ] DSE-011 · Paket kimliği ve registry | 005, 008 | Zararlı paket kaydını güvenlik açığından ayır. Aynı adlı farklı kaynak/sürüm, geri çekilmiş kayıt ve erişilemeyen özel registry yanlış eşleşmemeli. Paket kurmadan doğrula. |
-| [ ] DSE-012 · Doğrulanmış istihbarat güncellemeleri | 003, 008 | İmza, süre, iptal ve sürüm geri alma kontrollerini atomik depolamayla birleştir. Geçersiz güncelleme veya aynı sürümde farklı içerik eski geçerli kaydı bozmamalı. Doğrulanmamış feed tek başına engelleme yetkisi vermemeli. |
-| [ ] DSE-013 · Sırlar, etkin izinler ve kalıcılık | 007, 009 | Hassas yol, dosyada yazılı sır, etkin config ve kalıcılık kanıtlarını ayır. Açık anahtar, sahte değer, pasif profil ve izinli değişiklik zor negatiflerdir. Sentetik sır hiçbir çıktıda açık görünmemeli. |
-| [ ] DSE-014 · MCP şema değişiklikleri | 002, 008 | Operatör onaylı yerel snapshot ile nitelikli sunucu ve araç kimliğini karşılaştır. Anahtar sırası aynı özeti vermeli; anlamlı değişiklik görünmeli. Eksik snapshot otomatik yenilenmemeli; test sunucu başlatmamalı. |
-| [ ] DSE-015 · İzole dinamik MCP backend'i | 002, 003, 014 | Yetkilendirilmiş ortamda zararsız test süreciyle dosya/ağ sınırını, kaynak kotalarını ve alt süreç temizliğini doğrula. Desteklenmeyen platformda başlatma reddedilmeli. Linux ilk adaydır, kesinleşmiş platform değildir. |
-| [ ] DSE-016 · Agent adapter uyumluluğu | 004, 013 | Seçilen agent ve sürümler için config önceliğini sürümlü fixture'larla doğrula. Doğrudan/proje/kurulu tarama sonuçlarını karşılaştır; çözülmeyen öncelik `unknown` kalmalı. |
+| [x] DSE-009 · Kaynak kod ayrıştırıcıları | 004, 005, 006 | `DRAGON-EXEC-005`, talimatın çağırdığı betikte girdinin yürütme hedefine ulaştığı satırları çalıştırmadan raporlar. [Dört dilin kapsamı ve sınırları](docs/skill-packages.md); [uçtan uca pozitif, negatif ve `partial` vakaları](tests/test_referenced_code.py). Yerel kabul: 2805 test geçti, 7 atlandı; Ruff, mypy, çevrimdışı paket derlemesi ve benchmark kapısı geçti. |
+| [x] DSE-010 · Web girdisi ve domain kanıtı | 003, 005, 007 | Yerel içerikteki bağlantılar izlenmez. RDAP onayı, yönlendirme denetimi, DNS zaman aşımı, NXDOMAIN ve geçmiş kayıt ayrımı [kayıtlı girdilerle sınandı](tests/test_web_ingestion.py). |
+| [x] DSE-011 · Paket kimliği ve registry | 005, 008 | [Paket eşleştirme testleri](tests/test_package_identity.py) farklı kaynak/sürüm, geri çekilmiş kayıt ve erişilemeyen registry vakalarını paket kurmadan ayırır. |
+| [x] DSE-012 · Doğrulanmış istihbarat güncellemeleri | 003, 008 | [İmza ve depolama testleri](tests/test_intel_lifecycle.py): süresi geçmiş, iptal edilmiş, geri alınmış veya aynı sürümde değiştirilmiş güncelleme geçerli kaydı bozmaz. İmzasız beyan kendi kendine güven kazanmaz. |
+| [x] DSE-013 · Sırlar, etkin izinler ve kalıcılık | 007, 009 | [Statik kanıt ve maskeleme testleri](tests/test_dse013.py): hassas yol ve yazılı sır ayrıdır; açık anahtar, örnek değer, pasif profil ve izinli değişiklik pozitif sayılmaz. |
+| [x] DSE-014 · MCP şema değişiklikleri | 002, 008 | [Yerel onay testleri](tests/test_mcp_baseline.py): sunucu/araç kimliği ve yapı karşılaştırılır. Anahtar sırası fark üretmez; eksik onay otomatik yazılmaz. Sunucu başlatılmaz. |
+| [x] DSE-015 · İzole dinamik MCP backend'i | 002, 003, 014 | [Ubuntu ARM64 canlı kabulü](docs/P1-DOGRULAMA.md#dse-015--ubuntu-arm64-canlı-kabulü): dosya/ağ sınırları, kaynak kotaları ve alt süreç temizliği zararsız örnekle doğrulandı. Sonuç yalnız kayıttaki ortam için geçerlidir. |
+| [x] DSE-016 · Agent adapter uyumluluğu | 004, 013 | [Sürümlü Codex ölçümü](docs/config-effective.md) yalnız `0.146.0` ve `features.computer_use` için geçerlidir. [Testler](tests/test_config_effective.py) doğrudan/proje/kurulu tarama eşdeğerliğini ve ölçülmeyen önceliğin `unknown` kaldığını doğrular. |
 
 **Kapanış:** Yeni yüzeylerin her biri için pozitif, zor negatif ve eksik kapsam örnekleri bulunmalı. Varsayılan tarama çevrimdışı kalmalı; izole MCP desteği yalnızca DSE-015 testinin geçtiği platform için belirtilmeli. P2'ye başlamadan kullanıcı ilk runtime agent'ını ve hedef işletim sistemini seçmeli.
 
